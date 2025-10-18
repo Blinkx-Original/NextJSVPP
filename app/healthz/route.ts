@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pingDatabase } from '@/lib/db';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 export async function GET() {
   const dbUp = await pingDatabase();
