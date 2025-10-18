@@ -4,7 +4,7 @@
 Este repositorio contiene la implementación base (Fase 1) junto con **requerimientos, criterios de aceptación, fixtures y pruebas de paridad**.
 
 - Fecha: 2025-10-18
-- Owners: Martin (producto), Equipo / Codex (implementación)
+- Owners: Martin (producto), y Equipo / Codex (implementación)
 
 ## Contenidos
 - `/spec` — Requerimientos de producto, decisiones de arquitectura, contratos de datos, UX, criterios de aceptación, rutas/APIs y **Cloudflare**.
