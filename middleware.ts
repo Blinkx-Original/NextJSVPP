@@ -12,10 +12,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const username = process.env.ADMIN_USER;
+  const username = process.env.ADMIN_USER || 'admin';
   const password = process.env.ADMIN_PASSWORD;
-  if (!username || !password) {
-    return new NextResponse('Admin authentication not configured', { status: 503 });
+  if (!password) {
+    return new NextResponse('Admin password not configured', { status: 503 });
   }
 
   const authHeader = request.headers.get('authorization');
@@ -28,9 +28,10 @@ export function middleware(request: NextRequest) {
     });
   }
 
-  const [providedUser, providedPassword] = Buffer.from(authHeader.slice(BASIC_AUTH_PREFIX.length), 'base64')
-    .toString()
-    .split(':');
+  const decodedAuth = Buffer.from(authHeader.slice(BASIC_AUTH_PREFIX.length), 'base64').toString();
+  const separatorIndex = decodedAuth.indexOf(':');
+  const providedUser = separatorIndex >= 0 ? decodedAuth.slice(0, separatorIndex) : '';
+  const providedPassword = separatorIndex >= 0 ? decodedAuth.slice(separatorIndex + 1) : '';
 
   if (providedUser !== username || providedPassword !== password) {
     return new NextResponse('Invalid credentials', { status: 401 });

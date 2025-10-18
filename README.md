@@ -22,7 +22,7 @@ Este repositorio contiene la implementación base (Fase 1) junto con **requerimi
 ## Quick start
 
 1. Instalar dependencias: `npm install`.
-2. Copiar `env/.env.example` a `.env.local` y completar credenciales TiDB, Algolia y secretos de admin.
+2. Copiar `env/.env.example` a `.env.local` y completar credenciales TiDB, Algolia y `ADMIN_PASSWORD` (usuario fijo `admin`).
 3. Ejecutar el entorno local: `npm run dev`.
 4. Visitar `/p/[slug]` para productos publicados o `/healthz` para el status de TiDB.
 

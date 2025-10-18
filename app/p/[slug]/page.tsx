@@ -43,7 +43,9 @@ export async function generateMetadata(
       description,
       url: `${siteUrl}/p/${product.slug}`,
       images: ogImage ? [{ url: ogImage, width: 1200, height: 630 }] : undefined,
-      type: 'product'
+      // Cast required because Next.js' OpenGraph type union omits `product`,
+      // even though it is emitted correctly at runtime.
+      type: 'product' as any
     },
     twitter: {
       card: 'summary_large_image',
