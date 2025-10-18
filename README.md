@@ -1,7 +1,7 @@
-# VPP para Next.js — Spec Pack (TiDB + Algolia + Cloudflare) — **Sin código**
+# VPP para Next.js — Implementación (TiDB + Algolia + Cloudflare)
 
-**Objetivo:** Implementar el modelo “Virtual Product Pages” (VPP) en **Next.js** sobre **Vercel**, con integración nativa a **TiDB** (datos), **Algolia** (búsqueda) y **Cloudflare** (conectividad, caché y purge).  
-Este paquete incluye **requerimientos, criterios de aceptación, fixtures y pruebas de paridad** para que un agente/ingeniero (Codex) implemente en un repositorio **nuevo y vacío**, sin exponer el código de WordPress.
+**Objetivo:** Replicar el modelo “Virtual Product Pages” (VPP) en **Next.js** sobre **Vercel**, con integración nativa a **TiDB** (datos), **Algolia** (búsqueda) y **Cloudflare** (conectividad, caché y purge).
+Este repositorio contiene la implementación base (Fase 1) junto con **requerimientos, criterios de aceptación, fixtures y pruebas de paridad**.
 
 - Fecha: 2025-10-18
 - Owners: Martin (producto), Equipo / Codex (implementación)
@@ -15,10 +15,18 @@ Este paquete incluye **requerimientos, criterios de aceptación, fixtures y prue
 - `TASKS.md` — Checklist por fases y milestones.
 
 ## Guardarraíles
-- No incluye código ni archivos PHP.
 - No se comiten secretos. Configurar en **Vercel → Project Settings → Environment Variables** o en **/admin** según espec.
 - **Next.js App Router** + **ISR** (on‑demand revalidate) como base.
 - Fuente de verdad: **TiDB**; búsqueda: **Algolia**; conectividad/caché: **Cloudflare**; **no** hay carrito (CTAs externas).
+
+## Quick start
+
+1. Instalar dependencias: `npm install`.
+2. Copiar `env/.env.example` a `.env.local` y completar credenciales TiDB, Algolia y `ADMIN_PASSWORD` (usuario fijo `admin`).
+3. Ejecutar el entorno local: `npm run dev`.
+4. Visitar `/p/[slug]` para productos publicados o `/healthz` para el status de TiDB.
+
+> La Fase 2 (panel de administración con escritura y Algolia) y posteriores se implementarán sobre esta base.
 
 ## Fases
 1. **Fase 1 — Paridad read-only:** `/p/[slug]`, SEO, JSON‑LD, sitemap, fixtures OK.
