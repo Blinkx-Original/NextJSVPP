@@ -1,0 +1,17 @@
+{
+  "id": 1003,
+  "slug": "unpublished-item",
+  "title_h1": "Warehouse Yard Ramp 30K",
+  "brand": "LoadMaster",
+  "model": "LM-30K",
+  "sku": "LM30K",
+  "short_summary": "Mobile yard ramp rated to 30,000 lbs.",
+  "images_json": [],
+  "desc_html": "<p>Steel construction with serrated grating for traction.</p>",
+  "cta_lead_url": "https://example.com/lead?product=LM-30K",
+  "cta_stripe_url": "",
+  "cta_affiliate_url": "",
+  "cta_paypal_url": "",
+  "is_published": 0,
+  "last_tidb_update_at": "2025-01-15T12:00:00Z"
+}

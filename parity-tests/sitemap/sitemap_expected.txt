@@ -1,0 +1,8 @@
+# Expected sitemap entries (published only)
+/p/full-product
+/p/no-ctas
+/p/images-edge
+/p/long-html
+/p/unicode-chars
+/p/paypal-cta
+/p/affiliate-primary

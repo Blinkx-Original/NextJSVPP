@@ -1,0 +1,14 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "Programmable Logic Controller X20",
+  "brand": {
+    "@type": "Brand",
+    "name": "ControLogic"
+  },
+  "model": "X20",
+  "sku": "PLC-X20",
+  "image": [
+    "https://example-cdn.com/img/plc-x20/main.jpg"
+  ]
+}

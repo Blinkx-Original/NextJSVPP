@@ -1,0 +1,19 @@
+{
+  "id": 1005,
+  "slug": "long-html",
+  "title_h1": "Precision Industrial Scale PS-5K",
+  "brand": "WeighRight",
+  "model": "PS-5K",
+  "sku": "PS5K-2025",
+  "short_summary": "High-capacity floor scale with 0.1 lb resolution.",
+  "images_json": [
+    "https://example-cdn.com/img/ps5k.jpg"
+  ],
+  "desc_html": "<h2>Overview</h2><p>Designed for warehousing and MRO.</p><h3>Specs</h3><ul><li>Capacity: 5000 lb</li><li>Resolution: 0.1 lb</li></ul><h3>Compliance</h3><p>NTEP Certified.</p>",
+  "cta_lead_url": "",
+  "cta_stripe_url": "https://buy.stripe.com/test_123",
+  "cta_affiliate_url": "",
+  "cta_paypal_url": "",
+  "is_published": 1,
+  "last_tidb_update_at": "2025-01-15T12:00:00Z"
+}

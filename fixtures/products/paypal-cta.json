@@ -1,0 +1,19 @@
+{
+  "id": 1007,
+  "slug": "paypal-cta",
+  "title_h1": "Portable Air Compressor Lite 12V",
+  "brand": "RoadFix",
+  "model": "Lite-12",
+  "sku": "RF-L12",
+  "short_summary": "Compact 12V compressor for vehicles.",
+  "images_json": [
+    "https://example-cdn.com/img/lite12.jpg"
+  ],
+  "desc_html": "<p>Includes hose, gauge, and case.</p>",
+  "cta_lead_url": "",
+  "cta_stripe_url": "",
+  "cta_affiliate_url": "",
+  "cta_paypal_url": "https://paypal.me/example/pay?item=RF-L12",
+  "is_published": 1,
+  "last_tidb_update_at": "2025-01-15T12:00:00Z"
+}

@@ -1,0 +1,20 @@
+{
+  "id": 1001,
+  "slug": "full-product",
+  "title_h1": "Industrial Air Compressor GX-1000",
+  "brand": "Airstream",
+  "model": "GX-1000",
+  "sku": "GX1000-IND",
+  "short_summary": "Heavy-duty rotary screw compressor for continuous industrial duty cycles.",
+  "images_json": [
+    "https://example-cdn.com/img/gx-1000/front.jpg",
+    "https://example-cdn.com/img/gx-1000/side.jpg"
+  ],
+  "desc_html": "<p>The GX-1000 delivers 24/7 reliability. Includes integrated dryer and VSD.</p><ul><li>CFM: 120</li><li>PSI: 145</li></ul>",
+  "cta_lead_url": "https://example.com/lead?product=GX-1000",
+  "cta_stripe_url": "",
+  "cta_affiliate_url": "https://aff.example.com/gx-1000",
+  "cta_paypal_url": "",
+  "is_published": 1,
+  "last_tidb_update_at": "2025-01-15T12:00:00Z"
+}

@@ -1,0 +1,19 @@
+{
+  "id": 1002,
+  "slug": "no-ctas",
+  "title_h1": "Programmable Logic Controller X20",
+  "brand": "ControLogic",
+  "model": "X20",
+  "sku": "PLC-X20",
+  "short_summary": "Compact PLC with modular I/O and Ethernet/IP.",
+  "images_json": [
+    "https://example-cdn.com/img/plc-x20/main.jpg"
+  ],
+  "desc_html": "<p>Ideal for OEMs needing flexibility and small footprint.</p>",
+  "cta_lead_url": "",
+  "cta_stripe_url": "",
+  "cta_affiliate_url": "",
+  "cta_paypal_url": "",
+  "is_published": 1,
+  "last_tidb_update_at": "2025-01-15T12:00:00Z"
+}

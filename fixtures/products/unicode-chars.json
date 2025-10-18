@@ -1,0 +1,19 @@
+{
+  "id": 1006,
+  "slug": "unicode-chars",
+  "title_h1": "Vacuum Pump Série Élite – 2.5 kW",
+  "brand": "Pompé",
+  "model": "Élite-2.5",
+  "sku": "VPE-25-EU",
+  "short_summary": "Quiet operation, 65 dB, oil-lubricated.",
+  "images_json": [
+    "https://example-cdn.com/img/vpe25.jpg"
+  ],
+  "desc_html": "<p>Handles 200 m³/h at 50 Hz. Cœur en acier.</p>",
+  "cta_lead_url": "https://example.com/lead?product=VPE-25-EU",
+  "cta_stripe_url": "",
+  "cta_affiliate_url": "",
+  "cta_paypal_url": "",
+  "is_published": 1,
+  "last_tidb_update_at": "2025-01-15T12:00:00Z"
+}

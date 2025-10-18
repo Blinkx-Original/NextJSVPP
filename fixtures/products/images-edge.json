@@ -1,0 +1,17 @@
+{
+  "id": 1004,
+  "slug": "images-edge",
+  "title_h1": "Wireless Receiver WR-500",
+  "brand": "Schneiderio",
+  "model": "WR-500",
+  "sku": "WR500",
+  "short_summary": "Robust wireless receiver for industrial sensors.",
+  "images_json": [],
+  "desc_html": "<p>Supports 900MHz ISM band with FHSS.</p>",
+  "cta_lead_url": "",
+  "cta_stripe_url": "",
+  "cta_affiliate_url": "https://aff.example.com/wr-500",
+  "cta_paypal_url": "",
+  "is_published": 1,
+  "last_tidb_update_at": "2025-01-15T12:00:00Z"
+}

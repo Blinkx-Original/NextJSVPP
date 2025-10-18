@@ -1,0 +1,16 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "Industrial Air Compressor GX-1000",
+  "brand": {
+    "@type": "Brand",
+    "name": "Airstream"
+  },
+  "model": "GX-1000",
+  "sku": "GX1000-IND",
+  "image": [
+    "https://example-cdn.com/img/gx-1000/front.jpg",
+    "https://example-cdn.com/img/gx-1000/side.jpg"
+  ],
+  "url": "https://example.com/lead?product=GX-1000"
+}

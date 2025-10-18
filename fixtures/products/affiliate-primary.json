@@ -1,0 +1,19 @@
+{
+  "id": 1008,
+  "slug": "affiliate-primary",
+  "title_h1": "Industrial Dryer ID-900",
+  "brand": "DryMax",
+  "model": "ID-900",
+  "sku": "DM-ID900",
+  "short_summary": "Heatless desiccant dryer for compressed air systems.",
+  "images_json": [
+    "https://example-cdn.com/img/id900.jpg"
+  ],
+  "desc_html": "<p>ISO 8573-1 Class 1 dew point performance.</p>",
+  "cta_lead_url": "",
+  "cta_stripe_url": "",
+  "cta_affiliate_url": "https://aff.example.com/id-900",
+  "cta_paypal_url": "",
+  "is_published": 1,
+  "last_tidb_update_at": "2025-01-15T12:00:00Z"
+}
