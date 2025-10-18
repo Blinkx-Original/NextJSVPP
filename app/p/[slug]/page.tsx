@@ -18,10 +18,13 @@ async function fetchProduct(slug: string) {
   return product;
 }
 
-export async function generateMetadata({ params }: PageProps, parent: ResolvingMetadata): Promise<Metadata> {
+export async function generateMetadata(
+  { params }: PageProps,
+  _parent: ResolvingMetadata
+): Promise<Metadata> {
   const product = await getPublishedProductBySlug(params.slug);
   if (!product) {
-    return await parent;
+    notFound();
   }
   const title = product.title;
   const description = product.shortSummary?.slice(0, 160) ?? undefined;
