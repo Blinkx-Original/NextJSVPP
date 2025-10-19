@@ -496,20 +496,35 @@ export interface SitemapProductRecord {
   updated_at?: string | null;
 }
 
+export interface SitemapQueryOptions {
+  requestId?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export async function getPublishedProductsForSitemap(
-  options?: { requestId?: string }
+  options?: SitemapQueryOptions
 ): Promise<SitemapProductRecord[]> {
   const pool = getPool();
   const requestId = options?.requestId;
+  const limit = typeof options?.limit === 'number' ? Math.max(0, Math.floor(options.limit)) : undefined;
+  const offset = typeof options?.offset === 'number' ? Math.max(0, Math.floor(options.offset)) : 0;
   const startedAt = Date.now();
   try {
-    const [rows] = await pool.query(
-      'SELECT slug, last_tidb_update_at, updated_at FROM products WHERE is_published = 1 ORDER BY slug ASC'
-    );
+    let sql =
+      'SELECT slug, last_tidb_update_at, updated_at FROM products WHERE is_published = 1 ORDER BY slug ASC';
+    const params: Array<number> = [];
+    if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+      sql += ' LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+    }
+    const [rows] = await pool.query(sql, params);
     const duration = Date.now() - startedAt;
     const count = Array.isArray(rows) ? rows.length : 0;
     console.log(
-      `[products][query] sitemap count=${count} (${duration}ms)${requestId ? ` [${requestId}]` : ''}`
+      `[products][query] sitemap count=${count} limit=${limit ?? 'all'} offset=${offset} (${duration}ms)${
+        requestId ? ` [${requestId}]` : ''
+      }`
     );
     if (!Array.isArray(rows)) {
       return [];
@@ -523,13 +538,17 @@ export async function getPublishedProductsForSitemap(
     const err = error as { code?: string };
     if (err && typeof err === 'object' && err.code === 'ER_BAD_FIELD_ERROR') {
       const fallbackStartedAt = Date.now();
-      const [rows] = await pool.query(
-        'SELECT slug FROM products WHERE is_published = 1 ORDER BY slug ASC'
-      );
+      let fallbackSql = 'SELECT slug FROM products WHERE is_published = 1 ORDER BY slug ASC';
+      const params: Array<number> = [];
+      if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+        fallbackSql += ' LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+      }
+      const [rows] = await pool.query(fallbackSql, params);
       const duration = Date.now() - fallbackStartedAt;
       const count = Array.isArray(rows) ? rows.length : 0;
       console.warn(
-        `[products][query] sitemap fallback without timestamps count=${count} (${duration}ms)${
+        `[products][query] sitemap fallback without timestamps count=${count} limit=${limit ?? 'all'} offset=${offset} (${duration}ms)${
           requestId ? ` [${requestId}]` : ''
         }`
       );

@@ -9,8 +9,8 @@ interface RequestBody {
 }
 
 type RevalidateTarget =
-  | { type: 'product'; slug: string; path: string }
-  | { type: 'sitemap'; path: string };
+  | { type: 'product'; slug: string; paths: string[] }
+  | { type: 'sitemap'; paths: string[] };
 
 export const runtime = 'nodejs';
 
@@ -41,9 +41,12 @@ export async function POST(request: NextRequest) {
   let target: RevalidateTarget;
   if (typeof body.slug === 'string' && body.slug.trim()) {
     const slug = body.slug.trim();
-    target = { type: 'product', slug, path: `/p/${slug}` };
+    target = { type: 'product', slug, paths: [`/p/${slug}`] };
   } else {
-    target = { type: 'sitemap', path: '/sitemap.xml' };
+    target = {
+      type: 'sitemap',
+      paths: ['/sitemap.xml', '/sitemap_index.xml', '/sitemaps/[sitemap]']
+    };
   }
 
   try {
@@ -53,17 +56,19 @@ export async function POST(request: NextRequest) {
       clearSitemapCache();
     }
 
-    revalidatePath(target.path);
+    for (const path of target.paths) {
+      revalidatePath(path);
+    }
 
     const duration = Date.now() - startedAt;
     console.log(
-      `[revalidate][${requestId}] target=${target.path} status=ok (${duration}ms)`
+      `[revalidate][${requestId}] target=${target.paths.join(',')} status=ok (${duration}ms)`
     );
     return NextResponse.json({ ok: true });
   } catch (error) {
     const duration = Date.now() - startedAt;
     console.error(
-      `[revalidate][${requestId}] target=${target.path} status=error (${duration}ms)`,
+      `[revalidate][${requestId}] target=${target.paths.join(',')} status=error (${duration}ms)`,
       error
     );
     return NextResponse.json({ ok: false, error: 'Revalidate failed' }, { status: 500 });
