@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 
-function pickFirstHeader(value: string | null): string | null {
+function pickFirstHeader(value: string | null | undefined): string | null {
   if (!value) {
     return null;
   }
