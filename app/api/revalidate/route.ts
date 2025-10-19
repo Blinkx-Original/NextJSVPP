@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
+import { clearProductCache } from '@/lib/products';
+import { clearSitemapCache } from '@/lib/sitemap-cache';
+import { createRequestId } from '@/lib/request-id';
 
 interface RequestBody {
   slug?: string;
-  sitemap?: boolean;
 }
+
+type RevalidateTarget =
+  | { type: 'product'; slug: string; paths: string[] }
+  | { type: 'sitemap'; paths: string[] };
+
+export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   const secret = process.env.REVALIDATE_SECRET;
@@ -12,26 +20,71 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Secret not configured' }, { status: 503 });
   }
 
-  const providedSecret = request.nextUrl.searchParams.get('secret') ?? request.headers.get('x-revalidate-secret');
+  const providedSecret = request.headers.get('x-revalidate-secret');
   if (providedSecret !== secret) {
     return NextResponse.json({ ok: false, error: 'Invalid secret' }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as RequestBody;
-  const paths: string[] = [];
-  if (body.slug) {
-    paths.push(`/p/${body.slug}`);
-  }
-  if (body.sitemap !== false) {
-    paths.push('/sitemap.xml');
+  const requestId = createRequestId();
+  const startedAt = Date.now();
+
+  let body: RequestBody = {};
+  const rawBody = await request.text();
+  if (rawBody && rawBody.trim().length > 0) {
+    try {
+      body = JSON.parse(rawBody) as RequestBody;
+    } catch {
+      return NextResponse.json({ ok: false, error: 'Invalid JSON body' }, { status: 400 });
+    }
   }
 
-  const revalidated: string[] = [];
-  for (const path of paths) {
-    revalidatePath(path);
-    revalidated.push(path);
-  }
+  let target: RevalidateTarget | null = null;
 
-  console.log('[revalidate]', { revalidated });
-  return NextResponse.json({ ok: true, revalidated });
+  try {
+    if (typeof body.slug === 'string' && body.slug.trim()) {
+      const slug = body.slug.trim();
+      target = { type: 'product', slug, paths: [`/p/${slug}`] };
+    } else {
+      target = {
+        type: 'sitemap',
+        paths: ['/sitemap.xml', '/sitemap_index.xml', '/sitemaps/[sitemap]']
+      };
+    }
+
+    if (!target) {
+      throw new Error('revalidate_target_unset');
+    }
+
+    const paths = new Set(target.paths);
+
+    if (target.type === 'product') {
+      clearProductCache(target.slug);
+      clearSitemapCache();
+      paths.add('/sitemap.xml');
+      paths.add('/sitemap_index.xml');
+      paths.add('/sitemaps/[sitemap]');
+    } else {
+      clearSitemapCache();
+    }
+
+    const orderedPaths = Array.from(paths);
+
+    for (const path of orderedPaths) {
+      revalidatePath(path);
+    }
+
+    const duration = Date.now() - startedAt;
+    console.log(
+      `[revalidate][${requestId}] target=${orderedPaths.join(',')} status=ok (${duration}ms)`
+    );
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const duration = Date.now() - startedAt;
+    const targetLabel = target ? target.paths.join(',') : 'unknown';
+    console.error(
+      `[revalidate][${requestId}] target=${targetLabel} status=error (${duration}ms)`,
+      error
+    );
+    return NextResponse.json({ ok: false, error: 'Revalidate failed' }, { status: 500 });
+  }
 }
