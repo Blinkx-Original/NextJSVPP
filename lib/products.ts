@@ -1,5 +1,8 @@
+import he from 'he';
 import { z } from 'zod';
-import { getPool } from './db';
+import { getPool, toDbErrorInfo } from './db';
+
+const DEFAULT_SITEMAP_LIMIT = 1000;
 
 const bigintLike = z.union([z.bigint(), z.number(), z.string()]);
 
@@ -11,6 +14,7 @@ const productSchema = z.object({
   model: z.string().nullable(),
   sku: z.string().nullable(),
   short_summary: z.string().nullable(),
+  meta_description: z.string().nullable(),
   images_json: z.string().nullable(),
   desc_html: z.string().nullable(),
   cta_lead_url: z.string().nullable(),
@@ -18,12 +22,71 @@ const productSchema = z.object({
   cta_affiliate_url: z.string().nullable(),
   cta_paypal_url: z.string().nullable(),
   is_published: z.number().or(z.boolean()),
-  last_tidb_update_at: z.string().nullable()
+  last_tidb_update_at: z.string().nullable(),
+  updated_at: z.string().nullable().optional()
 });
 
 export type ProductRecord = z.infer<typeof productSchema>;
 
 export type RawProductRecord = Record<string, any>;
+
+export interface NormalizedProduct {
+  title_h1: string;
+  brand: string;
+  model: string;
+  sku: string;
+  images: string[];
+  desc_html: string;
+  short_summary: string;
+  meta_description: string;
+  slug: string;
+  last_tidb_update_at: string | null;
+}
+
+export interface NormalizedProductResult {
+  raw: RawProductRecord;
+  normalized: NormalizedProduct;
+}
+
+const PRODUCT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface CachedProductEntry {
+  value: NormalizedProductResult;
+  expiresAt: number;
+}
+
+const productCache = new Map<string, CachedProductEntry>();
+
+function cacheLabel(requestId?: string): string {
+  return requestId ? ` [${requestId}]` : '';
+}
+
+function readProductCache(slug: string, requestId?: string): NormalizedProductResult | null {
+  const entry = productCache.get(slug);
+  if (!entry) {
+    console.log(`[isr-cache][product] slug=${slug} MISS${cacheLabel(requestId)}`);
+    return null;
+  }
+  if (entry.expiresAt <= Date.now()) {
+    productCache.delete(slug);
+    console.log(`[isr-cache][product] slug=${slug} EXPIRED${cacheLabel(requestId)}`);
+    return null;
+  }
+  console.log(`[isr-cache][product] slug=${slug} HIT${cacheLabel(requestId)}`);
+  return entry.value;
+}
+
+function writeProductCache(slug: string, value: NormalizedProductResult): void {
+  productCache.set(slug, { value, expiresAt: Date.now() + PRODUCT_CACHE_TTL_MS });
+}
+
+export function clearProductCache(slug?: string): void {
+  if (typeof slug === 'string') {
+    productCache.delete(slug);
+  } else {
+    productCache.clear();
+  }
+}
 
 export interface Product {
   id: bigint;
@@ -55,6 +118,211 @@ function parseImages(value: string | null): string[] {
     console.warn('[products] unable to parse images_json', error);
   }
   return [];
+}
+
+function toCleanString(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
+      return '';
+    }
+    return trimmed;
+  }
+  return String(value).trim();
+}
+
+function looksLikeJson(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  );
+}
+
+function tryParseJson(text: string): unknown | null {
+  if (!looksLikeJson(text)) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function isJsonLdObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return '@context' in record || '@type' in record || '@graph' in record;
+}
+
+interface CollectState {
+  foundJsonLd: boolean;
+}
+
+function isProbablyUrl(value: string): boolean {
+  return /^(https?:)?\/\//i.test(value.trim());
+}
+
+function collectImageUrls(
+  value: unknown,
+  target: Set<string>,
+  state: CollectState,
+  seen: Set<unknown>,
+  depth = 0
+): void {
+  if (value === null || value === undefined) {
+    return;
+  }
+  if (depth > 10) {
+    return;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+    const parsed = tryParseJson(trimmed);
+    if (parsed !== null) {
+      collectImageUrls(parsed, target, state, seen, depth + 1);
+      return;
+    }
+    if (isProbablyUrl(trimmed)) {
+      target.add(trimmed);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectImageUrls(item, target, state, seen, depth + 1);
+    }
+    return;
+  }
+  if (typeof value === 'object') {
+    if (seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    if (isJsonLdObject(record)) {
+      state.foundJsonLd = true;
+    }
+    if ('image' in record) {
+      collectImageUrls(record.image, target, state, seen, depth + 1);
+    }
+    if ('url' in record && typeof record.url === 'string' && isProbablyUrl(record.url)) {
+      target.add(record.url.trim());
+    }
+    if ('@graph' in record) {
+      collectImageUrls(record['@graph'], target, state, seen, depth + 1);
+    }
+    for (const key of Object.keys(record)) {
+      if (key === 'image' || key === '@graph' || key === 'url') {
+        continue;
+      }
+      const item = record[key];
+      if (Array.isArray(item) || (item && typeof item === 'object')) {
+        collectImageUrls(item, target, state, seen, depth + 1);
+      }
+    }
+  }
+}
+
+function normalizeImagesField(value: unknown, warnings: string[]): string[] {
+  if (value === null || value === undefined) {
+    return [];
+  }
+  let workingValue: unknown = value;
+  const state: CollectState = { foundJsonLd: false };
+  let parsedFromString = false;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+    const parsed = tryParseJson(trimmed);
+    if (parsed !== null) {
+      workingValue = parsed;
+      parsedFromString = true;
+    } else if (isProbablyUrl(trimmed)) {
+      return [trimmed];
+    } else {
+      warnings.push('images_json non-json string ignored');
+      return [];
+    }
+  }
+
+  const results = new Set<string>();
+  collectImageUrls(workingValue, results, state, new Set());
+  if (parsedFromString) {
+    warnings.push('images_json parsed from string');
+  }
+  if (state.foundJsonLd) {
+    warnings.push('images_json extracted from JSON-LD');
+  }
+  return Array.from(results);
+}
+
+function normalizeDescHtml(value: unknown, warnings: string[]): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  const decoded = he.decode(trimmed);
+  if (decoded !== trimmed) {
+    warnings.push('desc_html unescaped');
+  }
+  return decoded;
+}
+
+function normalizeOptionalDate(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+interface NormalizeProductOptions {
+  slug: string;
+  requestId?: string;
+}
+
+interface NormalizeResult {
+  normalized: NormalizedProduct;
+  warnings: string[];
+}
+
+function normalizeProductRecordInternal(
+  record: RawProductRecord,
+  options: NormalizeProductOptions
+): NormalizeResult {
+  const warnings: string[] = [];
+  const normalized: NormalizedProduct = {
+    title_h1: toCleanString(record.title_h1 ?? record.slug ?? options.slug) || options.slug,
+    brand: toCleanString(record.brand),
+    model: toCleanString(record.model),
+    sku: toCleanString(record.sku),
+    images: normalizeImagesField(record.images_json ?? record.images ?? null, warnings),
+    desc_html: normalizeDescHtml(record.desc_html, warnings),
+    short_summary: toCleanString(record.short_summary),
+    meta_description: toCleanString(record.meta_description),
+    slug: toCleanString(record.slug) || options.slug,
+    last_tidb_update_at: normalizeOptionalDate(record.last_tidb_update_at)
+  };
+
+  return { normalized, warnings };
 }
 
 export function resolvePrimaryCta(product: Product): { type: keyof Product['ctas']; url: string } | null {
@@ -129,13 +397,31 @@ export function isProductPublished(record: RawProductRecord | null): boolean {
   return isPublishedFlag((record as Record<string, unknown>).is_published);
 }
 
-export async function getProductRecordBySlug(slug: string): Promise<RawProductRecord | null> {
+export async function getProductRecordBySlug(
+  slug: string,
+  requestId?: string
+): Promise<RawProductRecord | null> {
   const pool = getPool();
-  const [rows] = await pool.query('SELECT * FROM products WHERE slug = ? LIMIT 1', [slug]);
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return null;
+  const startedAt = Date.now();
+  try {
+    const [rows] = await pool.query('SELECT * FROM products WHERE slug = ? LIMIT 1', [slug]);
+    const duration = Date.now() - startedAt;
+    const count = Array.isArray(rows) ? rows.length : 0;
+    console.log(
+      `[products][query] slug=${slug} rows=${count} (${duration}ms)${requestId ? ` [${requestId}]` : ''}`
+    );
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return null;
+    }
+    return rows[0] as RawProductRecord;
+  } catch (error) {
+    const duration = Date.now() - startedAt;
+    console.error(
+      `[products][query-error] slug=${slug} (${duration}ms)${requestId ? ` [${requestId}]` : ''}`,
+      toDbErrorInfo(error)
+    );
+    throw error;
   }
-  return rows[0] as RawProductRecord;
 }
 
 export async function getPublishedSlugsForDebug(limit: number): Promise<string[]> {
@@ -164,4 +450,253 @@ export async function getPublishedSlugsForDebug(limit: number): Promise<string[]
     }
     throw error;
   }
+}
+
+function logNormalizationWarnings(slug: string, warnings: string[], requestId?: string) {
+  if (warnings.length === 0) {
+    return;
+  }
+  console.warn(
+    `[products][normalize] slug=${slug}${requestId ? ` [${requestId}]` : ''} ${warnings.join('; ')}`
+  );
+}
+
+export async function getNormalizedPublishedProduct(
+  slug: string,
+  options?: { requestId?: string; skipCache?: boolean }
+): Promise<NormalizedProductResult | null> {
+  const requestId = options?.requestId;
+  if (!options?.skipCache) {
+    const cached = readProductCache(slug, requestId);
+    if (cached) {
+      return cached;
+    }
+  } else {
+    console.log(`[isr-cache][product] slug=${slug} BYPASS${cacheLabel(requestId)}`);
+  }
+
+  const record = await getProductRecordBySlug(slug, requestId);
+  if (!record) {
+    console.log(`[products][lookup] slug=${slug} not-found${cacheLabel(requestId)}`);
+    return null;
+  }
+  if (!isProductPublished(record)) {
+    console.log(`[products][lookup] slug=${slug} unpublished${cacheLabel(requestId)}`);
+    return null;
+  }
+
+  const { normalized, warnings } = normalizeProductRecordInternal(record, { slug, requestId });
+  logNormalizationWarnings(slug, warnings, requestId);
+  const result: NormalizedProductResult = { raw: record, normalized };
+  writeProductCache(slug, result);
+  return result;
+}
+
+export interface SitemapProductRecord {
+  id: bigint;
+  slug: string;
+  last_tidb_update_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface SitemapQueryOptions {
+  requestId?: string;
+  limit?: number;
+  afterId?: bigint | number | string | null;
+}
+
+export interface SitemapQueryResult {
+  records: SitemapProductRecord[];
+  hasMore: boolean;
+  nextCursor: bigint | null;
+}
+
+function parseBigint(value: bigint | number | string): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return BigInt(Math.trunc(value));
+  }
+  return BigInt(value);
+}
+
+function mapRowToSitemapRecord(row: any): SitemapProductRecord {
+  const rawId = row.id;
+  if (rawId === null || rawId === undefined) {
+    throw new Error('Sitemap row missing id');
+  }
+  const id = parseBigint(rawId);
+  return {
+    id,
+    slug: String(row.slug),
+    last_tidb_update_at: row.last_tidb_update_at ?? null,
+    updated_at: row.updated_at ?? null
+  };
+}
+
+export async function getPublishedProductsForSitemap(
+  options?: SitemapQueryOptions
+): Promise<SitemapQueryResult> {
+  const pool = getPool();
+  const requestId = options?.requestId;
+  const limit =
+    typeof options?.limit === 'number' && Number.isFinite(options.limit)
+      ? Math.max(1, Math.floor(options.limit))
+      : DEFAULT_SITEMAP_LIMIT;
+  const afterId =
+    options && options.afterId !== undefined && options.afterId !== null
+      ? parseBigint(options.afterId)
+      : null;
+  const startedAt = Date.now();
+  try {
+    let sql =
+      'SELECT id, slug, last_tidb_update_at, updated_at FROM products WHERE is_published = 1';
+    const params: Array<any> = [];
+    if (afterId !== null) {
+      sql += ' AND id > ?';
+      params.push(afterId);
+    }
+    sql += ' ORDER BY id ASC LIMIT ?';
+    const limitPlusOne = limit + 1;
+    params.push(limitPlusOne);
+    const [rows] = await pool.query(sql, params);
+    const duration = Date.now() - startedAt;
+    const count = Array.isArray(rows) ? rows.length : 0;
+    console.log(
+      `[products][query] sitemap count=${count} limit=${limit} after=${afterId ?? 'null'} (${duration}ms)${
+        requestId ? ` [${requestId}]` : ''
+      }`
+    );
+    if (!Array.isArray(rows)) {
+      return { records: [], hasMore: false, nextCursor: null };
+    }
+    const mapped = rows.map((row: any) => mapRowToSitemapRecord(row));
+    let hasMore = false;
+    let records = mapped;
+    if (mapped.length > limit) {
+      hasMore = true;
+      records = mapped.slice(0, limit);
+    }
+    const nextCursor = records.length > 0 ? records[records.length - 1].id : afterId;
+    return { records, hasMore, nextCursor };
+  } catch (error) {
+    const err = error as { code?: string };
+    if (err && typeof err === 'object' && err.code === 'ER_BAD_FIELD_ERROR') {
+      const fallbackStartedAt = Date.now();
+      let fallbackSql = 'SELECT id, slug FROM products WHERE is_published = 1';
+      const params: Array<any> = [];
+      if (afterId !== null) {
+        fallbackSql += ' AND id > ?';
+        params.push(afterId);
+      }
+      fallbackSql += ' ORDER BY id ASC LIMIT ?';
+      const limitPlusOne = limit + 1;
+      params.push(limitPlusOne);
+      const [rows] = await pool.query(fallbackSql, params);
+      const duration = Date.now() - fallbackStartedAt;
+      const count = Array.isArray(rows) ? rows.length : 0;
+      console.warn(
+        `[products][query] sitemap fallback without timestamps count=${count} limit=${limit} after=${afterId ?? 'null'} (${duration}ms)${
+          requestId ? ` [${requestId}]` : ''
+        }`
+      );
+      if (!Array.isArray(rows)) {
+        return { records: [], hasMore: false, nextCursor: null };
+      }
+      const mapped = rows.map((row: any) => mapRowToSitemapRecord(row));
+      let hasMore = false;
+      let records = mapped;
+      if (mapped.length > limit) {
+        hasMore = true;
+        records = mapped.slice(0, limit);
+      }
+      const nextCursor = records.length > 0 ? records[records.length - 1].id : afterId;
+      return { records, hasMore, nextCursor };
+    }
+    const duration = Date.now() - startedAt;
+    console.error(
+      `[products][query-error] sitemap (${duration}ms)${requestId ? ` [${requestId}]` : ''}`,
+      toDbErrorInfo(error)
+    );
+    throw error;
+  }
+}
+
+export interface SitemapBatchCollectionOptions {
+  requestId?: string;
+  pageSize: number;
+}
+
+export interface SitemapBatchCollectionResult {
+  batches: SitemapProductRecord[][];
+  totalCount: number;
+}
+
+export async function collectPublishedProductsForSitemap(
+  options: SitemapBatchCollectionOptions
+): Promise<SitemapBatchCollectionResult> {
+  const batches: SitemapProductRecord[][] = [];
+  let totalCount = 0;
+  let afterId: bigint | null = null;
+  for (let pageIndex = 0; pageIndex < 10000; pageIndex++) {
+    const { records, hasMore, nextCursor } = await getPublishedProductsForSitemap({
+      requestId: options.requestId,
+      limit: options.pageSize,
+      afterId
+    });
+    if (records.length === 0) {
+      break;
+    }
+    batches.push(records);
+    totalCount += records.length;
+    if (!hasMore || nextCursor === null) {
+      break;
+    }
+    if (afterId !== null && nextCursor === afterId) {
+      break;
+    }
+    afterId = nextCursor;
+  }
+
+  return { batches, totalCount };
+}
+
+export async function getPublishedProductsForSitemapPage(
+  pageNumber: number,
+  pageSize: number,
+  options?: { requestId?: string }
+): Promise<SitemapProductRecord[]> {
+  if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+    return [];
+  }
+
+  let afterId: bigint | null = null;
+  for (let currentPage = 1; currentPage <= pageNumber; currentPage++) {
+    const { records, hasMore, nextCursor } = await getPublishedProductsForSitemap({
+      requestId: options?.requestId,
+      limit: pageSize,
+      afterId
+    });
+
+    if (records.length === 0) {
+      return [];
+    }
+
+    if (currentPage === pageNumber) {
+      return records;
+    }
+
+    if (!hasMore || nextCursor === null) {
+      return [];
+    }
+
+    if (afterId !== null && nextCursor === afterId) {
+      return [];
+    }
+
+    afterId = nextCursor;
+  }
+
+  return [];
 }
