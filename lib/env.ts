@@ -8,6 +8,8 @@ type OptionalEnvKey =
   | 'ALGOLIA_APP_ID'
   | 'ALGOLIA_API_KEY'
   | 'ALGOLIA_INDEX'
+  | 'ALGOLIA_ADMIN_API_KEY'
+  | 'ALGOLIA_INDEX_PRIMARY'
   | 'TIDB_SSL_MODE'
   | 'TIDB_SSL_CA';
 
@@ -27,7 +29,17 @@ function getEnv(): EnvShape {
     output[key] = value;
   }
 
-  for (const key of ['NEXT_PUBLIC_SITE_URL', 'NEXT_PUBLIC_SITE_NAME', 'ALGOLIA_APP_ID', 'ALGOLIA_API_KEY', 'ALGOLIA_INDEX', 'TIDB_SSL_MODE', 'TIDB_SSL_CA'] as const) {
+  for (const key of [
+    'NEXT_PUBLIC_SITE_URL',
+    'NEXT_PUBLIC_SITE_NAME',
+    'ALGOLIA_APP_ID',
+    'ALGOLIA_API_KEY',
+    'ALGOLIA_INDEX',
+    'ALGOLIA_ADMIN_API_KEY',
+    'ALGOLIA_INDEX_PRIMARY',
+    'TIDB_SSL_MODE',
+    'TIDB_SSL_CA'
+  ] as const) {
     const value = process.env[key];
     if (typeof value === 'string') {
       const trimmed = value.trim();
