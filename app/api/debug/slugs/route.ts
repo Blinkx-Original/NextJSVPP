@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { toDbErrorInfo } from '@/lib/db';
 import { getPublishedSlugsForDebug } from '@/lib/products';
 
 function createRequestId() {
@@ -23,6 +24,17 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const duration = Date.now() - startedAt;
     console.error(`[debug/slugs][${requestId}] query failed (${duration}ms)`, error);
-    return NextResponse.json({ error: 'db_error' }, { status: 500 });
+    const info = toDbErrorInfo(error);
+    const payload: Record<string, unknown> = { error: 'db_error' };
+    if (info.code) {
+      payload.code = info.code;
+    }
+    if (typeof info.errno === 'number') {
+      payload.errno = info.errno;
+    }
+    if (info.sqlState) {
+      payload.sqlState = info.sqlState;
+    }
+    return NextResponse.json(payload, { status: 500 });
   }
 }

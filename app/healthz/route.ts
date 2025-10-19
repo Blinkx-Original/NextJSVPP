@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { pingDatabase } from '@/lib/db';
+import { pingDatabase, toDbErrorInfo } from '@/lib/db';
+
+function createRequestId() {
+  return Math.random().toString(36).slice(2, 8);
+}
 
 function createRequestId() {
   return Math.random().toString(36).slice(2, 8);
@@ -20,9 +24,17 @@ export async function GET() {
   } catch (error) {
     const duration = Date.now() - startedAt;
     console.error(`[healthz][${requestId}] DB healthcheck failed (${duration}ms)`, error);
-    return NextResponse.json(
-      { ok: false, db: 'down', error: 'connection_failed' },
-      { status: 503 }
-    );
+    const info = toDbErrorInfo(error);
+    const payload: Record<string, unknown> = { ok: false, db: 'down', error: 'connection_failed' };
+    if (info.code) {
+      payload.code = info.code;
+    }
+    if (typeof info.errno === 'number') {
+      payload.errno = info.errno;
+    }
+    if (info.sqlState) {
+      payload.sqlState = info.sqlState;
+    }
+    return NextResponse.json(payload, { status: 503 });
   }
 }
