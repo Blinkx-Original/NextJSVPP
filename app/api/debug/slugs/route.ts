@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { toDbErrorInfo } from '@/lib/db';
 import { getPublishedSlugsForDebug } from '@/lib/products';
-
-function createRequestId() {
-  return Math.random().toString(36).slice(2, 8);
-}
+import { createRequestId } from '@/lib/request-id';
 
 export const runtime = 'nodejs';
 

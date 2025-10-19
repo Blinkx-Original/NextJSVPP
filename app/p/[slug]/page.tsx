@@ -1,9 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getProductRecordBySlug, isProductPublished } from '@/lib/products';
-
-function createRequestId() {
-  return Math.random().toString(36).slice(2, 8);
-}
+import { createRequestId } from '@/lib/request-id';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

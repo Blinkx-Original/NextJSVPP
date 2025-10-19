@@ -1,13 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pingDatabase, toDbErrorInfo } from '@/lib/db';
-
-function createRequestId() {
-  return Math.random().toString(36).slice(2, 8);
-}
-
-function createRequestId() {
-  return Math.random().toString(36).slice(2, 8);
-}
+import { createRequestId } from '@/lib/request-id';
 
 export const runtime = 'nodejs';
 
