@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const record = await getProductRecordBySlug(slug);
+    const record = await getProductRecordBySlug(slug, requestId);
     const duration = Date.now() - startedAt;
     if (!record) {
       console.log(`[debug/product][${requestId}] slug=${slug} not found (${duration}ms)`);
