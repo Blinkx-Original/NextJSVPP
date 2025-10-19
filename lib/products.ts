@@ -2,6 +2,8 @@ import he from 'he';
 import { z } from 'zod';
 import { getPool, toDbErrorInfo } from './db';
 
+const DEFAULT_SITEMAP_LIMIT = 1000;
+
 const bigintLike = z.union([z.bigint(), z.number(), z.string()]);
 
 const productSchema = z.object({
@@ -491,6 +493,7 @@ export async function getNormalizedPublishedProduct(
 }
 
 export interface SitemapProductRecord {
+  id: bigint;
   slug: string;
   last_tidb_update_at?: string | null;
   updated_at?: string | null;
@@ -499,63 +502,117 @@ export interface SitemapProductRecord {
 export interface SitemapQueryOptions {
   requestId?: string;
   limit?: number;
-  offset?: number;
+  afterId?: bigint | number | string | null;
+}
+
+export interface SitemapQueryResult {
+  records: SitemapProductRecord[];
+  hasMore: boolean;
+  nextCursor: bigint | null;
+}
+
+function parseBigint(value: bigint | number | string): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return BigInt(Math.trunc(value));
+  }
+  return BigInt(value);
+}
+
+function mapRowToSitemapRecord(row: any): SitemapProductRecord {
+  const rawId = row.id;
+  if (rawId === null || rawId === undefined) {
+    throw new Error('Sitemap row missing id');
+  }
+  const id = parseBigint(rawId);
+  return {
+    id,
+    slug: String(row.slug),
+    last_tidb_update_at: row.last_tidb_update_at ?? null,
+    updated_at: row.updated_at ?? null
+  };
 }
 
 export async function getPublishedProductsForSitemap(
   options?: SitemapQueryOptions
-): Promise<SitemapProductRecord[]> {
+): Promise<SitemapQueryResult> {
   const pool = getPool();
   const requestId = options?.requestId;
-  const limit = typeof options?.limit === 'number' ? Math.max(0, Math.floor(options.limit)) : undefined;
-  const offset = typeof options?.offset === 'number' ? Math.max(0, Math.floor(options.offset)) : 0;
+  const limit =
+    typeof options?.limit === 'number' && Number.isFinite(options.limit)
+      ? Math.max(1, Math.floor(options.limit))
+      : DEFAULT_SITEMAP_LIMIT;
+  const afterId =
+    options && options.afterId !== undefined && options.afterId !== null
+      ? parseBigint(options.afterId)
+      : null;
   const startedAt = Date.now();
   try {
     let sql =
-      'SELECT slug, last_tidb_update_at, updated_at FROM products WHERE is_published = 1 ORDER BY slug ASC';
-    const params: Array<number> = [];
-    if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
-      sql += ' LIMIT ? OFFSET ?';
-      params.push(limit, offset);
+      'SELECT id, slug, last_tidb_update_at, updated_at FROM products WHERE is_published = 1';
+    const params: Array<any> = [];
+    if (afterId !== null) {
+      sql += ' AND id > ?';
+      params.push(afterId);
     }
+    sql += ' ORDER BY id ASC LIMIT ?';
+    const limitPlusOne = limit + 1;
+    params.push(limitPlusOne);
     const [rows] = await pool.query(sql, params);
     const duration = Date.now() - startedAt;
     const count = Array.isArray(rows) ? rows.length : 0;
     console.log(
-      `[products][query] sitemap count=${count} limit=${limit ?? 'all'} offset=${offset} (${duration}ms)${
+      `[products][query] sitemap count=${count} limit=${limit} after=${afterId ?? 'null'} (${duration}ms)${
         requestId ? ` [${requestId}]` : ''
       }`
     );
     if (!Array.isArray(rows)) {
-      return [];
+      return { records: [], hasMore: false, nextCursor: null };
     }
-    return rows.map((row: any) => ({
-      slug: String(row.slug),
-      last_tidb_update_at: row.last_tidb_update_at ?? null,
-      updated_at: row.updated_at ?? null
-    }));
+    const mapped = rows.map((row: any) => mapRowToSitemapRecord(row));
+    let hasMore = false;
+    let records = mapped;
+    if (mapped.length > limit) {
+      hasMore = true;
+      records = mapped.slice(0, limit);
+    }
+    const nextCursor = records.length > 0 ? records[records.length - 1].id : afterId;
+    return { records, hasMore, nextCursor };
   } catch (error) {
     const err = error as { code?: string };
     if (err && typeof err === 'object' && err.code === 'ER_BAD_FIELD_ERROR') {
       const fallbackStartedAt = Date.now();
-      let fallbackSql = 'SELECT slug FROM products WHERE is_published = 1 ORDER BY slug ASC';
-      const params: Array<number> = [];
-      if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
-        fallbackSql += ' LIMIT ? OFFSET ?';
-        params.push(limit, offset);
+      let fallbackSql = 'SELECT id, slug FROM products WHERE is_published = 1';
+      const params: Array<any> = [];
+      if (afterId !== null) {
+        fallbackSql += ' AND id > ?';
+        params.push(afterId);
       }
+      fallbackSql += ' ORDER BY id ASC LIMIT ?';
+      const limitPlusOne = limit + 1;
+      params.push(limitPlusOne);
       const [rows] = await pool.query(fallbackSql, params);
       const duration = Date.now() - fallbackStartedAt;
       const count = Array.isArray(rows) ? rows.length : 0;
       console.warn(
-        `[products][query] sitemap fallback without timestamps count=${count} limit=${limit ?? 'all'} offset=${offset} (${duration}ms)${
+        `[products][query] sitemap fallback without timestamps count=${count} limit=${limit} after=${afterId ?? 'null'} (${duration}ms)${
           requestId ? ` [${requestId}]` : ''
         }`
       );
       if (!Array.isArray(rows)) {
-        return [];
+        return { records: [], hasMore: false, nextCursor: null };
       }
-      return rows.map((row: any) => ({ slug: String(row.slug) }));
+      const mapped = rows.map((row: any) => mapRowToSitemapRecord(row));
+      let hasMore = false;
+      let records = mapped;
+      if (mapped.length > limit) {
+        hasMore = true;
+        records = mapped.slice(0, limit);
+      }
+      const nextCursor = records.length > 0 ? records[records.length - 1].id : afterId;
+      return { records, hasMore, nextCursor };
     }
     const duration = Date.now() - startedAt;
     console.error(
@@ -564,4 +621,82 @@ export async function getPublishedProductsForSitemap(
     );
     throw error;
   }
+}
+
+export interface SitemapBatchCollectionOptions {
+  requestId?: string;
+  pageSize: number;
+}
+
+export interface SitemapBatchCollectionResult {
+  batches: SitemapProductRecord[][];
+  totalCount: number;
+}
+
+export async function collectPublishedProductsForSitemap(
+  options: SitemapBatchCollectionOptions
+): Promise<SitemapBatchCollectionResult> {
+  const batches: SitemapProductRecord[][] = [];
+  let totalCount = 0;
+  let afterId: bigint | null = null;
+  for (let pageIndex = 0; pageIndex < 10000; pageIndex++) {
+    const { records, hasMore, nextCursor } = await getPublishedProductsForSitemap({
+      requestId: options.requestId,
+      limit: options.pageSize,
+      afterId
+    });
+    if (records.length === 0) {
+      break;
+    }
+    batches.push(records);
+    totalCount += records.length;
+    if (!hasMore || nextCursor === null) {
+      break;
+    }
+    if (afterId !== null && nextCursor === afterId) {
+      break;
+    }
+    afterId = nextCursor;
+  }
+
+  return { batches, totalCount };
+}
+
+export async function getPublishedProductsForSitemapPage(
+  pageNumber: number,
+  pageSize: number,
+  options?: { requestId?: string }
+): Promise<SitemapProductRecord[]> {
+  if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+    return [];
+  }
+
+  let afterId: bigint | null = null;
+  for (let currentPage = 1; currentPage <= pageNumber; currentPage++) {
+    const { records, hasMore, nextCursor } = await getPublishedProductsForSitemap({
+      requestId: options?.requestId,
+      limit: pageSize,
+      afterId
+    });
+
+    if (records.length === 0) {
+      return [];
+    }
+
+    if (currentPage === pageNumber) {
+      return records;
+    }
+
+    if (!hasMore || nextCursor === null) {
+      return [];
+    }
+
+    if (afterId !== null && nextCursor === afterId) {
+      return [];
+    }
+
+    afterId = nextCursor;
+  }
+
+  return [];
 }

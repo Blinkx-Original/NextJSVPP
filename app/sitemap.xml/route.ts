@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createRequestId } from '@/lib/request-id';
-import { getPublishedProductsForSitemap } from '@/lib/products';
+import { collectPublishedProductsForSitemap } from '@/lib/products';
 import { getSiteUrl } from '@/lib/urls';
 import { getCachedSitemap, setCachedSitemap } from '@/lib/sitemap-cache';
 import {
@@ -30,29 +30,15 @@ async function generateSitemapIndex(path: string): Promise<Response> {
 
   const startedAt = Date.now();
   try {
-    const entries: SitemapIndexEntry[] = [];
-    let totalCount = 0;
-    for (let pageIndex = 0; ; pageIndex++) {
-      const offset = pageIndex * SITEMAP_PAGE_SIZE;
-      const records = await getPublishedProductsForSitemap({
-        requestId,
-        limit: SITEMAP_PAGE_SIZE,
-        offset
-      });
-      if (records.length === 0) {
-        break;
-      }
+    const { batches, totalCount } = await collectPublishedProductsForSitemap({
+      requestId,
+      pageSize: SITEMAP_PAGE_SIZE
+    });
 
-      totalCount += records.length;
-      const pageNumber = pageIndex + 1;
-      const loc = `${siteUrl}/sitemaps/sitemap-${pageNumber}.xml`;
-      const lastmod = computeChunkLastModified(records);
-      entries.push({ loc, lastmod });
-
-      if (records.length < SITEMAP_PAGE_SIZE) {
-        break;
-      }
-    }
+    const entries: SitemapIndexEntry[] = batches.map((records, index) => ({
+      loc: `${siteUrl}/sitemaps/sitemap-${index + 1}.xml`,
+      lastmod: computeChunkLastModified(records)
+    }));
 
     const xml = renderSitemapIndexXml(entries);
     setCachedSitemap(siteUrl, path, xml);

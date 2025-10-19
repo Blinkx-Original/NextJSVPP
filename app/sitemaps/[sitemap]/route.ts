@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createRequestId } from '@/lib/request-id';
-import { getPublishedProductsForSitemap } from '@/lib/products';
+import { getPublishedProductsForSitemapPage } from '@/lib/products';
 import { getSiteUrl } from '@/lib/urls';
 import { getCachedSitemap, setCachedSitemap } from '@/lib/sitemap-cache';
 import { SITEMAP_PAGE_SIZE, renderSitemapXml } from '@/lib/sitemaps';
@@ -44,14 +44,11 @@ export async function GET(
     });
   }
 
-  const offset = (pageNumber - 1) * SITEMAP_PAGE_SIZE;
   const startedAt = Date.now();
 
   try {
-    const records = await getPublishedProductsForSitemap({
-      requestId,
-      limit: SITEMAP_PAGE_SIZE,
-      offset
+    const records = await getPublishedProductsForSitemapPage(pageNumber, SITEMAP_PAGE_SIZE, {
+      requestId
     });
 
     if (records.length === 0) {
