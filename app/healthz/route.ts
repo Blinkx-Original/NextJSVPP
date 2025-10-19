@@ -1,10 +1,33 @@
 import { NextResponse } from 'next/server';
-import { pingDatabase } from '@/lib/db';
+import { pingDatabase, toDbErrorInfo } from '@/lib/db';
+import { createRequestId } from '@/lib/request-id';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
-  const dbUp = await pingDatabase();
+  const requestId = createRequestId();
+  const startedAt = Date.now();
   const version = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'dev';
-  return NextResponse.json({ ok: dbUp, db: dbUp ? 'up' : 'down', version }, { status: dbUp ? 200 : 503 });
+
+  try {
+    await pingDatabase();
+    const duration = Date.now() - startedAt;
+    console.log(`[healthz][${requestId}] SELECT 1 (${duration}ms)`);
+    return NextResponse.json({ ok: true, db: 'up', version });
+  } catch (error) {
+    const duration = Date.now() - startedAt;
+    console.error(`[healthz][${requestId}] DB healthcheck failed (${duration}ms)`, error);
+    const info = toDbErrorInfo(error);
+    const payload: Record<string, unknown> = { ok: false, db: 'down', error: 'connection_failed' };
+    if (info.code) {
+      payload.code = info.code;
+    }
+    if (typeof info.errno === 'number') {
+      payload.errno = info.errno;
+    }
+    if (info.sqlState) {
+      payload.sqlState = info.sqlState;
+    }
+    return NextResponse.json(payload, { status: 503 });
+  }
 }
