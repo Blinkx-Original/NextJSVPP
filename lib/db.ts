@@ -1,5 +1,4 @@
 import mysql from 'mysql2/promise';
-import type { ConnectionOptions as TlsConnectionOptions } from 'tls';
 import type { AppEnv } from './env';
 import { assertEnv } from './env';
 
@@ -42,13 +41,15 @@ function resolveSslMode(config: AppEnv): TidbSslMode {
   return 'skip-verify';
 }
 
-function buildSslOptions(config: AppEnv): TlsConnectionOptions | undefined {
+type TidbSslOptions = mysql.SslOptions & { servername?: string };
+
+function buildSslOptions(config: AppEnv): TidbSslOptions | undefined {
   const mode = resolveSslMode(config);
   if (mode === 'disable') {
     return undefined;
   }
 
-  const ssl: TlsConnectionOptions = {
+  const ssl: TidbSslOptions = {
     minVersion: 'TLSv1.2'
   };
 
@@ -64,6 +65,7 @@ function buildSslOptions(config: AppEnv): TlsConnectionOptions | undefined {
 
   if (mode === 'verify-full') {
     ssl.servername = config.TIDB_HOST;
+    ssl.verifyIdentity = true;
   }
 
   return ssl;
