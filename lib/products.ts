@@ -23,6 +23,8 @@ const productSchema = z.object({
 
 export type ProductRecord = z.infer<typeof productSchema>;
 
+export type RawProductRecord = Record<string, any>;
+
 export interface Product {
   id: bigint;
   slug: string;
@@ -114,4 +116,52 @@ export async function getPublishedSlugs(limit = 50000, offset = 0): Promise<stri
     return [];
   }
   return rows.map((row: any) => row.slug as string);
+}
+
+function isPublishedFlag(value: unknown): boolean {
+  return value === 1 || value === true || value === '1';
+}
+
+export function isProductPublished(record: RawProductRecord | null): boolean {
+  if (!record || typeof record !== 'object') {
+    return false;
+  }
+  return isPublishedFlag((record as Record<string, unknown>).is_published);
+}
+
+export async function getProductRecordBySlug(slug: string): Promise<RawProductRecord | null> {
+  const pool = getPool();
+  const [rows] = await pool.query('SELECT * FROM products WHERE slug = ? LIMIT 1', [slug]);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+  return rows[0] as RawProductRecord;
+}
+
+export async function getPublishedSlugsForDebug(limit: number): Promise<string[]> {
+  const pool = getPool();
+  const queryLimit = Math.max(1, Math.min(limit, 100));
+  try {
+    const [rows] = await pool.query(
+      'SELECT slug FROM products WHERE is_published = 1 ORDER BY last_tidb_update_at DESC LIMIT ?',
+      [queryLimit]
+    );
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+    return rows.map((row: any) => row.slug as string);
+  } catch (error) {
+    const err = error as { code?: string };
+    if (err && typeof err === 'object' && err?.code === 'ER_BAD_FIELD_ERROR') {
+      const [rows] = await pool.query(
+        'SELECT slug FROM products WHERE is_published = 1 ORDER BY slug ASC LIMIT ?',
+        [queryLimit]
+      );
+      if (!Array.isArray(rows)) {
+        return [];
+      }
+      return rows.map((row: any) => row.slug as string);
+    }
+    throw error;
+  }
 }

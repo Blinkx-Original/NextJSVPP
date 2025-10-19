@@ -25,14 +25,11 @@ export function getPool(): mysql.Pool {
   return pool;
 }
 
-export async function pingDatabase(): Promise<boolean> {
+export async function pingDatabase(): Promise<void> {
+  const connection = await getPool().getConnection();
   try {
-    const connection = await getPool().getConnection();
-    await connection.ping();
+    await connection.query('SELECT 1');
+  } finally {
     connection.release();
-    return true;
-  } catch (error) {
-    console.error('[healthz] DB ping failed', error);
-    return false;
   }
 }
