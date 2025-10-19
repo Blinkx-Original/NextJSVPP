@@ -192,14 +192,21 @@ export function ConnectivityPanel() {
     setTidbResult({ status: 'loading' });
     try {
       const { response, body } = await postJson<TidbResponse>('/api/admin/connectivity/tidb');
-      if (response.ok && body.ok) {
-        setTidbResult({ status: 'success', data: body, timestamp: Date.now() });
-      } else {
+      if (!body.ok) {
         setTidbResult({
           status: 'error',
           data: body,
           errorCode: body.error_code ?? null,
           errorDetails: body.error_details,
+          timestamp: Date.now()
+        });
+      } else if (response.ok) {
+        setTidbResult({ status: 'success', data: body, timestamp: Date.now() });
+      } else {
+        setTidbResult({
+          status: 'error',
+          data: body,
+          errorCode: `http_${response.status}`,
           timestamp: Date.now()
         });
       }
@@ -216,14 +223,21 @@ export function ConnectivityPanel() {
     setAlgoliaResult({ status: 'loading' });
     try {
       const { response, body } = await postJson<AlgoliaResponse>('/api/admin/connectivity/algolia');
-      if (response.ok && body.ok) {
-        setAlgoliaResult({ status: 'success', data: body, timestamp: Date.now() });
-      } else {
+      if (!body.ok) {
         setAlgoliaResult({
           status: 'error',
           data: body,
           errorCode: body.error_code ?? null,
           errorDetails: body.error_details,
+          timestamp: Date.now()
+        });
+      } else if (response.ok) {
+        setAlgoliaResult({ status: 'success', data: body, timestamp: Date.now() });
+      } else {
+        setAlgoliaResult({
+          status: 'error',
+          data: body,
+          errorCode: `http_${response.status}`,
           timestamp: Date.now()
         });
       }
@@ -242,14 +256,21 @@ export function ConnectivityPanel() {
       const { response, body } = await postJson<RevalidateResponse>(
         '/api/admin/connectivity/revalidate'
       );
-      if (response.ok && body.ok) {
-        setRevalidateResult({ status: 'success', data: body, timestamp: Date.now() });
-      } else {
+      if (!body.ok) {
         setRevalidateResult({
           status: 'error',
           data: body,
           errorCode: body.error_code ?? null,
           errorDetails: body.error_details,
+          timestamp: Date.now()
+        });
+      } else if (response.ok) {
+        setRevalidateResult({ status: 'success', data: body, timestamp: Date.now() });
+      } else {
+        setRevalidateResult({
+          status: 'error',
+          data: body,
+          errorCode: `http_${response.status}`,
           timestamp: Date.now()
         });
       }
