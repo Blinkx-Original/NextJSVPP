@@ -78,5 +78,3 @@ export async function GET(request: Request): Promise<Response> {
   const path = url.pathname || '/sitemap.xml';
   return generateSitemapIndex(path);
 }
-
-export { generateSitemapIndex };

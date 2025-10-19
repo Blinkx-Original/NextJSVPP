@@ -1,2 +1,2 @@
-export { runtime } from '../sitemap.xml/route';
+export const runtime = 'nodejs';
 export { GET } from '../sitemap.xml/route';
