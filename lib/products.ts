@@ -2,7 +2,7 @@ import he from 'he';
 import { z } from 'zod';
 import { getPool, toDbErrorInfo } from './db';
 
-const DEFAULT_SITEMAP_LIMIT = 1000;
+const DEFAULT_SITEMAP_LIMIT = 45000;
 
 const bigintLike = z.union([z.bigint(), z.number(), z.string()]);
 
@@ -502,13 +502,12 @@ export interface SitemapProductRecord {
 export interface SitemapQueryOptions {
   requestId?: string;
   limit?: number;
-  afterId?: bigint | number | string | null;
+  offset?: number;
 }
 
 export interface SitemapQueryResult {
   records: SitemapProductRecord[];
   hasMore: boolean;
-  nextCursor: bigint | null;
 }
 
 function parseBigint(value: bigint | number | string): bigint {
@@ -544,32 +543,26 @@ export async function getPublishedProductsForSitemap(
     typeof options?.limit === 'number' && Number.isFinite(options.limit)
       ? Math.max(1, Math.floor(options.limit))
       : DEFAULT_SITEMAP_LIMIT;
-  const afterId =
-    options && options.afterId !== undefined && options.afterId !== null
-      ? parseBigint(options.afterId)
-      : null;
+  const offset =
+    typeof options?.offset === 'number' && Number.isFinite(options.offset)
+      ? Math.max(0, Math.floor(options.offset))
+      : 0;
   const startedAt = Date.now();
   try {
-    let sql =
-      'SELECT id, slug, last_tidb_update_at, updated_at FROM products WHERE is_published = 1';
-    const params: Array<any> = [];
-    if (afterId !== null) {
-      sql += ' AND id > ?';
-      params.push(afterId);
-    }
-    sql += ' ORDER BY id ASC LIMIT ?';
+    const sql =
+      'SELECT id, slug, last_tidb_update_at, updated_at FROM products WHERE is_published = 1 ORDER BY slug ASC, id ASC LIMIT ? OFFSET ?';
     const limitPlusOne = limit + 1;
-    params.push(limitPlusOne);
+    const params: Array<any> = [limitPlusOne, offset];
     const [rows] = await pool.query(sql, params);
     const duration = Date.now() - startedAt;
     const count = Array.isArray(rows) ? rows.length : 0;
     console.log(
-      `[products][query] sitemap count=${count} limit=${limit} after=${afterId ?? 'null'} (${duration}ms)${
+      `[products][query] sitemap count=${count} limit=${limit} offset=${offset} (${duration}ms)${
         requestId ? ` [${requestId}]` : ''
       }`
     );
     if (!Array.isArray(rows)) {
-      return { records: [], hasMore: false, nextCursor: null };
+      return { records: [], hasMore: false };
     }
     const mapped = rows.map((row: any) => mapRowToSitemapRecord(row));
     let hasMore = false;
@@ -578,31 +571,25 @@ export async function getPublishedProductsForSitemap(
       hasMore = true;
       records = mapped.slice(0, limit);
     }
-    const nextCursor = records.length > 0 ? records[records.length - 1].id : afterId;
-    return { records, hasMore, nextCursor };
+    return { records, hasMore };
   } catch (error) {
     const err = error as { code?: string };
     if (err && typeof err === 'object' && err.code === 'ER_BAD_FIELD_ERROR') {
       const fallbackStartedAt = Date.now();
-      let fallbackSql = 'SELECT id, slug FROM products WHERE is_published = 1';
-      const params: Array<any> = [];
-      if (afterId !== null) {
-        fallbackSql += ' AND id > ?';
-        params.push(afterId);
-      }
-      fallbackSql += ' ORDER BY id ASC LIMIT ?';
+      const fallbackSql =
+        'SELECT id, slug FROM products WHERE is_published = 1 ORDER BY slug ASC, id ASC LIMIT ? OFFSET ?';
       const limitPlusOne = limit + 1;
-      params.push(limitPlusOne);
+      const params: Array<any> = [limitPlusOne, offset];
       const [rows] = await pool.query(fallbackSql, params);
       const duration = Date.now() - fallbackStartedAt;
       const count = Array.isArray(rows) ? rows.length : 0;
       console.warn(
-        `[products][query] sitemap fallback without timestamps count=${count} limit=${limit} after=${afterId ?? 'null'} (${duration}ms)${
+        `[products][query] sitemap fallback without timestamps count=${count} limit=${limit} offset=${offset} (${duration}ms)${
           requestId ? ` [${requestId}]` : ''
         }`
       );
       if (!Array.isArray(rows)) {
-        return { records: [], hasMore: false, nextCursor: null };
+        return { records: [], hasMore: false };
       }
       const mapped = rows.map((row: any) => mapRowToSitemapRecord(row));
       let hasMore = false;
@@ -611,8 +598,7 @@ export async function getPublishedProductsForSitemap(
         hasMore = true;
         records = mapped.slice(0, limit);
       }
-      const nextCursor = records.length > 0 ? records[records.length - 1].id : afterId;
-      return { records, hasMore, nextCursor };
+      return { records, hasMore };
     }
     const duration = Date.now() - startedAt;
     console.error(
@@ -638,25 +624,22 @@ export async function collectPublishedProductsForSitemap(
 ): Promise<SitemapBatchCollectionResult> {
   const batches: SitemapProductRecord[][] = [];
   let totalCount = 0;
-  let afterId: bigint | null = null;
+  let offset = 0;
   for (let pageIndex = 0; pageIndex < 10000; pageIndex++) {
-    const { records, hasMore, nextCursor } = await getPublishedProductsForSitemap({
+    const { records, hasMore } = await getPublishedProductsForSitemap({
       requestId: options.requestId,
       limit: options.pageSize,
-      afterId
+      offset
     });
     if (records.length === 0) {
       break;
     }
     batches.push(records);
     totalCount += records.length;
-    if (!hasMore || nextCursor === null) {
+    if (!hasMore) {
       break;
     }
-    if (afterId !== null && nextCursor === afterId) {
-      break;
-    }
-    afterId = nextCursor;
+    offset += records.length;
   }
 
   return { batches, totalCount };
@@ -671,32 +654,11 @@ export async function getPublishedProductsForSitemapPage(
     return [];
   }
 
-  let afterId: bigint | null = null;
-  for (let currentPage = 1; currentPage <= pageNumber; currentPage++) {
-    const { records, hasMore, nextCursor } = await getPublishedProductsForSitemap({
-      requestId: options?.requestId,
-      limit: pageSize,
-      afterId
-    });
-
-    if (records.length === 0) {
-      return [];
-    }
-
-    if (currentPage === pageNumber) {
-      return records;
-    }
-
-    if (!hasMore || nextCursor === null) {
-      return [];
-    }
-
-    if (afterId !== null && nextCursor === afterId) {
-      return [];
-    }
-
-    afterId = nextCursor;
-  }
-
-  return [];
+  const offset = (pageNumber - 1) * pageSize;
+  const { records } = await getPublishedProductsForSitemap({
+    requestId: options?.requestId,
+    limit: pageSize,
+    offset
+  });
+  return records;
 }

@@ -38,37 +38,51 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  let target: RevalidateTarget;
-  if (typeof body.slug === 'string' && body.slug.trim()) {
-    const slug = body.slug.trim();
-    target = { type: 'product', slug, paths: [`/p/${slug}`] };
-  } else {
-    target = {
-      type: 'sitemap',
-      paths: ['/sitemap.xml', '/sitemap_index.xml', '/sitemaps/[sitemap]']
-    };
-  }
+  let target: RevalidateTarget | null = null;
 
   try {
+    if (typeof body.slug === 'string' && body.slug.trim()) {
+      const slug = body.slug.trim();
+      target = { type: 'product', slug, paths: [`/p/${slug}`] };
+    } else {
+      target = {
+        type: 'sitemap',
+        paths: ['/sitemap.xml', '/sitemap_index.xml', '/sitemaps/[sitemap]']
+      };
+    }
+
+    if (!target) {
+      throw new Error('revalidate_target_unset');
+    }
+
+    const paths = new Set(target.paths);
+
     if (target.type === 'product') {
       clearProductCache(target.slug);
+      clearSitemapCache();
+      paths.add('/sitemap.xml');
+      paths.add('/sitemap_index.xml');
+      paths.add('/sitemaps/[sitemap]');
     } else {
       clearSitemapCache();
     }
 
-    for (const path of target.paths) {
+    const orderedPaths = Array.from(paths);
+
+    for (const path of orderedPaths) {
       revalidatePath(path);
     }
 
     const duration = Date.now() - startedAt;
     console.log(
-      `[revalidate][${requestId}] target=${target.paths.join(',')} status=ok (${duration}ms)`
+      `[revalidate][${requestId}] target=${orderedPaths.join(',')} status=ok (${duration}ms)`
     );
     return NextResponse.json({ ok: true });
   } catch (error) {
     const duration = Date.now() - startedAt;
+    const targetLabel = target ? target.paths.join(',') : 'unknown';
     console.error(
-      `[revalidate][${requestId}] target=${target.paths.join(',')} status=error (${duration}ms)`,
+      `[revalidate][${requestId}] target=${targetLabel} status=error (${duration}ms)`,
       error
     );
     return NextResponse.json({ ok: false, error: 'Revalidate failed' }, { status: 500 });

@@ -59,7 +59,7 @@ export async function GET(
       return new Response('Not Found', { status: 404 });
     }
 
-    const xml = renderSitemapXml(siteUrl, records);
+    const xml = renderSitemapXml(siteUrl, records, { requestId });
     setCachedSitemap(siteUrl, path, xml);
     const duration = Date.now() - startedAt;
     console.log(

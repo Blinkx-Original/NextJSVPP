@@ -1,6 +1,19 @@
 import type { SitemapProductRecord } from './products';
 
-export const SITEMAP_PAGE_SIZE = 1000;
+export const SITEMAP_PAGE_SIZE = 45000;
+
+function makeProductUrl(siteUrl: string, slug: string): string | null {
+  const trimmed = typeof slug === 'string' ? slug.trim() : '';
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const url = new URL(`/p/${trimmed}`, siteUrl);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 
 function toIsoDate(value: string | null | undefined): string | null {
   if (!value) {
@@ -24,12 +37,28 @@ export function resolveLastModified(record: SitemapProductRecord): string {
   return new Date().toISOString();
 }
 
-export function renderSitemapXml(siteUrl: string, records: SitemapProductRecord[]): string {
+interface RenderSitemapXmlOptions {
+  requestId?: string;
+}
+
+export function renderSitemapXml(
+  siteUrl: string,
+  records: SitemapProductRecord[],
+  options?: RenderSitemapXmlOptions
+): string {
+  const requestIdLabel = options?.requestId ? ` [${options.requestId}]` : '';
   const urls = records
     .map((record) => {
+      const loc = makeProductUrl(siteUrl, record.slug);
+      if (!loc) {
+        const idLabel = record.id ? ` id=${record.id.toString()}` : '';
+        console.warn(`[sitemap][skip]${idLabel} reason=invalid-slug${requestIdLabel}`);
+        return null;
+      }
       const lastmod = resolveLastModified(record);
-      return `  <url>\n    <loc>${siteUrl}/p/${record.slug}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`;
+      return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`;
     })
+    .filter((value): value is string => value !== null)
     .join('\n');
   const content = urls ? `\n${urls}\n` : '';
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${content}</urlset>`;
