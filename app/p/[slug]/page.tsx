@@ -102,7 +102,6 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       title: metaTitle,
       description: metaDescription || undefined,
       url: canonical,
-      type: 'product',
       images: primaryImage ? [{ url: primaryImage }] : undefined
     },
     twitter: {
@@ -110,6 +109,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       title: metaTitle,
       description: metaDescription || undefined,
       images: primaryImage ? [primaryImage] : undefined
+    },
+    other: {
+      'og:type': 'product'
     }
   };
 }
