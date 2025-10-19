@@ -11,7 +11,11 @@ type OptionalEnvKey =
   | 'ALGOLIA_ADMIN_API_KEY'
   | 'ALGOLIA_INDEX_PRIMARY'
   | 'TIDB_SSL_MODE'
-  | 'TIDB_SSL_CA';
+  | 'TIDB_SSL_CA'
+  | 'CLOUDFLARE_ZONE_ID'
+  | 'CLOUDFLARE_API_TOKEN'
+  | 'CLOUDFLARE_ENABLE_PURGE_ON_PUBLISH'
+  | 'CLOUDFLARE_INCLUDE_PRODUCT_URLS';
 
 type EnvShape = Record<RequiredEnvKey, string> & Partial<Record<OptionalEnvKey, string>>;
 
@@ -38,7 +42,11 @@ function getEnv(): EnvShape {
     'ALGOLIA_ADMIN_API_KEY',
     'ALGOLIA_INDEX_PRIMARY',
     'TIDB_SSL_MODE',
-    'TIDB_SSL_CA'
+    'TIDB_SSL_CA',
+    'CLOUDFLARE_ZONE_ID',
+    'CLOUDFLARE_API_TOKEN',
+    'CLOUDFLARE_ENABLE_PURGE_ON_PUBLISH',
+    'CLOUDFLARE_INCLUDE_PRODUCT_URLS'
   ] as const) {
     const value = process.env[key];
     if (typeof value === 'string') {
