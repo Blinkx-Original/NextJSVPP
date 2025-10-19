@@ -5,6 +5,10 @@ function createRequestId() {
   return Math.random().toString(36).slice(2, 8);
 }
 
+function createRequestId() {
+  return Math.random().toString(36).slice(2, 8);
+}
+
 export const runtime = 'nodejs';
 
 export async function GET() {
