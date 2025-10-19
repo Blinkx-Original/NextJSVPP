@@ -8,8 +8,14 @@ type OptionalEnvKey =
   | 'ALGOLIA_APP_ID'
   | 'ALGOLIA_API_KEY'
   | 'ALGOLIA_INDEX'
+  | 'ALGOLIA_ADMIN_API_KEY'
+  | 'ALGOLIA_INDEX_PRIMARY'
   | 'TIDB_SSL_MODE'
-  | 'TIDB_SSL_CA';
+  | 'TIDB_SSL_CA'
+  | 'CLOUDFLARE_ZONE_ID'
+  | 'CLOUDFLARE_API_TOKEN'
+  | 'CLOUDFLARE_ENABLE_PURGE_ON_PUBLISH'
+  | 'CLOUDFLARE_INCLUDE_PRODUCT_URLS';
 
 type EnvShape = Record<RequiredEnvKey, string> & Partial<Record<OptionalEnvKey, string>>;
 
@@ -27,7 +33,21 @@ function getEnv(): EnvShape {
     output[key] = value;
   }
 
-  for (const key of ['NEXT_PUBLIC_SITE_URL', 'NEXT_PUBLIC_SITE_NAME', 'ALGOLIA_APP_ID', 'ALGOLIA_API_KEY', 'ALGOLIA_INDEX', 'TIDB_SSL_MODE', 'TIDB_SSL_CA'] as const) {
+  for (const key of [
+    'NEXT_PUBLIC_SITE_URL',
+    'NEXT_PUBLIC_SITE_NAME',
+    'ALGOLIA_APP_ID',
+    'ALGOLIA_API_KEY',
+    'ALGOLIA_INDEX',
+    'ALGOLIA_ADMIN_API_KEY',
+    'ALGOLIA_INDEX_PRIMARY',
+    'TIDB_SSL_MODE',
+    'TIDB_SSL_CA',
+    'CLOUDFLARE_ZONE_ID',
+    'CLOUDFLARE_API_TOKEN',
+    'CLOUDFLARE_ENABLE_PURGE_ON_PUBLISH',
+    'CLOUDFLARE_INCLUDE_PRODUCT_URLS'
+  ] as const) {
     const value = process.env[key];
     if (typeof value === 'string') {
       const trimmed = value.trim();
