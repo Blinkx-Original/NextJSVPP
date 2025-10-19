@@ -29,6 +29,31 @@ interface TidbError {
 
 type TidbResponse = TidbSuccess | TidbError;
 
+interface TidbUpdateSuccess {
+  ok: true;
+  rows_affected: number;
+  product: {
+    slug: string;
+    title_h1: string | null;
+    short_summary: string | null;
+    desc_html: string | null;
+    last_tidb_update_at: string | null;
+  };
+}
+
+interface TidbUpdateError {
+  ok: false;
+  error_code?: string;
+  error_details?: unknown;
+  message?: string;
+}
+
+type TidbUpdateResponse = TidbUpdateSuccess | TidbUpdateError;
+
+function isTidbUpdateSuccess(value: TidbUpdateResponse | undefined): value is TidbUpdateSuccess {
+  return Boolean(value && value.ok);
+}
+
 interface AlgoliaSuccess {
   ok: true;
   latency_ms: number;
@@ -110,6 +135,22 @@ const cardStyle: CSSProperties = {
   flexDirection: 'column',
   gap: '1rem',
   background: '#fff'
+};
+
+const inputStyle: CSSProperties = {
+  padding: '0.5rem 0.75rem',
+  borderRadius: 8,
+  border: '1px solid #cbd5f5',
+  borderColor: '#cbd5f5',
+  fontSize: '0.95rem',
+  width: '100%',
+  boxSizing: 'border-box'
+};
+
+const textareaStyle: CSSProperties = {
+  ...inputStyle,
+  minHeight: '4.5rem',
+  fontFamily: 'inherit'
 };
 
 const buttonStyle: CSSProperties = {
@@ -306,6 +347,19 @@ async function postJson<T>(url: string): Promise<{ response: Response; body: T }
   return { response, body };
 }
 
+async function postJsonWithBody<T>(url: string, payload: unknown): Promise<{ response: Response; body: T }> {
+  const response = await fetch(url, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  const body = (await response.json()) as T;
+  return { response, body };
+}
+
 export function ConnectivityPanel() {
   const [tidbResult, setTidbResult] = useState<TestResult<TidbResponse>>({ status: 'idle' });
   const [algoliaResult, setAlgoliaResult] = useState<TestResult<AlgoliaResponse>>({ status: 'idle' });
@@ -319,6 +373,11 @@ export function ConnectivityPanel() {
   const [cloudflareLogs, setCloudflareLogs] = useState<CloudflareLogEntry[]>([]);
   const [cloudflareLoadingAction, setCloudflareLoadingAction] = useState<CloudflareAction | null>(null);
   const [cloudflareConfigured, setCloudflareConfigured] = useState<boolean | null>(null);
+  const [tidbUpdateSlug, setTidbUpdateSlug] = useState('');
+  const [tidbUpdateTitle, setTidbUpdateTitle] = useState('');
+  const [tidbUpdateSummary, setTidbUpdateSummary] = useState('');
+  const [tidbUpdateDesc, setTidbUpdateDesc] = useState('');
+  const [tidbUpdateResult, setTidbUpdateResult] = useState<TestResult<TidbUpdateResponse>>({ status: 'idle' });
 
   useEffect(() => {
     let cancelled = false;
@@ -464,6 +523,72 @@ export function ConnectivityPanel() {
     }
   };
 
+  const handleTidbUpdate = async () => {
+    const slug = tidbUpdateSlug.trim();
+    if (!slug) {
+      setTidbUpdateResult({
+        status: 'error',
+        errorCode: 'missing_slug',
+        errorDetails: { message: 'Ingresa un slug válido.' }
+      });
+      return;
+    }
+
+    const payload: Record<string, string> = { slug };
+    if (tidbUpdateTitle !== '') {
+      payload.title_h1 = tidbUpdateTitle;
+    }
+    if (tidbUpdateSummary !== '') {
+      payload.short_summary = tidbUpdateSummary;
+    }
+    if (tidbUpdateDesc !== '') {
+      payload.desc_html = tidbUpdateDesc;
+    }
+
+    if (Object.keys(payload).length === 1) {
+      setTidbUpdateResult({
+        status: 'error',
+        errorCode: 'missing_fields',
+        errorDetails: { message: 'Completa al menos un campo para actualizar.' }
+      });
+      return;
+    }
+
+    setTidbUpdateResult({ status: 'loading' });
+
+    try {
+      const { response, body } = await postJsonWithBody<TidbUpdateResponse>(
+        '/api/admin/connectivity/tidb/update',
+        payload
+      );
+
+      if (response.ok && body.ok) {
+        setTidbUpdateResult({ status: 'success', data: body, timestamp: Date.now() });
+      } else if (!body.ok) {
+        setTidbUpdateResult({
+          status: 'error',
+          data: body,
+          errorCode: body.error_code ?? null,
+          errorDetails: body.error_details ?? (body.message ? { message: body.message } : undefined),
+          timestamp: Date.now()
+        });
+      } else {
+        setTidbUpdateResult({
+          status: 'error',
+          data: body,
+          errorCode: `http_${response.status}`,
+          timestamp: Date.now()
+        });
+      }
+    } catch (error) {
+      setTidbUpdateResult({
+        status: 'error',
+        errorCode: 'network_error',
+        errorDetails: { message: (error as Error)?.message }
+      });
+    }
+  };
+
   const handleTestAlgolia = async () => {
     setAlgoliaResult({ status: 'loading' });
     try {
@@ -528,6 +653,12 @@ export function ConnectivityPanel() {
     }
   };
 
+  const tidbUpdateLoading = tidbUpdateResult.status === 'loading';
+  const tidbUpdateSuccessData =
+    tidbUpdateResult.status === 'success' && isTidbUpdateSuccess(tidbUpdateResult.data)
+      ? tidbUpdateResult.data
+      : null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <section style={cardStyle}>
@@ -568,6 +699,113 @@ export function ConnectivityPanel() {
           Test TiDB Connection
         </button>
         <ErrorBlock code={tidbResult.errorCode ?? undefined} details={tidbResult.errorDetails} />
+        <div
+          style={{
+            borderTop: '1px solid #e2e8f0',
+            paddingTop: '1rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem'
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: '1rem', color: '#0f172a' }}>Write Test (TiDB Update)</h3>
+          <p style={{ margin: 0, fontSize: '0.9rem', color: '#475569' }}>
+            Actualiza campos básicos para un producto existente usando su <code>slug</code>.
+          </p>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.9rem' }}>
+            <span style={{ fontWeight: 600, color: '#0f172a' }}>Slug del producto</span>
+            <input
+              type="text"
+              value={tidbUpdateSlug}
+              onChange={(event) => setTidbUpdateSlug(event.target.value)}
+              placeholder="ej. 3-wafer-style-butterfly-valve-w-epdm-seals-and-dbl-acting-pneum-actuator"
+              style={inputStyle}
+            />
+          </label>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: '0.75rem'
+            }}
+          >
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.9rem' }}>
+              <span style={{ fontWeight: 600, color: '#0f172a' }}>title_h1</span>
+              <textarea
+                value={tidbUpdateTitle}
+                onChange={(event) => setTidbUpdateTitle(event.target.value)}
+                placeholder="Nuevo título principal"
+                style={textareaStyle}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.9rem' }}>
+              <span style={{ fontWeight: 600, color: '#0f172a' }}>short_summary</span>
+              <textarea
+                value={tidbUpdateSummary}
+                onChange={(event) => setTidbUpdateSummary(event.target.value)}
+                placeholder="Resumen corto del producto"
+                style={textareaStyle}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.9rem' }}>
+              <span style={{ fontWeight: 600, color: '#0f172a' }}>desc_html</span>
+              <textarea
+                value={tidbUpdateDesc}
+                onChange={(event) => setTidbUpdateDesc(event.target.value)}
+                placeholder="Descripción HTML del producto"
+                style={textareaStyle}
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            onClick={handleTidbUpdate}
+            style={tidbUpdateLoading ? disabledButtonStyle : buttonStyle}
+            disabled={tidbUpdateLoading}
+          >
+            {tidbUpdateLoading ? 'Actualizando…' : 'Update Product in TiDB'}
+          </button>
+          {tidbUpdateSuccessData ? (
+            <div
+              style={{
+                background: '#dcfce7',
+                color: '#166534',
+                padding: '0.75rem',
+                borderRadius: 8,
+                fontSize: '0.9rem',
+                fontWeight: 600
+              }}
+            >
+              ✅ Product updated successfully (rows affected: {tidbUpdateSuccessData.rows_affected})
+            </div>
+          ) : null}
+          <ErrorBlock
+            code={
+              tidbUpdateResult.status === 'error' ? tidbUpdateResult.errorCode ?? undefined : undefined
+            }
+            details={tidbUpdateResult.status === 'error' ? tidbUpdateResult.errorDetails : undefined}
+          />
+          {tidbUpdateSuccessData ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a' }}>
+                Producto actualizado (preview desde TiDB)
+              </span>
+              <pre
+                style={{
+                  margin: 0,
+                  padding: '0.75rem',
+                  background: '#f8fafc',
+                  borderRadius: 8,
+                  fontSize: '0.8rem',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word'
+                }}
+              >
+                {JSON.stringify(tidbUpdateSuccessData.product, null, 2)}
+              </pre>
+            </div>
+          ) : null}
+        </div>
       </section>
 
       <section style={cardStyle}>
