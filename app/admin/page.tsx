@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import ConnectivityPanel from './connectivity-panel';
+import PublishingPanel from './publishing-panel';
 
 export const revalidate = 0;
 
@@ -28,22 +29,73 @@ const activeTabStyle: CSSProperties = {
   fontSize: '0.95rem'
 };
 
-export default function AdminPage() {
+const inactiveTabStyle: CSSProperties = {
+  ...activeTabStyle,
+  background: 'transparent',
+  color: '#0f172a',
+  border: '1px solid #cbd5f5'
+};
+
+interface AdminPageProps {
+  searchParams?: Record<string, string | string[] | undefined>;
+}
+
+function normalizeTab(input: string | string[] | undefined): 'connectivity' | 'publishing' {
+  if (Array.isArray(input)) {
+    return normalizeTab(input[0]);
+  }
+  if (typeof input === 'string') {
+    const normalized = input.toLowerCase();
+    if (normalized === 'publishing') {
+      return 'publishing';
+    }
+  }
+  return 'connectivity';
+}
+
+export default function AdminPage({ searchParams }: AdminPageProps) {
+  const activeTab = normalizeTab(searchParams?.tab);
+
+  const tabs: Array<{ id: 'connectivity' | 'publishing'; label: string }> = [
+    { id: 'connectivity', label: 'Connectivity' },
+    { id: 'publishing', label: 'Publishing' }
+  ];
+
   return (
     <section style={containerStyle}>
       <header>
         <h1 style={{ fontSize: '2.5rem', color: '#0f172a', margin: 0 }}>Panel de Administración</h1>
         <p style={{ marginTop: '1rem', color: '#475569', maxWidth: 640 }}>
-          Esta sección está protegida con Basic Auth. La pestaña de conectividad permite ejecutar pruebas rápidas para
-          diagnosticar problemas de acceso a servicios externos.
+          Esta sección está protegida con Basic Auth. Usa las pestañas para diagnosticar conectividad y controlar la
+          publicación hacia el sitio y Algolia.
         </p>
       </header>
 
       <nav style={tabListStyle} aria-label="Admin tabs">
-        <span style={activeTabStyle}>Connectivity</span>
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTab;
+          const href = tab.id === 'connectivity' ? '/admin' : '/admin?tab=publishing';
+          if (isActive) {
+            return (
+              <span key={tab.id} style={activeTabStyle} aria-current="page">
+                {tab.label}
+              </span>
+            );
+          }
+          return (
+            <a
+              key={tab.id}
+              href={href}
+              style={inactiveTabStyle}
+              aria-label={`Cambiar a la pestaña ${tab.label}`}
+            >
+              {tab.label}
+            </a>
+          );
+        })}
       </nav>
 
-      <ConnectivityPanel />
+      {activeTab === 'publishing' ? <PublishingPanel /> : <ConnectivityPanel />}
     </section>
   );
 }
