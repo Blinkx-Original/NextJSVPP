@@ -662,3 +662,53 @@ export async function getPublishedProductsForSitemapPage(
   });
   return records;
 }
+
+export async function getPublishedProductsBySlugs(slugs: string[]): Promise<NormalizedProductResult[]> {
+  if (!Array.isArray(slugs) || slugs.length === 0) {
+    return [];
+  }
+
+  const pool = getPool();
+  const [rows] = await pool.query('SELECT * FROM products WHERE slug IN (?)', [slugs]);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+
+  const results = new Map<string, NormalizedProductResult>();
+
+  for (const row of rows) {
+    try {
+      const parsed = productSchema.parse(row);
+      const isPublished = parsed.is_published === 1 || parsed.is_published === true;
+      if (!isPublished) {
+        continue;
+      }
+      const slug = typeof parsed.slug === 'string' ? parsed.slug : '';
+      if (!slug) {
+        continue;
+      }
+      const { normalized } = normalizeProductRecordInternal(parsed, { slug });
+      const result: NormalizedProductResult = {
+        raw: parsed,
+        normalized
+      };
+      results.set(normalized.slug, result);
+    } catch (error) {
+      console.warn('[products][algolia] unable to parse record', error);
+    }
+  }
+
+  const ordered: NormalizedProductResult[] = [];
+  for (const slug of slugs) {
+    const key = typeof slug === 'string' ? slug.trim() : '';
+    if (!key) {
+      continue;
+    }
+    const entry = results.get(key);
+    if (entry) {
+      ordered.push(entry);
+    }
+  }
+
+  return ordered;
+}
