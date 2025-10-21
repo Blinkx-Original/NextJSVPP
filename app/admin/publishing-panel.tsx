@@ -164,7 +164,14 @@ function StatusBadge({ status, successLabel = 'Listo' }: StatusBadgeProps) {
 }
 
 async function getJson<T>(input: RequestInfo, init?: RequestInit): Promise<{ response: Response; body: T }> {
-  const response = await fetch(input, init);
+  const response = await fetch(input, {
+    cache: 'no-store',
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      'Cache-Control': 'no-store'
+    }
+  });
   const text = await response.text();
   const body = text ? (JSON.parse(text) as T) : ({} as T);
   return { response, body };

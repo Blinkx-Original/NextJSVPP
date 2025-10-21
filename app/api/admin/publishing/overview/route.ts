@@ -4,6 +4,9 @@ import { getPool } from '@/lib/db';
 import { AlgoliaTimeoutError, getAlgoliaConfig, listAlgoliaIndices } from '@/lib/algolia';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 interface OverviewSiteCounts {
   published: number;
@@ -87,7 +90,11 @@ export async function GET() {
       algolia
     };
 
-    return NextResponse.json(body);
+    return NextResponse.json(body, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0'
+      }
+    });
   } catch (error) {
     const body: OverviewResponseBody = {
       ok: false,
@@ -96,6 +103,11 @@ export async function GET() {
       error_code: 'overview_failed',
       error_details: error instanceof Error ? { message: error.message } : undefined
     };
-    return NextResponse.json(body, { status: 500 });
+    return NextResponse.json(body, {
+      status: 500,
+      headers: {
+        'Cache-Control': 'no-store, max-age=0'
+      }
+    });
   }
 }
