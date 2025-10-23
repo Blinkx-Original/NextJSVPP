@@ -402,16 +402,20 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
           setImagesError(body.message ?? 'No se pudo obtener las imágenes');
           return;
         }
+        const images = body.images ?? [];
         setSelectedProduct({ id: body.product.id, slug: body.product.slug, title: body.product.title });
-        setImages(body.images ?? []);
+        setImages(images);
         setImagesFormat(body.images_json_format ?? 'strings');
         setImagesStatus('success');
         setSelectedImageIndex((prev) => {
-          if (prev == null) {
-            return body.images && body.images.length > 0 ? 0 : null;
+          if (images.length === 0) {
+            return null;
           }
-          if (!body.images || prev >= body.images.length) {
-            return body.images.length > 0 ? body.images.length - 1 : null;
+          if (prev == null) {
+            return 0;
+          }
+          if (prev >= images.length) {
+            return images.length - 1;
           }
           return prev;
         });
