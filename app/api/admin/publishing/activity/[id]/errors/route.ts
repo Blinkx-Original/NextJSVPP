@@ -13,7 +13,7 @@ export async function GET(
   _request: Request,
   context: { params: { id: string } }
 ) {
-  const entry = getPublishingActivityById(context.params.id);
+  const entry = await getPublishingActivityById(context.params.id);
   if (!entry) {
     return NextResponse.json({ ok: false, error_code: 'not_found' }, { status: 404 });
   }

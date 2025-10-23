@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
     if (candidates.length === 0) {
       message = 'No hay productos pendientes de publicación.';
       const duration = Date.now() - startedAt;
-      const activity = recordPublishingActivity({
+      const activity = await recordPublishingActivity({
         type: 'sitemap',
         requested,
         processed: 0,
@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
       cloudflare: cloudflareSummary
     };
 
-    const activity = recordPublishingActivity({
+    const activity = await recordPublishingActivity({
       type: 'sitemap',
       requested,
       processed,
@@ -273,7 +273,7 @@ export async function POST(request: NextRequest) {
     }
     errors = errors || 1;
     const duration = Date.now() - startedAt;
-    const activity = recordPublishingActivity({
+    const activity = await recordPublishingActivity({
       type: 'sitemap',
       requested,
       processed,
