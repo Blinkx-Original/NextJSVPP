@@ -240,7 +240,7 @@ export async function POST(request: NextRequest) {
     if (candidateSlugs.length === 0) {
       const duration = Date.now() - startedAt;
       const message = 'No hay productos publicados para evaluar.';
-      const activity = recordPublishingActivity({
+      const activity = await recordPublishingActivity({
         type: 'algolia',
         requested,
         processed: 0,
@@ -273,7 +273,7 @@ export async function POST(request: NextRequest) {
     if (missingSlugs.length === 0) {
       const duration = Date.now() - startedAt;
       const message = 'No hay pendientes para Algolia.';
-      const activity = recordPublishingActivity({
+      const activity = await recordPublishingActivity({
         type: 'algolia',
         requested,
         processed: 0,
@@ -324,7 +324,7 @@ export async function POST(request: NextRequest) {
       const duration = Date.now() - startedAt;
       errors = errorItems.length > 0 ? errorItems.length : 0;
       const message = 'No se encontraron datos válidos para enviar a Algolia.';
-      const activity = recordPublishingActivity({
+      const activity = await recordPublishingActivity({
         type: 'algolia',
         requested,
         processed: missingSlugs.length,
@@ -375,7 +375,7 @@ export async function POST(request: NextRequest) {
       error_items: errorItems
     };
 
-    const activity = recordPublishingActivity({
+    const activity = await recordPublishingActivity({
       type: 'algolia',
       requested,
       processed,
@@ -407,7 +407,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     errors = Math.max(errors, 1);
     const duration = Date.now() - startedAt;
-    const activity = recordPublishingActivity({
+    const activity = await recordPublishingActivity({
       type: 'algolia',
       requested,
       processed,
