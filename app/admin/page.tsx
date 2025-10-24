@@ -1,6 +1,9 @@
 import type { CSSProperties } from 'react';
+import { headers as nextHeaders } from 'next/headers';
 import ConnectivityPanel from './connectivity-panel';
 import PublishingPanel from './publishing-panel';
+import AssetsPanel from './assets-panel';
+import { readCloudflareImagesConfig } from '@/lib/cloudflare-images';
 
 export const revalidate = 0;
 
@@ -40,7 +43,7 @@ interface AdminPageProps {
   searchParams?: Record<string, string | string[] | undefined>;
 }
 
-function normalizeTab(input: string | string[] | undefined): 'connectivity' | 'publishing' {
+function normalizeTab(input: string | string[] | undefined): 'connectivity' | 'publishing' | 'assets' {
   if (Array.isArray(input)) {
     return normalizeTab(input[0]);
   }
@@ -49,6 +52,9 @@ function normalizeTab(input: string | string[] | undefined): 'connectivity' | 'p
     if (normalized === 'publishing') {
       return 'publishing';
     }
+    if (normalized === 'assets') {
+      return 'assets';
+    }
   }
   return 'connectivity';
 }
@@ -56,9 +62,19 @@ function normalizeTab(input: string | string[] | undefined): 'connectivity' | 'p
 export default function AdminPage({ searchParams }: AdminPageProps) {
   const activeTab = normalizeTab(searchParams?.tab);
 
-  const tabs: Array<{ id: 'connectivity' | 'publishing'; label: string }> = [
-    { id: 'connectivity', label: 'Connectivity' },
-    { id: 'publishing', label: 'Publishing' }
+  const headerList = nextHeaders();
+  const authHeader = headerList.get('authorization');
+
+  const cfImagesConfig = readCloudflareImagesConfig();
+  const cfImagesEnabled = Boolean(
+    cfImagesConfig.enabled && cfImagesConfig.accountId && cfImagesConfig.token && cfImagesConfig.baseUrl
+  );
+  const cfImagesBaseUrl = cfImagesConfig.baseUrl ?? null;
+
+  const tabs: Array<{ id: 'connectivity' | 'publishing' | 'assets'; label: string; href: string }> = [
+    { id: 'connectivity', label: 'Connectivity', href: '/admin' },
+    { id: 'publishing', label: 'Publishing', href: '/admin?tab=publishing' },
+    { id: 'assets', label: 'Assets', href: '/admin?tab=assets' }
   ];
 
   return (
@@ -74,7 +90,6 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
       <nav style={tabListStyle} aria-label="Admin tabs">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTab;
-          const href = tab.id === 'connectivity' ? '/admin' : '/admin?tab=publishing';
           if (isActive) {
             return (
               <span key={tab.id} style={activeTabStyle} aria-current="page">
@@ -85,7 +100,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
           return (
             <a
               key={tab.id}
-              href={href}
+              href={tab.href}
               style={inactiveTabStyle}
               aria-label={`Cambiar a la pestaña ${tab.label}`}
             >
@@ -95,7 +110,17 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
         })}
       </nav>
 
-      {activeTab === 'publishing' ? <PublishingPanel /> : <ConnectivityPanel />}
+      {activeTab === 'publishing' ? (
+        <PublishingPanel />
+      ) : activeTab === 'assets' ? (
+        <AssetsPanel
+          cfImagesEnabled={cfImagesEnabled}
+          cfImagesBaseUrl={cfImagesBaseUrl}
+          authHeader={authHeader}
+        />
+      ) : (
+        <ConnectivityPanel />
+      )}
     </section>
   );
 }
