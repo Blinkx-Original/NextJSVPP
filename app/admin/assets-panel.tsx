@@ -206,6 +206,75 @@ type VariantPreviewState =
       contentLength?: number | null;
     };
 
+interface NormalizedProductQuery {
+  searchTerm: string;
+  slugParam: string | null;
+  idParam: string | null;
+}
+
+function normalizeProductQueryInput(input: string): NormalizedProductQuery {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return { searchTerm: '', slugParam: null, idParam: null };
+  }
+
+  let working = trimmed;
+
+  try {
+    const parsed = new URL(working);
+    working = parsed.pathname || '';
+  } catch {
+    if (/^[^/]+\.[^/]+\/.+/.test(working)) {
+      const slashIndex = working.indexOf('/');
+      working = slashIndex >= 0 ? working.slice(slashIndex) : working;
+    }
+  }
+
+  const queryIndex = working.indexOf('?');
+  if (queryIndex >= 0) {
+    working = working.slice(0, queryIndex);
+  }
+
+  const hashIndex = working.indexOf('#');
+  if (hashIndex >= 0) {
+    working = working.slice(0, hashIndex);
+  }
+
+  const segments = working
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    });
+
+  while (segments.length > 0) {
+    const first = segments[0].toLowerCase();
+    if (first === 'p' || first === 'product' || first === 'products') {
+      segments.shift();
+      continue;
+    }
+    break;
+  }
+
+  let candidate = segments.join('/');
+  if (!candidate) {
+    candidate = trimmed;
+  }
+
+  const numeric = /^[0-9]+$/.test(candidate);
+
+  return {
+    searchTerm: candidate,
+    slugParam: numeric ? null : candidate,
+    idParam: numeric ? candidate : null
+  };
+}
+
 const searchListStyle: CSSProperties = {
   marginTop: '0.5rem',
   border: '1px solid #e2e8f0',
@@ -442,6 +511,11 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
   const [bulkAttachResults, setBulkAttachResults] = useState<BulkAttachResult[]>([]);
   const [bulkAttachMessage, setBulkAttachMessage] = useState<string | null>(null);
 
+  const normalizedProductQuery = useMemo(
+    () => normalizeProductQueryInput(productQuery),
+    [productQuery]
+  );
+
   const searchAbortRef = useRef<AbortController | null>(null);
 
   const hasErrors = useMemo(() => activity.some((entry) => entry.status === 'error'), [activity]);
@@ -537,20 +611,61 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
   );
 
   const loadProductFromQuery = useCallback(() => {
-    const query = productQuery.trim();
-    if (!query) {
+    const trimmedInput = productQuery.trim();
+    if (!trimmedInput) {
       return;
     }
-    const candidate = searchResults.find((item) => item.slug === query) ?? searchResults[0] ?? null;
+
+    const searchTerm = normalizedProductQuery.searchTerm.trim();
+    const slugParam = normalizedProductQuery.slugParam;
+    const idParam = normalizedProductQuery.idParam;
+
+    const candidate =
+      searchResults.find(
+        (item) =>
+          item.slug === searchTerm ||
+          (slugParam != null && slugParam.length > 0 && item.slug === slugParam) ||
+          (idParam != null && idParam.length > 0 && item.slug === idParam)
+      ) ??
+      searchResults.find((item) => idParam != null && idParam.length > 0 && item.id === idParam) ??
+      searchResults[0] ??
+      null;
+
     if (candidate) {
       handleSelectProduct(candidate);
       return;
     }
-    refreshImages(query, query);
-  }, [handleSelectProduct, productQuery, refreshImages, searchResults]);
+
+    let slug = slugParam;
+    let id = idParam;
+
+    if (!slug && !id) {
+      if (/^[0-9]+$/.test(searchTerm)) {
+        id = searchTerm;
+      } else if (searchTerm) {
+        slug = searchTerm;
+      } else if (/^[0-9]+$/.test(trimmedInput)) {
+        id = trimmedInput;
+      } else {
+        slug = trimmedInput;
+      }
+    }
+
+    refreshImages(slug ?? null, id ?? null);
+  }, [handleSelectProduct, normalizedProductQuery, productQuery, refreshImages, searchResults]);
 
   useEffect(() => {
-    if (!productQuery || productQuery.trim().length < 2) {
+    const trimmedInput = productQuery.trim();
+    const searchTerm = normalizedProductQuery.searchTerm.trim();
+
+    if (!trimmedInput) {
+      setSearchResults([]);
+      setSearchStatus('idle');
+      searchAbortRef.current?.abort();
+      return;
+    }
+
+    if (searchTerm.length < 2) {
       setSearchResults([]);
       setSearchStatus('idle');
       searchAbortRef.current?.abort();
@@ -564,7 +679,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
 
     const timeoutId = setTimeout(async () => {
       try {
-        const response = await fetch(`/api/assets/images/search?query=${encodeURIComponent(productQuery.trim())}`, {
+        const response = await fetch(`/api/assets/images/search?query=${encodeURIComponent(searchTerm)}`, {
           method: 'GET',
           signal: controller.signal
         });
@@ -587,7 +702,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [productQuery]);
+  }, [normalizedProductQuery.searchTerm, productQuery]);
 
   useEffect(() => {
     setValidationStatus('idle');
