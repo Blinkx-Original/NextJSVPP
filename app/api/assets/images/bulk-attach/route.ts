@@ -277,12 +277,9 @@ export async function POST(request: Request) {
     results.push({ slug: context.product.slug, status: 'attached', detail: imageId ?? deliveryUrl });
   }
 
-  const processed = new Set<ProductContext>();
-  for (const context of contexts.values()) {
-    if (processed.has(context)) {
-      continue;
-    }
-    processed.add(context);
+  const uniqueContexts = Array.from(new Set(contexts.values()));
+  for (let index = 0; index < uniqueContexts.length; index += 1) {
+    const context = uniqueContexts[index];
     if (!context.updated) {
       continue;
     }
