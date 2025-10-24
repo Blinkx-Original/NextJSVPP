@@ -8,6 +8,7 @@ import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle } from './panel
 interface AssetsPanelProps {
   cfImagesEnabled: boolean;
   cfImagesBaseUrl?: string | null;
+  authHeader?: string | null;
 }
 
 interface SearchResult {
@@ -485,7 +486,7 @@ function downloadCsv(entries: ActivityEntry[]) {
   URL.revokeObjectURL(url);
 }
 
-export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: AssetsPanelProps) {
+export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl, authHeader }: AssetsPanelProps) {
   const [productQuery, setProductQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchStatus, setSearchStatus] = useState<AsyncStatus>('idle');
@@ -514,6 +515,18 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
   const normalizedProductQuery = useMemo(
     () => normalizeProductQueryInput(productQuery),
     [productQuery]
+  );
+
+  const authHeaderValue = authHeader ?? null;
+
+  const buildAuthHeaders = useCallback(
+    (additional?: Record<string, string>) => {
+      if (authHeaderValue) {
+        return { Authorization: authHeaderValue, ...(additional ?? {}) };
+      }
+      return additional;
+    },
+    [authHeaderValue]
   );
 
   const searchAbortRef = useRef<AbortController | null>(null);
@@ -565,7 +578,8 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         }
         const response = await fetch(`/api/assets/images/resolve?${params.toString()}`, {
           method: 'GET',
-          cache: 'no-store'
+          cache: 'no-store',
+          headers: buildAuthHeaders()
         });
         const body = (await response.json()) as ResolveResponseBody;
         if (!response.ok || !body.ok || !body.product) {
@@ -598,7 +612,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         setImagesError((error as Error)?.message ?? 'Error desconocido');
       }
     },
-    []
+    [buildAuthHeaders]
   );
 
   const handleSelectProduct = useCallback(
@@ -681,7 +695,8 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       try {
         const response = await fetch(`/api/assets/images/search?query=${encodeURIComponent(searchTerm)}`, {
           method: 'GET',
-          signal: controller.signal
+          signal: controller.signal,
+          headers: buildAuthHeaders()
         });
         const body = (await response.json()) as { ok: boolean; results?: SearchResult[] };
         if (!response.ok || !body.ok || !body.results) {
@@ -702,7 +717,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [normalizedProductQuery.searchTerm, productQuery]);
+  }, [buildAuthHeaders, normalizedProductQuery.searchTerm, productQuery]);
 
   useEffect(() => {
     setValidationStatus('idle');
@@ -726,7 +741,8 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         const params = new URLSearchParams({ imageId, variant });
         const response = await fetch(`/api/assets/images/variant-preview?${params.toString()}`, {
           method: 'GET',
-          signal: controller.signal
+          signal: controller.signal,
+          headers: buildAuthHeaders()
         });
         const body = (await response.json()) as VariantPreviewResponseBody;
         if (!response.ok || !body.ok || !body.url || typeof body.status !== 'number' || typeof body.latency_ms !== 'number') {
@@ -761,7 +777,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
     return () => {
       controller.abort();
     };
-  }, [cfImagesEnabled, selectedImage, uploadVariant]);
+  }, [buildAuthHeaders, cfImagesEnabled, selectedImage, uploadVariant]);
 
   const handleUploadFile = useCallback(
     (file: File) => {
@@ -789,6 +805,9 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/assets/images/upload');
       xhr.responseType = 'json';
+      if (authHeaderValue) {
+        xhr.setRequestHeader('Authorization', authHeaderValue);
+      }
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -850,7 +869,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
 
       xhr.send(formData);
     },
-    [appendActivity, cfImagesEnabled, refreshImages, selectedProduct, uploadVariant]
+    [appendActivity, authHeaderValue, cfImagesEnabled, refreshImages, selectedProduct, uploadVariant]
   );
 
   const handleFileInputChange = useCallback(
@@ -887,7 +906,8 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       setActionPending(key, true);
       try {
         const response = await fetch(`/api/assets/images/${encodeURIComponent(image.image_id)}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: buildAuthHeaders()
         });
         const body = (await response.json()) as DeleteResponseBody;
         if (!response.ok || !body.ok) {
@@ -925,7 +945,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         setActionPending(key, false);
       }
     },
-    [appendActivity, selectedProduct, setActionPending]
+    [appendActivity, buildAuthHeaders, selectedProduct, setActionPending]
   );
 
   const handleValidateUrls = useCallback(async () => {
@@ -942,7 +962,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
     try {
       const response = await fetch('/api/assets/images/validate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ slugOrId: selectedProduct.slug ?? selectedProduct.id })
       });
       const body = (await response.json()) as ValidateResponseBody;
@@ -987,7 +1007,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         message
       });
     }
-  }, [appendActivity, selectedProduct]);
+  }, [appendActivity, buildAuthHeaders, selectedProduct]);
 
   const removeFromProduct = useCallback(
     async (target: string) => {
@@ -999,7 +1019,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       try {
         const response = await fetch('/api/assets/images/remove-from-product', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ slugOrId: selectedProduct.slug ?? selectedProduct.id, urlOrImageId: target })
         });
         const body = (await response.json()) as RemoveResponseBody;
@@ -1035,7 +1055,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         setActionPending(key, false);
       }
     },
-    [appendActivity, refreshImages, selectedProduct, setActionPending]
+    [appendActivity, buildAuthHeaders, refreshImages, selectedProduct, setActionPending]
   );
 
   const handleRemoveImage = useCallback(
@@ -1063,7 +1083,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       try {
         const response = await fetch('/api/assets/images/make-primary', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ slugOrId: selectedProduct.slug ?? selectedProduct.id, urlOrImageId: target })
         });
         const body = (await response.json()) as MakePrimaryResponseBody;
@@ -1106,7 +1126,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         setActionPending(key, false);
       }
     },
-    [appendActivity, refreshImages, selectedProduct, setActionPending]
+    [appendActivity, buildAuthHeaders, refreshImages, selectedProduct, setActionPending]
   );
 
   const handleRelinkFromUrl = useCallback(
@@ -1129,7 +1149,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       try {
         const response = await fetch('/api/assets/images/relink', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ slugOrId: selectedProduct.slug ?? selectedProduct.id, url: image.url })
         });
         const body = (await response.json()) as RelinkResponseBody;
@@ -1169,7 +1189,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         setActionPending(key, false);
       }
     },
-    [appendActivity, cfImagesEnabled, refreshImages, selectedProduct, setActionPending]
+    [appendActivity, buildAuthHeaders, cfImagesEnabled, refreshImages, selectedProduct, setActionPending]
   );
 
   const handleBulkAttachFile = useCallback(
@@ -1187,7 +1207,8 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         formData.append('file', file);
         const response = await fetch('/api/assets/images/bulk-attach', {
           method: 'POST',
-          body: formData
+          body: formData,
+          headers: buildAuthHeaders()
         });
         const body = (await response.json()) as BulkAttachResponseBody;
         if (!response.ok || !body.ok || !body.results) {
@@ -1242,7 +1263,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         });
       }
     },
-    [appendActivity, cfImagesEnabled, refreshImages, selectedProduct]
+    [appendActivity, buildAuthHeaders, cfImagesEnabled, refreshImages, selectedProduct]
   );
 
   const handleBulkAttachInputChange = useCallback(
@@ -1267,7 +1288,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       try {
         const response = await fetch('/api/assets/images/purge', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ url: targetUrl })
         });
         const body = (await response.json()) as PurgeResponseBody;
@@ -1306,7 +1327,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         setActionPending(key, false);
       }
     },
-    [appendActivity, selectedProduct, setActionPending]
+    [appendActivity, buildAuthHeaders, selectedProduct, setActionPending]
   );
 
   const handleCopyUrl = useCallback(async (url: string) => {

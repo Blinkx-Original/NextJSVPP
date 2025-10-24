@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { headers as nextHeaders } from 'next/headers';
 import ConnectivityPanel from './connectivity-panel';
 import PublishingPanel from './publishing-panel';
 import AssetsPanel from './assets-panel';
@@ -61,6 +62,9 @@ function normalizeTab(input: string | string[] | undefined): 'connectivity' | 'p
 export default function AdminPage({ searchParams }: AdminPageProps) {
   const activeTab = normalizeTab(searchParams?.tab);
 
+  const headerList = nextHeaders();
+  const authHeader = headerList.get('authorization');
+
   const cfImagesConfig = readCloudflareImagesConfig();
   const cfImagesEnabled = Boolean(
     cfImagesConfig.enabled && cfImagesConfig.accountId && cfImagesConfig.token && cfImagesConfig.baseUrl
@@ -109,7 +113,11 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
       {activeTab === 'publishing' ? (
         <PublishingPanel />
       ) : activeTab === 'assets' ? (
-        <AssetsPanel cfImagesEnabled={cfImagesEnabled} cfImagesBaseUrl={cfImagesBaseUrl} />
+        <AssetsPanel
+          cfImagesEnabled={cfImagesEnabled}
+          cfImagesBaseUrl={cfImagesBaseUrl}
+          authHeader={authHeader}
+        />
       ) : (
         <ConnectivityPanel />
       )}
