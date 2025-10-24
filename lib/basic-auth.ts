@@ -1,6 +1,36 @@
 import { NextResponse } from 'next/server';
 
 const BASIC_AUTH_PREFIX = 'Basic ';
+export const ADMIN_AUTH_COOKIE_NAME = 'vpp-admin-auth';
+
+function createAdminAuthCookieValue(username: string, password: string): string {
+  return Buffer.from(`${username}:${password}`).toString('base64');
+}
+
+function hasValidAdminAuthCookie(request: Request, expectedValue: string): boolean {
+  const cookieHeader = request.headers.get('cookie');
+  if (!cookieHeader) {
+    return false;
+  }
+
+  const cookies = cookieHeader.split(';');
+  for (const cookie of cookies) {
+    const [rawName, ...rest] = cookie.split('=');
+    if (!rawName || rest.length === 0) {
+      continue;
+    }
+    const name = rawName.trim();
+    if (name !== ADMIN_AUTH_COOKIE_NAME) {
+      continue;
+    }
+    const value = rest.join('=').trim();
+    if (value === expectedValue) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 interface AdminAuthResult {
   ok: boolean;
@@ -16,6 +46,12 @@ export function requireAdminAuth(request: Request): AdminAuthResult {
       ok: false,
       response: new NextResponse('Admin password not configured', { status: 503 })
     };
+  }
+
+  const expectedCookieValue = createAdminAuthCookieValue(username, password);
+
+  if (hasValidAdminAuthCookie(request, expectedCookieValue)) {
+    return { ok: true };
   }
 
   const authHeader = request.headers.get('authorization');
@@ -44,4 +80,13 @@ export function requireAdminAuth(request: Request): AdminAuthResult {
   }
 
   return { ok: true };
+}
+
+export function getAdminAuthCookieValue(): string | null {
+  const username = process.env.ADMIN_USER || 'admin';
+  const password = process.env.ADMIN_PASSWORD;
+  if (!password) {
+    return null;
+  }
+  return createAdminAuthCookieValue(username, password);
 }
