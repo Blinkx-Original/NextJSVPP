@@ -5,7 +5,8 @@ import {
   buildDeliveryUrl,
   getCloudflareImagesCredentials,
   readCloudflareImagesConfig,
-  uploadCloudflareImage
+  uploadCloudflareImage,
+  type CloudflareImagesUploadResponse
 } from '@/lib/cloudflare-images';
 import { getPool } from '@/lib/db';
 import { appendImageEntry, getProductForImages, parseImagesJson, toImagesJsonString } from '@/lib/product-images';
@@ -48,6 +49,53 @@ interface UploadErrorResponse {
   ray_id?: string | null;
   size_bytes?: number;
   error_details?: unknown;
+  cf_error_code?: string | number | null;
+  cf_error_message?: string | null;
+  cf_errors?: Array<unknown> | null;
+}
+
+function extractCloudflareUploadError(
+  body: CloudflareImagesUploadResponse | null | undefined
+): { message: string | null; code: string | number | null; errors: Array<unknown> | null } {
+  if (!body) {
+    return { message: null, code: null, errors: null };
+  }
+
+  const errors = Array.isArray(body.errors) ? body.errors : null;
+
+  if (errors && errors.length > 0) {
+    for (const entry of errors) {
+      if (entry && typeof entry === 'object') {
+        const record = entry as Record<string, unknown>;
+        const messageValue = record.message ?? record.error ?? record.error_message;
+        const message = typeof messageValue === 'string' ? messageValue : null;
+        const codeValue = record.code ?? record.error_code ?? record.type ?? record.name;
+        const code =
+          typeof codeValue === 'string'
+            ? codeValue
+            : typeof codeValue === 'number'
+              ? codeValue
+              : null;
+        if (message || code) {
+          return { message, code, errors };
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(body.messages) && body.messages.length > 0) {
+    for (const entry of body.messages) {
+      if (entry && typeof entry === 'object') {
+        const record = entry as Record<string, unknown>;
+        const messageValue = record.message ?? record.text ?? record.description;
+        if (typeof messageValue === 'string' && messageValue.trim()) {
+          return { message: messageValue, code: null, errors };
+        }
+      }
+    }
+  }
+
+  return { message: null, code: null, errors };
 }
 
 function resolveDeliveryUrl(
@@ -142,7 +190,22 @@ export async function POST(request: Request) {
     );
   }
 
-  const uploadResult = await uploadCloudflareImage(credentials, file);
+  let normalizedFile = file;
+  const fileName = typeof file.name === 'string' && file.name.trim() ? file.name.trim() : 'upload';
+  const contentType = typeof file.type === 'string' && file.type ? file.type : 'application/octet-stream';
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    normalizedFile = new File([arrayBuffer], fileName, { type: contentType });
+  } catch (error) {
+    console.warn('[cf-images][upload] file_normalization_failed', {
+      message: (error as Error)?.message ?? null,
+      slug: product.slug,
+      file_name: fileName
+    });
+  }
+
+  const uploadResult = await uploadCloudflareImage(credentials, normalizedFile);
 
   if (uploadResult.ok && uploadResult.body?.success && uploadResult.body.result?.id) {
     const imageId = uploadResult.body.result.id;
@@ -212,23 +275,30 @@ export async function POST(request: Request) {
     }
   }
 
+  const cfError = extractCloudflareUploadError(uploadResult.body);
+
   console.error('[cf-images][upload] failed', {
     status: uploadResult.status ?? null,
     latency_ms: uploadResult.durationMs,
     ray_id: uploadResult.rayId ?? null,
     size_bytes: fileSize,
-    error_code: uploadResult.errorCode ?? null
+    error_code: uploadResult.errorCode ?? null,
+    cf_error_code: cfError.code ?? null,
+    cf_error_message: cfError.message ?? null
   });
 
   return NextResponse.json<UploadErrorResponse>(
     {
       ok: false,
       error_code: uploadResult.errorCode ? 'upload_failed' : 'missing_image_id',
-      message: 'No se pudo subir la imagen',
+      message: cfError.message ?? 'No se pudo subir la imagen',
       latency_ms: uploadResult.durationMs,
       ray_id: uploadResult.rayId ?? null,
       size_bytes: fileSize,
-      error_details: uploadResult.body ?? uploadResult.errorDetails
+      error_details: uploadResult.body ?? uploadResult.errorDetails,
+      cf_error_code: cfError.code ?? null,
+      cf_error_message: cfError.message ?? null,
+      cf_errors: cfError.errors
     },
     { status: uploadResult.status ?? 502 }
   );
