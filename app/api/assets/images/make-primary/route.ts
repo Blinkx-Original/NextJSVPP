@@ -4,7 +4,13 @@ import { revalidatePath } from 'next/cache';
 import { requireAdminAuth } from '@/lib/basic-auth';
 import { getPool } from '@/lib/db';
 import { getCloudflareCredentials, purgeFiles, readCloudflareEnv } from '@/lib/cloudflare';
-import { moveImageEntryToFront, normalizeImages, parseImagesJson, toImagesJsonString } from '@/lib/product-images';
+import {
+  getProductForImages,
+  moveImageEntryToFront,
+  normalizeImages,
+  parseImagesJson,
+  toImagesJsonString
+} from '@/lib/product-images';
 import { ensureSiteUrl } from '@/lib/site-url';
 import { clearProductCache } from '@/lib/products';
 
