@@ -209,6 +209,87 @@ export function appendImageEntry(
   return { entries, format: detectFormat(entries) };
 }
 
+export function moveImageEntry(
+  parsed: ParsedImagesJson,
+  fromIndex: number,
+  toIndex: number
+): ParsedImagesJson {
+  if (fromIndex === toIndex) {
+    return parsed;
+  }
+
+  const entries = parsed.entries.map((entry) => cloneEntry(entry));
+  if (fromIndex < 0 || fromIndex >= entries.length || toIndex < 0 || toIndex >= entries.length) {
+    return parsed;
+  }
+
+  const [item] = entries.splice(fromIndex, 1);
+  entries.splice(toIndex, 0, item);
+
+  return { entries, format: detectFormat(entries) };
+}
+
+export function moveImageEntryToFront(parsed: ParsedImagesJson, index: number): ParsedImagesJson {
+  if (index <= 0) {
+    return parsed;
+  }
+  return moveImageEntry(parsed, index, 0);
+}
+
+export function replaceImageEntry(
+  parsed: ParsedImagesJson,
+  index: number,
+  url: string,
+  options?: { imageId?: string | null; variant?: string | null }
+): ParsedImagesJson {
+  const cleanUrl = url.trim();
+  if (!cleanUrl) {
+    return parsed;
+  }
+
+  const entries = parsed.entries.map((entry) => cloneEntry(entry));
+  if (index < 0 || index >= entries.length) {
+    return parsed;
+  }
+
+  const current = entries[index];
+
+  if (typeof current === 'string' || current === null || current === undefined) {
+    entries[index] = cleanUrl;
+  } else if (typeof current === 'object') {
+    const record = { ...(current as Record<string, unknown>) };
+    record.url = cleanUrl;
+    if (typeof record.src === 'string') {
+      record.src = cleanUrl;
+    }
+    if (typeof record.href === 'string') {
+      record.href = cleanUrl;
+    }
+
+    if (options?.imageId) {
+      record.image_id = options.imageId;
+      record.imageId = options.imageId;
+    } else {
+      delete record.image_id;
+      delete record.imageId;
+    }
+
+    if (options?.variant) {
+      record.variant = options.variant;
+      record.defaultVariant = options.variant;
+    } else {
+      delete record.variant;
+      delete record.defaultVariant;
+    }
+
+    entries[index] = record;
+  } else {
+    entries[index] = cleanUrl;
+  }
+
+  return { entries, format: detectFormat(entries) };
+}
+
 export function removeImageEntries(
   parsed: ParsedImagesJson,
   predicate: (entry: NormalizedImageEntry) => boolean,

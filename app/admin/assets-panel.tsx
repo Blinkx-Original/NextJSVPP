@@ -24,14 +24,26 @@ interface ResolvedImage {
   variant_url_public?: string | null;
 }
 
+type ActivityType =
+  | 'upload'
+  | 'delete'
+  | 'remove'
+  | 'preview'
+  | 'validate'
+  | 'make-primary'
+  | 'relink'
+  | 'bulk-attach'
+  | 'purge';
+
 interface ActivityEntry {
   id: string;
-  type: 'upload' | 'delete' | 'remove' | 'preview';
+  type: ActivityType;
   slug: string | null;
   target: string;
   status: 'success' | 'error';
   latencyMs?: number | null;
   rayId?: string | null;
+  httpStatus?: number | null;
   sizeBytes?: number | null;
   message?: string | null;
   timestamp: number;
@@ -66,6 +78,23 @@ interface RemoveResponseBody {
   message?: string;
 }
 
+interface ValidationResult {
+  url: string;
+  source: 'cloudflare' | 'external';
+  ok: boolean;
+  status?: number | null;
+  latency_ms?: number | null;
+  ray_id?: string | null;
+  message?: string | null;
+}
+
+interface ValidateResponseBody {
+  ok: boolean;
+  results?: ValidationResult[];
+  message?: string;
+  error_code?: string;
+}
+
 interface ResolveResponseBody {
   ok: boolean;
   product?: {
@@ -88,6 +117,65 @@ interface VariantPreviewResponseBody {
   content_length?: number | null;
   error_code?: string;
   message?: string;
+}
+
+interface MakePrimaryResponseBody {
+  ok: boolean;
+  duration_ms?: number;
+  moved_from_index?: number;
+  revalidated?: boolean;
+  purge?: {
+    attempted: boolean;
+    ok: boolean;
+    latency_ms?: number;
+    ray_ids?: string[];
+    status?: number | null;
+  };
+  error_code?: string;
+  message?: string;
+}
+
+interface RelinkResponseBody {
+  ok: boolean;
+  image?: {
+    url: string;
+    image_id: string;
+    variant: string;
+    source: 'cloudflare';
+  };
+  original_url?: string;
+  download_latency_ms?: number;
+  upload_latency_ms?: number;
+  upload_ray_id?: string | null;
+  error_code?: string;
+  message?: string;
+  status?: number;
+}
+
+interface BulkAttachResult {
+  slug: string;
+  status: 'attached' | 'skipped' | 'error';
+  detail?: string;
+}
+
+interface BulkAttachResponseBody {
+  ok: boolean;
+  results?: BulkAttachResult[];
+  total?: number;
+  attached?: number;
+  skipped?: number;
+  errors?: number;
+  error_code?: string;
+  message?: string;
+}
+
+interface PurgeResponseBody {
+  ok: boolean;
+  latency_ms?: number;
+  ray_ids?: string[];
+  error_code?: string;
+  message?: string;
+  status?: number;
 }
 
 interface SelectedProduct {
@@ -271,6 +359,7 @@ function ActivityTable({ entries }: { entries: ActivityEntry[] }) {
             <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Objetivo</th>
             <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Estado</th>
             <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Latencia</th>
+            <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>HTTP</th>
             <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Ray ID</th>
             <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Mensaje</th>
           </tr>
@@ -284,6 +373,7 @@ function ActivityTable({ entries }: { entries: ActivityEntry[] }) {
               <td style={{ padding: '0.5rem', wordBreak: 'break-all' }}>{entry.target}</td>
               <td style={{ padding: '0.5rem' }}>{entry.status === 'success' ? '✅' : '❌'}</td>
               <td style={{ padding: '0.5rem' }}>{formatLatency(entry.latencyMs)}</td>
+              <td style={{ padding: '0.5rem' }}>{entry.httpStatus != null ? entry.httpStatus : '—'}</td>
               <td style={{ padding: '0.5rem' }}>{entry.rayId ?? '—'}</td>
               <td style={{ padding: '0.5rem' }}>{entry.message ?? '—'}</td>
             </tr>
@@ -298,7 +388,7 @@ function downloadCsv(entries: ActivityEntry[]) {
   if (entries.length === 0) {
     return;
   }
-  const header = 'timestamp,type,slug,target,status,latency_ms,ray_id,message\n';
+  const header = 'timestamp,type,slug,target,status,latency_ms,http_code,ray_id,message\n';
   const rows = entries
     .map((entry) => {
       const fields = [
@@ -308,6 +398,7 @@ function downloadCsv(entries: ActivityEntry[]) {
         entry.target,
         entry.status,
         entry.latencyMs != null ? String(entry.latencyMs) : '',
+        entry.httpStatus != null ? String(entry.httpStatus) : '',
         entry.rayId ?? '',
         entry.message ?? ''
       ];
@@ -344,6 +435,12 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [variantPreview, setVariantPreview] = useState<VariantPreviewState>({ status: 'idle' });
   const [pendingActions, setPendingActions] = useState<Set<string>>(() => new Set());
+  const [validationStatus, setValidationStatus] = useState<AsyncStatus>('idle');
+  const [validationResults, setValidationResults] = useState<ValidationResult[] | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [bulkAttachStatus, setBulkAttachStatus] = useState<AsyncStatus>('idle');
+  const [bulkAttachResults, setBulkAttachResults] = useState<BulkAttachResult[]>([]);
+  const [bulkAttachMessage, setBulkAttachMessage] = useState<string | null>(null);
 
   const searchAbortRef = useRef<AbortController | null>(null);
 
@@ -359,7 +456,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
   const appendActivity = useCallback((entry: Omit<ActivityEntry, 'id' | 'timestamp'>) => {
     setActivity((prev) => {
       const next = [createActivityEntry(entry), ...prev];
-      return next.slice(0, 25);
+      return next.slice(0, 20);
     });
   }, []);
 
@@ -407,6 +504,9 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
         setImages(images);
         setImagesFormat(body.images_json_format ?? 'strings');
         setImagesStatus('success');
+        setValidationResults(null);
+        setValidationStatus('idle');
+        setValidationError(null);
         setSelectedImageIndex((prev) => {
           if (images.length === 0) {
             return null;
@@ -488,6 +588,12 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       controller.abort();
     };
   }, [productQuery]);
+
+  useEffect(() => {
+    setValidationStatus('idle');
+    setValidationError(null);
+    setValidationResults(null);
+  }, [selectedProduct?.id]);
 
   useEffect(() => {
     if (!cfImagesEnabled || !selectedImage || selectedImage.source !== 'cloudflare' || !selectedImage.image_id) {
@@ -603,6 +709,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
             slug: selectedProduct.slug,
             target: body.image_id ?? file.name,
             status: 'success',
+            httpStatus: status,
             latencyMs: body.latency_ms,
             rayId: body.ray_id,
             sizeBytes: body.size_bytes,
@@ -617,6 +724,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
             slug: selectedProduct.slug,
             target: file.name,
             status: 'error',
+            httpStatus: status,
             latencyMs: body.latency_ms,
             rayId: body.ray_id,
             sizeBytes: body.size_bytes,
@@ -673,6 +781,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
             slug: selectedProduct.slug,
             target: image.image_id,
             status: 'error',
+            httpStatus: response.status,
             latencyMs: body.latency_ms,
             rayId: body.ray_id,
             message: body.message ?? body.error_code ?? `HTTP ${response.status}`
@@ -684,6 +793,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
           slug: selectedProduct.slug,
           target: image.image_id,
           status: 'success',
+          httpStatus: response.status,
           latencyMs: body.latency_ms,
           rayId: body.ray_id,
           message: body.message ?? undefined
@@ -703,12 +813,72 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
     [appendActivity, selectedProduct, setActionPending]
   );
 
-  const handleRemoveImage = useCallback(
-    async (image: ResolvedImage) => {
+  const handleValidateUrls = useCallback(async () => {
+    if (!selectedProduct) {
+      setValidationStatus('error');
+      setValidationError('Selecciona un producto antes de validar.');
+      return;
+    }
+
+    setValidationStatus('loading');
+    setValidationError(null);
+    setValidationResults(null);
+
+    try {
+      const response = await fetch('/api/assets/images/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slugOrId: selectedProduct.slug ?? selectedProduct.id })
+      });
+      const body = (await response.json()) as ValidateResponseBody;
+      if (!response.ok || !body.ok || !body.results) {
+        const message = body.message ?? body.error_code ?? `HTTP ${response.status}`;
+        setValidationStatus('error');
+        setValidationError(message);
+        appendActivity({
+          type: 'validate',
+          slug: selectedProduct.slug,
+          target: selectedProduct.slug ?? selectedProduct.id,
+          status: 'error',
+          httpStatus: response.status,
+          message
+        });
+        return;
+      }
+
+      setValidationStatus('success');
+      setValidationResults(body.results);
+      body.results.forEach((result) => {
+        appendActivity({
+          type: 'validate',
+          slug: selectedProduct.slug,
+          target: result.url,
+          status: result.ok ? 'success' : 'error',
+          latencyMs: result.latency_ms ?? undefined,
+          httpStatus: result.status ?? undefined,
+          rayId: result.ray_id ?? undefined,
+          message: result.message ?? undefined
+        });
+      });
+    } catch (error) {
+      const message = (error as Error)?.message ?? 'Error inesperado';
+      setValidationStatus('error');
+      setValidationError(message);
+      appendActivity({
+        type: 'validate',
+        slug: selectedProduct.slug,
+        target: selectedProduct.slug ?? selectedProduct.id,
+        status: 'error',
+        message
+      });
+    }
+  }, [appendActivity, selectedProduct]);
+
+  const removeFromProduct = useCallback(
+    async (target: string) => {
       if (!selectedProduct) {
         return;
       }
-      const target = image.image_id ?? image.url;
       const key = `remove:${target}`;
       setActionPending(key, true);
       try {
@@ -724,6 +894,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
             slug: selectedProduct.slug,
             target,
             status: 'error',
+            httpStatus: response.status,
             message: body.message ?? body.error_code ?? `HTTP ${response.status}`
           });
           return;
@@ -733,6 +904,7 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
           slug: selectedProduct.slug,
           target,
           status: 'success',
+          httpStatus: response.status,
           message: body.message ?? undefined
         });
         refreshImages(selectedProduct.slug, selectedProduct.id);
@@ -749,6 +921,277 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
       }
     },
     [appendActivity, refreshImages, selectedProduct, setActionPending]
+  );
+
+  const handleRemoveImage = useCallback(
+    (image: ResolvedImage) => {
+      const target = image.image_id ?? image.url;
+      if (!target) {
+        return;
+      }
+      void removeFromProduct(target);
+    },
+    [removeFromProduct]
+  );
+
+  const handleMakePrimary = useCallback(
+    async (image: ResolvedImage) => {
+      if (!selectedProduct) {
+        return;
+      }
+      const target = image.image_id ?? image.url;
+      if (!target) {
+        return;
+      }
+      const key = `make-primary:${target}`;
+      setActionPending(key, true);
+      try {
+        const response = await fetch('/api/assets/images/make-primary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slugOrId: selectedProduct.slug ?? selectedProduct.id, urlOrImageId: target })
+        });
+        const body = (await response.json()) as MakePrimaryResponseBody;
+        if (!response.ok || !body.ok) {
+          appendActivity({
+            type: 'make-primary',
+            slug: selectedProduct.slug,
+            target,
+            status: 'error',
+            httpStatus: response.status,
+            latencyMs: body.duration_ms ?? undefined,
+            message: body.message ?? body.error_code ?? `HTTP ${response.status}`
+          });
+          return;
+        }
+        appendActivity({
+          type: 'make-primary',
+          slug: selectedProduct.slug,
+          target,
+          status: 'success',
+          httpStatus: response.status,
+          latencyMs: body.duration_ms ?? undefined,
+          rayId: body.purge?.ray_ids && body.purge.ray_ids.length > 0 ? body.purge.ray_ids[0] : undefined,
+          message:
+            body.purge && body.purge.attempted && !body.purge.ok
+              ? 'purge_failed'
+              : body.message ?? undefined
+        });
+        setSelectedImageIndex(0);
+        refreshImages(selectedProduct.slug, selectedProduct.id);
+      } catch (error) {
+        appendActivity({
+          type: 'make-primary',
+          slug: selectedProduct.slug,
+          target,
+          status: 'error',
+          message: (error as Error)?.message
+        });
+      } finally {
+        setActionPending(key, false);
+      }
+    },
+    [appendActivity, refreshImages, selectedProduct, setActionPending]
+  );
+
+  const handleRelinkFromUrl = useCallback(
+    async (image: ResolvedImage) => {
+      if (!selectedProduct || image.source !== 'external') {
+        return;
+      }
+      if (!cfImagesEnabled) {
+        appendActivity({
+          type: 'relink',
+          slug: selectedProduct.slug,
+          target: image.url,
+          status: 'error',
+          message: 'Cloudflare Images deshabilitado'
+        });
+        return;
+      }
+      const key = `relink:${image.url}`;
+      setActionPending(key, true);
+      try {
+        const response = await fetch('/api/assets/images/relink', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slugOrId: selectedProduct.slug ?? selectedProduct.id, url: image.url })
+        });
+        const body = (await response.json()) as RelinkResponseBody;
+        if (!response.ok || !body.ok) {
+          appendActivity({
+            type: 'relink',
+            slug: selectedProduct.slug,
+            target: image.url,
+            status: 'error',
+            httpStatus: body.status ?? response.status,
+            latencyMs: body.upload_latency_ms ?? undefined,
+            rayId: body.upload_ray_id ?? undefined,
+            message: body.message ?? body.error_code ?? `HTTP ${response.status}`
+          });
+          return;
+        }
+        appendActivity({
+          type: 'relink',
+          slug: selectedProduct.slug,
+          target: image.url,
+          status: 'success',
+          httpStatus: response.status,
+          latencyMs: body.upload_latency_ms ?? undefined,
+          rayId: body.upload_ray_id ?? undefined,
+          message: body.image?.image_id ?? undefined
+        });
+        refreshImages(selectedProduct.slug, selectedProduct.id);
+      } catch (error) {
+        appendActivity({
+          type: 'relink',
+          slug: selectedProduct.slug,
+          target: image.url,
+          status: 'error',
+          message: (error as Error)?.message
+        });
+      } finally {
+        setActionPending(key, false);
+      }
+    },
+    [appendActivity, cfImagesEnabled, refreshImages, selectedProduct, setActionPending]
+  );
+
+  const handleBulkAttachFile = useCallback(
+    async (file: File) => {
+      if (!cfImagesEnabled) {
+        setBulkAttachStatus('error');
+        setBulkAttachMessage('Cloudflare Images está deshabilitado.');
+        return;
+      }
+      setBulkAttachStatus('loading');
+      setBulkAttachResults([]);
+      setBulkAttachMessage(null);
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await fetch('/api/assets/images/bulk-attach', {
+          method: 'POST',
+          body: formData
+        });
+        const body = (await response.json()) as BulkAttachResponseBody;
+        if (!response.ok || !body.ok || !body.results) {
+          const message = body.message ?? body.error_code ?? `HTTP ${response.status}`;
+          setBulkAttachStatus('error');
+          setBulkAttachMessage(message);
+          appendActivity({
+            type: 'bulk-attach',
+            slug: selectedProduct?.slug ?? null,
+            target: file.name,
+            status: 'error',
+            httpStatus: response.status,
+            message
+          });
+          return;
+        }
+
+        setBulkAttachStatus('success');
+        setBulkAttachResults(body.results);
+        const summaryAttached = body.attached ?? 0;
+        const summarySkipped = body.skipped ?? 0;
+        const summaryErrors = body.errors ?? 0;
+        setBulkAttachMessage(
+          `Adjuntadas ${summaryAttached}, omitidas ${summarySkipped}, errores ${summaryErrors}`
+        );
+        body.results.forEach((result) => {
+          appendActivity({
+            type: 'bulk-attach',
+            slug: result.slug || null,
+            target: result.detail ?? result.slug,
+            status: result.status === 'error' ? 'error' : 'success',
+            httpStatus: response.status,
+            message: result.status === 'skipped' ? 'duplicado' : result.detail ?? undefined
+          });
+        });
+        if (
+          selectedProduct?.slug &&
+          body.results.some((result) => result.slug === selectedProduct.slug && result.status === 'attached')
+        ) {
+          refreshImages(selectedProduct.slug, selectedProduct.id);
+        }
+      } catch (error) {
+        const message = (error as Error)?.message ?? 'Error inesperado';
+        setBulkAttachStatus('error');
+        setBulkAttachMessage(message);
+        appendActivity({
+          type: 'bulk-attach',
+          slug: selectedProduct?.slug ?? null,
+          target: file.name,
+          status: 'error',
+          message
+        });
+      }
+    },
+    [appendActivity, cfImagesEnabled, refreshImages, selectedProduct]
+  );
+
+  const handleBulkAttachInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (file) {
+        void handleBulkAttachFile(file);
+        event.target.value = '';
+      }
+    },
+    [handleBulkAttachFile]
+  );
+
+  const handlePurgeImage = useCallback(
+    async (image: ResolvedImage) => {
+      const targetUrl = image.variant_url_public ?? image.url;
+      if (!targetUrl) {
+        return;
+      }
+      const key = `purge:${targetUrl}`;
+      setActionPending(key, true);
+      try {
+        const response = await fetch('/api/assets/images/purge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: targetUrl })
+        });
+        const body = (await response.json()) as PurgeResponseBody;
+        if (!response.ok || !body.ok) {
+          appendActivity({
+            type: 'purge',
+            slug: selectedProduct?.slug ?? null,
+            target: targetUrl,
+            status: 'error',
+            httpStatus: body.status ?? response.status,
+            latencyMs: body.latency_ms ?? undefined,
+            rayId: body.ray_ids && body.ray_ids.length > 0 ? body.ray_ids[0] : undefined,
+            message: body.message ?? body.error_code ?? `HTTP ${response.status}`
+          });
+          return;
+        }
+        appendActivity({
+          type: 'purge',
+          slug: selectedProduct?.slug ?? null,
+          target: targetUrl,
+          status: 'success',
+          httpStatus: response.status,
+          latencyMs: body.latency_ms ?? undefined,
+          rayId: body.ray_ids && body.ray_ids.length > 0 ? body.ray_ids[0] : undefined,
+          message: body.message ?? undefined
+        });
+      } catch (error) {
+        appendActivity({
+          type: 'purge',
+          slug: selectedProduct?.slug ?? null,
+          target: targetUrl,
+          status: 'error',
+          message: (error as Error)?.message
+        });
+      } finally {
+        setActionPending(key, false);
+      }
+    },
+    [appendActivity, selectedProduct, setActionPending]
   );
 
   const handleCopyUrl = useCallback(async (url: string) => {
@@ -884,6 +1327,10 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
             {images.map((image, index) => {
               const isSelected = selectedImageIndex === index;
               const variantUrl = image.variant_url_public ?? image.url;
+              const makePrimaryKey = `make-primary:${image.image_id ?? image.url}`;
+              const relinkKey = `relink:${image.url}`;
+              const purgeTarget = image.variant_url_public ?? image.url;
+              const purgeKey = `purge:${purgeTarget}`;
               return (
                 <div
                   key={`${image.url}-${index}`}
@@ -924,21 +1371,63 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
                     )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <button
+                      type="button"
+                      style={
+                        index === 0 || isActionPending(makePrimaryKey)
+                          ? disabledButtonStyle
+                          : secondaryButtonStyle
+                      }
+                      onClick={() => handleMakePrimary(image)}
+                      disabled={index === 0 || isActionPending(makePrimaryKey)}
+                    >
+                      Make Primary
+                    </button>
                     <button type="button" style={secondaryButtonStyle} onClick={() => setPreviewImageUrl(image.url)}>
                       Preview
                     </button>
                     <button type="button" style={secondaryButtonStyle} onClick={() => handleCopyUrl(image.url)}>
                       Copy URL
                     </button>
+                    {image.source === 'external' && (
+                      <button
+                        type="button"
+                        style={
+                          !cfImagesEnabled || isActionPending(relinkKey)
+                            ? disabledButtonStyle
+                            : secondaryButtonStyle
+                        }
+                        onClick={() => handleRelinkFromUrl(image)}
+                        disabled={!cfImagesEnabled || isActionPending(relinkKey)}
+                      >
+                        Relink from URL
+                      </button>
+                    )}
+                    {image.source === 'cloudflare' && (
+                      <button
+                        type="button"
+                        style={
+                          !cfImagesEnabled || isActionPending(purgeKey)
+                            ? disabledButtonStyle
+                            : secondaryButtonStyle
+                        }
+                        onClick={() => handlePurgeImage(image)}
+                        disabled={!cfImagesEnabled || isActionPending(purgeKey)}
+                      >
+                        Purge Image (CDN)
+                      </button>
+                    )}
                     <button
                       type="button"
                       style={canDeleteFromCloudflare(image)
-                        ? isActionPending(`delete:${image.image_id}`)
+                        ? !cfImagesEnabled || isActionPending(`delete:${image.image_id}`)
                           ? disabledDangerButtonStyle
                           : dangerButtonStyle
                         : disabledButtonStyle}
                       onClick={() => handleDeleteImage(image)}
-                      disabled={!canDeleteFromCloudflare(image) || isActionPending(`delete:${image.image_id}`)}
+                      disabled={
+                        !cfImagesEnabled || !canDeleteFromCloudflare(image) || isActionPending(`delete:${image.image_id}`)
+                      }
                     >
                       Delete from Cloudflare
                     </button>
@@ -957,6 +1446,178 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl }: Assets
             })}
           </div>
         )}
+      </section>
+
+      <section style={cardStyle}>
+        <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>Quality &amp; Sync Tools</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1rem' }}>
+          <div>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#0f172a' }}>Validate URLs</h3>
+            <p style={{ margin: '0 0 0.75rem 0', color: '#475569' }}>
+              Ejecuta una validación rápida para verificar que todas las imágenes respondan correctamente.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                style={
+                  !selectedProduct || validationStatus === 'loading'
+                    ? disabledButtonStyle
+                    : secondaryButtonStyle
+                }
+                onClick={() => void handleValidateUrls()}
+                disabled={!selectedProduct || validationStatus === 'loading'}
+              >
+                {validationStatus === 'loading' ? 'Validando…' : 'Validate URLs'}
+              </button>
+              {!selectedProduct && (
+                <span style={{ color: '#64748b' }}>Selecciona un producto para comenzar.</span>
+              )}
+            </div>
+            {validationStatus === 'error' && validationError && (
+              <p style={{ color: '#dc2626', marginTop: '0.75rem' }}>{validationError}</p>
+            )}
+            {validationStatus === 'loading' && (
+              <p style={{ color: '#64748b', marginTop: '0.75rem' }}>Validando URLs…</p>
+            )}
+            {validationStatus === 'success' && validationResults && validationResults.length === 0 && (
+              <p style={{ color: '#475569', marginTop: '0.75rem' }}>Sin imágenes para validar.</p>
+            )}
+            {validationResults && validationResults.length > 0 && (
+              <div style={{ marginTop: '1rem', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>URL</th>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Origen</th>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Estado</th>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>HTTP</th>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Latencia</th>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Ray ID</th>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Mensaje</th>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {validationResults.map((result) => {
+                      const isBroken = !result.ok;
+                      const removeKey = `remove:${result.url}`;
+                      const pendingRemoval = isActionPending(removeKey);
+                      return (
+                        <tr key={result.url} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                          <td style={{ padding: '0.5rem', wordBreak: 'break-all' }}>{result.url}</td>
+                          <td style={{ padding: '0.5rem' }}>{result.source === 'cloudflare' ? 'Cloudflare' : 'Externa'}</td>
+                          <td style={{ padding: '0.5rem' }}>
+                            <span
+                              style={{
+                                ...chipStyle,
+                                background: result.ok ? '#dcfce7' : '#fee2e2',
+                                color: result.ok ? '#166534' : '#991b1b'
+                              }}
+                            >
+                              {result.ok ? 'OK' : 'BROKEN'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.5rem' }}>{result.status ?? '—'}</td>
+                          <td style={{ padding: '0.5rem' }}>{formatLatency(result.latency_ms)}</td>
+                          <td style={{ padding: '0.5rem' }}>{result.ray_id ?? '—'}</td>
+                          <td style={{ padding: '0.5rem' }}>{result.message ?? '—'}</td>
+                          <td style={{ padding: '0.5rem' }}>
+                            {isBroken ? (
+                              <button
+                                type="button"
+                                style={pendingRemoval ? disabledButtonStyle : buttonStyle}
+                                onClick={() => void removeFromProduct(result.url)}
+                                disabled={pendingRemoval}
+                              >
+                                Remove from product
+                              </button>
+                            ) : (
+                              <span style={{ color: '#64748b' }}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#0f172a' }}>Bulk Attach (CSV)</h3>
+            <p style={{ margin: '0 0 0.75rem 0', color: '#475569' }}>
+              Adjunta imágenes de Cloudflare en lote usando un CSV con columnas <code>slug</code> y <code>cf_image_id</code> o
+              <code>delivery_url_cf</code>.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <label
+                style={
+                  !cfImagesEnabled || bulkAttachStatus === 'loading'
+                    ? disabledButtonStyle
+                    : secondaryButtonStyle
+                }
+              >
+                <span>Seleccionar CSV</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleBulkAttachInputChange}
+                  style={{ display: 'none' }}
+                  disabled={!cfImagesEnabled || bulkAttachStatus === 'loading'}
+                />
+              </label>
+              {bulkAttachStatus === 'loading' && (
+                <span style={{ color: '#64748b' }}>Procesando…</span>
+              )}
+              {!cfImagesEnabled && (
+                <span style={{ ...chipStyle, background: '#fee2e2', color: '#991b1b' }}>
+                  Cloudflare Images deshabilitado.
+                </span>
+              )}
+            </div>
+            {bulkAttachMessage && (
+              <p
+                style={{
+                  color: bulkAttachStatus === 'error' ? '#dc2626' : '#0f172a',
+                  marginTop: '0.75rem'
+                }}
+              >
+                {bulkAttachMessage}
+              </p>
+            )}
+            {bulkAttachResults.length > 0 && (
+              <div style={{ marginTop: '1rem', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Slug</th>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Resultado</th>
+                      <th style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>Detalle</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkAttachResults.map((result, index) => {
+                      const color =
+                        result.status === 'error'
+                          ? '#dc2626'
+                          : result.status === 'skipped'
+                            ? '#b45309'
+                            : '#0f172a';
+                      return (
+                        <tr key={`${result.slug}-${index}`} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                          <td style={{ padding: '0.5rem' }}>{result.slug || '—'}</td>
+                          <td style={{ padding: '0.5rem', color }}>{result.status}</td>
+                          <td style={{ padding: '0.5rem', wordBreak: 'break-all' }}>{result.detail ?? '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       <section style={cardStyle}>
