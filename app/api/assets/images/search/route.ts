@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { RowDataPacket } from 'mysql2/promise';
 import { requireAdminAuth } from '@/lib/basic-auth';
 import { getPool } from '@/lib/db';
-import { normalizeProductQuery } from '@/lib/product-search';
+import { normalizeProductQuery } from '@/lib/product-query-normalizer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,12 +18,13 @@ interface SearchSuccessResponse {
   }>;
 }
 
-function escapeLikeTerm(term: string): string {
-  return term.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
-
-const MAX_RESULTS = 20;
-
+/**
+ * API de búsqueda de productos para el panel de Assets.
+ *
+ * Acepta un parámetro `query` que puede ser slug, ID o URL. Devuelve una lista
+ * de como máximo 20 productos que coincidan (exacto o parcial). Nunca lanza un
+ * 400 por entradas vacías: en ese caso responde { ok: true, results: [] }.
+ */
 export async function GET(request: Request) {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
@@ -31,86 +32,49 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const normalized = normalizeProductQuery(searchParams.get('query'));
+  const raw = searchParams.get('query') ?? '';
+  const norm = normalizeProductQuery(raw);
 
-  if (!normalized) {
+  // Si el input no produce un slug ni un ID, retornar lista vacía
+  if (!norm) {
     return NextResponse.json<SearchSuccessResponse>({ ok: true, results: [] });
   }
 
   const pool = getPool();
-  const seen = new Set<string>();
-  const results: SearchSuccessResponse['results'] = [];
+  let rows: RowDataPacket[] = [];
 
-  const appendRows = (rows: RowDataPacket[]) => {
-    for (const row of rows) {
-      if (results.length >= MAX_RESULTS) {
-        break;
-      }
-
-      const id = row.id != null ? row.id.toString() : '';
-      const slug = typeof row.slug === 'string' ? row.slug : '';
-      const key = `${id}:${slug}`;
-
-      if (seen.has(key)) {
-        continue;
-      }
-
-      seen.add(key);
-      results.push({
-        id,
-        slug,
-        title: typeof row.title_h1 === 'string' ? row.title_h1 : null
-      });
-    }
-  };
-
-  if (normalized.type === 'id') {
-    const [byId] = await pool.query<RowDataPacket[]>(
+  if (norm.type === 'id') {
+    const [res] = await pool.query<RowDataPacket[]>(
       'SELECT id, slug, title_h1 FROM products WHERE id = ? LIMIT 1',
-      [normalized.value]
+      [norm.value]
     );
-    appendRows(byId);
-
-    if (results.length < MAX_RESULTS) {
-      const likeTerm = `%${escapeLikeTerm(normalized.value)}%`;
-      const [likeRows] = await pool.query<RowDataPacket[]>(
-        "SELECT id, slug, title_h1 FROM products WHERE slug LIKE ? ESCAPE '\\' ORDER BY slug ASC LIMIT ?",
-        [likeTerm, MAX_RESULTS]
-      );
-      appendRows(likeRows);
-    }
+    rows = Array.isArray(res) ? res : [];
   } else {
-    const [exactRows] = await pool.query<RowDataPacket[]>(
+    const slug = norm.value;
+    // Primero buscar coincidencia exacta por slug
+    const [exact] = await pool.query<RowDataPacket[]>(
       'SELECT id, slug, title_h1 FROM products WHERE slug = ? LIMIT 1',
-      [normalized.value]
+      [slug]
     );
-    appendRows(exactRows);
-
-    if (results.length < MAX_RESULTS) {
-      const clauses: string[] = [];
-      const params: Array<string | number> = [];
-
-      const slugLike = `%${escapeLikeTerm(normalized.value)}%`;
-      clauses.push("slug LIKE ? ESCAPE '\\'");
-      params.push(slugLike);
-
-      const titleTerm = normalized.searchTerm.trim();
-      if (titleTerm) {
-        const titleLike = `%${escapeLikeTerm(titleTerm)}%`;
-        clauses.push("title_h1 LIKE ? ESCAPE '\\'");
-        params.push(titleLike);
-      }
-
-      if (clauses.length > 0) {
-        const sql = `SELECT id, slug, title_h1 FROM products WHERE ${clauses.join(
-          ' OR '
-        )} ORDER BY slug ASC LIMIT ?`;
-        params.push(MAX_RESULTS);
-        const [likeRows] = await pool.query<RowDataPacket[]>(sql, params);
-        appendRows(likeRows);
-      }
+    if (Array.isArray(exact) && exact.length > 0) {
+      rows = exact;
+    } else {
+      // Fallback a búsqueda parcial en slug o title
+      const sanitized = slug.replace(/[\\%_]/g, (char) => `\\${char}`);
+      const likeTerm = `%${sanitized}%`;
+      const [partial] = await pool.query<RowDataPacket[]>(
+        "SELECT id, slug, title_h1 FROM products WHERE slug LIKE ? ESCAPE '\\' OR title_h1 LIKE ? ESCAPE '\\' ORDER BY slug ASC LIMIT 20",
+        [likeTerm, likeTerm]
+      );
+      rows = Array.isArray(partial) ? partial : [];
     }
   }
+
+  const results = rows.map((row) => ({
+    id: row.id != null ? String(row.id) : '',
+    slug: typeof row.slug === 'string' ? row.slug : '',
+    title: typeof row.title_h1 === 'string' ? row.title_h1 : null
+  }));
 
   return NextResponse.json<SearchSuccessResponse>({ ok: true, results });
 }

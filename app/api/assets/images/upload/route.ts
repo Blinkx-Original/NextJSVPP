@@ -5,8 +5,7 @@ import {
   buildDeliveryUrl,
   getCloudflareImagesCredentials,
   readCloudflareImagesConfig,
-  uploadCloudflareImage,
-  type CloudflareImagesUploadResponse
+  uploadCloudflareImage
 } from '@/lib/cloudflare-images';
 import { getPool } from '@/lib/db';
 import { appendImageEntry, getProductForImages, parseImagesJson, toImagesJsonString } from '@/lib/product-images';
@@ -41,6 +40,7 @@ interface UploadErrorResponse {
     | 'file_too_large'
     | 'product_not_found'
     | 'upload_failed'
+    | 'unsupported_type'
     | 'missing_image_id'
     | 'database_error'
     | 'missing_base_url';
@@ -49,53 +49,55 @@ interface UploadErrorResponse {
   ray_id?: string | null;
   size_bytes?: number;
   error_details?: unknown;
-  cf_error_code?: string | number | null;
-  cf_error_message?: string | null;
-  cf_errors?: Array<unknown> | null;
 }
 
-function extractCloudflareUploadError(
-  body: CloudflareImagesUploadResponse | null | undefined
-): { message: string | null; code: string | number | null; errors: Array<unknown> | null } {
-  if (!body) {
-    return { message: null, code: null, errors: null };
+/**
+ * Devuelve un código interno y un mensaje legible en función del error
+ * devuelto por Cloudflare (status HTTP o código de error).
+ */
+function mapCloudflareError(uploadResult: {
+  status?: number;
+  errorCode?: string;
+  body?: Record<string, any> | null;
+}): { error_code: UploadErrorResponse['error_code']; message: string } {
+  const status = uploadResult.status;
+  const firstError = Array.isArray(uploadResult.body?.errors) ? uploadResult.body?.errors[0] : null;
+  const apiMessage =
+    (typeof firstError?.message === 'string' ? firstError.message : undefined) ??
+    (typeof uploadResult.body?.messages?.[0]?.message === 'string'
+      ? uploadResult.body?.messages[0].message
+      : undefined);
+
+  // Mensajes por defecto en español
+  if (status === 401 || status === 403) {
+    return {
+      error_code: 'missing_credentials',
+      message:
+        apiMessage ||
+        'Credenciales de Cloudflare inválidas o sin permisos. Verifica CF_IMAGES_ACCOUNT_ID y CF_IMAGES_TOKEN.'
+    };
   }
-
-  const errors = Array.isArray(body.errors) ? body.errors : null;
-
-  if (errors && errors.length > 0) {
-    for (const entry of errors) {
-      if (entry && typeof entry === 'object') {
-        const record = entry as Record<string, unknown>;
-        const messageValue = record.message ?? record.error ?? record.error_message;
-        const message = typeof messageValue === 'string' ? messageValue : null;
-        const codeValue = record.code ?? record.error_code ?? record.type ?? record.name;
-        const code =
-          typeof codeValue === 'string'
-            ? codeValue
-            : typeof codeValue === 'number'
-              ? codeValue
-              : null;
-        if (message || code) {
-          return { message, code, errors };
-        }
-      }
-    }
+  if (status === 415) {
+    return {
+      error_code: 'unsupported_type',
+      message: apiMessage || 'Tipo de archivo no soportado. Solo se permiten JPG, PNG y WebP.'
+    };
   }
-
-  if (Array.isArray(body.messages) && body.messages.length > 0) {
-    for (const entry of body.messages) {
-      if (entry && typeof entry === 'object') {
-        const record = entry as Record<string, unknown>;
-        const messageValue = record.message ?? record.text ?? record.description;
-        if (typeof messageValue === 'string' && messageValue.trim()) {
-          return { message: messageValue, code: null, errors };
-        }
-      }
-    }
+  if (status === 413) {
+    return {
+      error_code: 'file_too_large',
+      message: apiMessage || 'El archivo supera el límite de 10 MB.'
+    };
   }
-
-  return { message: null, code: null, errors };
+  // Otros errores reportados por Cloudflare en body.errors
+  if (typeof apiMessage === 'string' && apiMessage.length > 0) {
+    return { error_code: 'upload_failed', message: apiMessage };
+  }
+  // Fallback genérico
+  return {
+    error_code: 'upload_failed',
+    message: 'No se pudo subir la imagen. Revisa la configuración de Cloudflare e inténtalo de nuevo.'
+  };
 }
 
 function resolveDeliveryUrl(
@@ -190,23 +192,9 @@ export async function POST(request: Request) {
     );
   }
 
-  let normalizedFile = file;
-  const fileName = typeof file.name === 'string' && file.name.trim() ? file.name.trim() : 'upload';
-  const contentType = typeof file.type === 'string' && file.type ? file.type : 'application/octet-stream';
+  const uploadResult = await uploadCloudflareImage(credentials, file);
 
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    normalizedFile = new File([arrayBuffer], fileName, { type: contentType });
-  } catch (error) {
-    console.warn('[cf-images][upload] file_normalization_failed', {
-      message: (error as Error)?.message ?? null,
-      slug: product.slug,
-      file_name: fileName
-    });
-  }
-
-  const uploadResult = await uploadCloudflareImage(credentials, normalizedFile);
-
+  // Caso éxito
   if (uploadResult.ok && uploadResult.body?.success && uploadResult.body.result?.id) {
     const imageId = uploadResult.body.result.id;
     const deliveryUrl = resolveDeliveryUrl(config.baseUrl, imageId, variant, uploadResult.body.result.variants);
@@ -275,30 +263,27 @@ export async function POST(request: Request) {
     }
   }
 
-  const cfError = extractCloudflareUploadError(uploadResult.body);
-
+  // Caso error: mapear la respuesta de Cloudflare a un mensaje más útil
   console.error('[cf-images][upload] failed', {
     status: uploadResult.status ?? null,
     latency_ms: uploadResult.durationMs,
     ray_id: uploadResult.rayId ?? null,
     size_bytes: fileSize,
     error_code: uploadResult.errorCode ?? null,
-    cf_error_code: cfError.code ?? null,
-    cf_error_message: cfError.message ?? null
+    errors: uploadResult.body?.errors ?? null
   });
+
+  const { error_code, message } = mapCloudflareError(uploadResult);
 
   return NextResponse.json<UploadErrorResponse>(
     {
       ok: false,
-      error_code: uploadResult.errorCode ? 'upload_failed' : 'missing_image_id',
-      message: cfError.message ?? 'No se pudo subir la imagen',
+      error_code,
+      message,
       latency_ms: uploadResult.durationMs,
       ray_id: uploadResult.rayId ?? null,
       size_bytes: fileSize,
-      error_details: uploadResult.body ?? uploadResult.errorDetails,
-      cf_error_code: cfError.code ?? null,
-      cf_error_message: cfError.message ?? null,
-      cf_errors: cfError.errors
+      error_details: uploadResult.body ?? uploadResult.errorDetails
     },
     { status: uploadResult.status ?? 502 }
   );
