@@ -550,61 +550,17 @@ export default function AssetsPanel({
     [adminTokenValue, authHeaderValue]
   );
 
-  const appendAdminTokenToInput = useCallback(
-    (input: RequestInfo | URL): RequestInfo | URL => {
-      if (!adminTokenValue) {
-        return input;
-      }
-
-      if (typeof input === 'string') {
-        try {
-          const url = new URL(input, window.location.origin);
-          if (!url.searchParams.has('adminToken')) {
-            url.searchParams.set('adminToken', adminTokenValue);
-          }
-          return url.toString();
-        } catch {
-          return input;
-        }
-      }
-
-      if (input instanceof URL) {
-        const cloned = new URL(input.toString());
-        if (!cloned.searchParams.has('adminToken')) {
-          cloned.searchParams.set('adminToken', adminTokenValue);
-        }
-        return cloned;
-      }
-
-      if (input instanceof Request) {
-        try {
-          const url = new URL(input.url, window.location.origin);
-          if (!url.searchParams.has('adminToken')) {
-            url.searchParams.set('adminToken', adminTokenValue);
-          }
-          return new Request(url.toString(), input);
-        } catch {
-          return input;
-        }
-      }
-
-      return input;
-    },
-    [adminTokenValue]
-  );
-
   const fetchWithAuth = useCallback(
     (input: RequestInfo | URL, init?: RequestInit) => {
       const headers = applyAuthHeaders(init?.headers);
-      const nextInput = appendAdminTokenToInput(input);
-      return fetch(nextInput, {
+      return fetch(input, {
         ...init,
         headers,
         credentials: 'include',
         mode: 'same-origin'
       });
     },
-    [appendAdminTokenToInput, applyAuthHeaders]
+    [applyAuthHeaders]
   );
 
   const searchAbortRef = useRef<AbortController | null>(null);
