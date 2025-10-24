@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ADMIN_AUTH_COOKIE_NAME, getAdminAuthCookieValue } from '@/lib/basic-auth';
+import {
+  ADMIN_AUTH_COOKIE_NAME,
+  ADMIN_TOKEN_HEADER,
+  getAdminAuthCookieValue,
+  validateAdminSessionToken
+} from '@/lib/basic-auth';
 
 const BASIC_AUTH_PREFIX = 'Basic ';
 
@@ -23,6 +28,11 @@ export function middleware(request: NextRequest) {
   const existingCookie = expectedCookieValue ? request.cookies.get(ADMIN_AUTH_COOKIE_NAME) : null;
 
   if (expectedCookieValue && existingCookie?.value === expectedCookieValue) {
+    return NextResponse.next();
+  }
+
+  const tokenHeader = request.headers.get(ADMIN_TOKEN_HEADER);
+  if (validateAdminSessionToken(tokenHeader)) {
     return NextResponse.next();
   }
 

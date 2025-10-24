@@ -4,6 +4,7 @@ import ConnectivityPanel from './connectivity-panel';
 import PublishingPanel from './publishing-panel';
 import AssetsPanel from './assets-panel';
 import { readCloudflareImagesConfig } from '@/lib/cloudflare-images';
+import { issueAdminSessionToken } from '@/lib/basic-auth';
 
 export const revalidate = 0;
 
@@ -66,6 +67,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
   const authHeader = headerList.get('authorization');
 
   const cfImagesConfig = readCloudflareImagesConfig();
+  const adminToken = issueAdminSessionToken();
   const cfImagesEnabled = Boolean(
     cfImagesConfig.enabled && cfImagesConfig.accountId && cfImagesConfig.token && cfImagesConfig.baseUrl
   );
@@ -117,6 +119,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
           cfImagesEnabled={cfImagesEnabled}
           cfImagesBaseUrl={cfImagesBaseUrl}
           authHeader={authHeader}
+          adminToken={adminToken}
         />
       ) : (
         <ConnectivityPanel />

@@ -9,6 +9,7 @@ interface AssetsPanelProps {
   cfImagesEnabled: boolean;
   cfImagesBaseUrl?: string | null;
   authHeader?: string | null;
+  adminToken?: string | null;
 }
 
 interface SearchResult {
@@ -486,7 +487,12 @@ function downloadCsv(entries: ActivityEntry[]) {
   URL.revokeObjectURL(url);
 }
 
-export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl, authHeader }: AssetsPanelProps) {
+export default function AssetsPanel({
+  cfImagesEnabled,
+  cfImagesBaseUrl,
+  authHeader,
+  adminToken
+}: AssetsPanelProps) {
   const [productQuery, setProductQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchStatus, setSearchStatus] = useState<AsyncStatus>('idle');
@@ -518,31 +524,30 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl, authHead
   );
 
   const authHeaderValue = authHeader ?? null;
+  const adminTokenValue = adminToken ?? null;
 
   const applyAuthHeaders = useCallback(
-    (additional?: HeadersInit): HeadersInit | undefined => {
-      if (!authHeaderValue) {
-        return additional;
+    (additional?: HeadersInit): Headers => {
+      const headers = new Headers();
+
+      if (additional) {
+        const additionalHeaders = new Headers(additional);
+        additionalHeaders.forEach((value, key) => {
+          headers.set(key, value);
+        });
       }
 
-      if (!additional) {
-        return { Authorization: authHeaderValue };
-      }
-
-      if (additional instanceof Headers) {
-        const headers = new Headers(additional);
+      if (authHeaderValue) {
         headers.set('Authorization', authHeaderValue);
-        return headers;
       }
 
-      if (Array.isArray(additional)) {
-        const filtered = additional.filter(([name]) => name.toLowerCase() !== 'authorization');
-        return [...filtered, ['Authorization', authHeaderValue]];
+      if (adminTokenValue) {
+        headers.set('X-Admin-Token', adminTokenValue);
       }
 
-      return { ...additional, Authorization: authHeaderValue };
+      return headers;
     },
-    [authHeaderValue]
+    [adminTokenValue, authHeaderValue]
   );
 
   const fetchWithAuth = useCallback(
@@ -551,7 +556,8 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl, authHead
       return fetch(input, {
         ...init,
         headers,
-        credentials: 'include'
+        credentials: 'include',
+        mode: 'same-origin'
       });
     },
     [applyAuthHeaders]
@@ -834,6 +840,9 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl, authHead
       if (authHeaderValue) {
         xhr.setRequestHeader('Authorization', authHeaderValue);
       }
+      if (adminTokenValue) {
+        xhr.setRequestHeader('X-Admin-Token', adminTokenValue);
+      }
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -895,7 +904,15 @@ export default function AssetsPanel({ cfImagesEnabled, cfImagesBaseUrl, authHead
 
       xhr.send(formData);
     },
-    [appendActivity, authHeaderValue, cfImagesEnabled, refreshImages, selectedProduct, uploadVariant]
+    [
+      appendActivity,
+      adminTokenValue,
+      authHeaderValue,
+      cfImagesEnabled,
+      refreshImages,
+      selectedProduct,
+      uploadVariant
+    ]
   );
 
   const handleFileInputChange = useCallback(
