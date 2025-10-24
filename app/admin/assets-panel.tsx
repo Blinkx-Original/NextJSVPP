@@ -552,15 +552,35 @@ export default function AssetsPanel({
 
   const fetchWithAuth = useCallback(
     (input: RequestInfo | URL, init?: RequestInit) => {
+      let finalInput: RequestInfo | URL = input;
+
+      if (adminTokenValue) {
+        try {
+          const base = typeof window !== 'undefined' ? window.location.origin : undefined;
+          let url: URL | null = null;
+          if (typeof input === 'string') {
+            url = base ? new URL(input, base) : new URL(input, 'http://localhost');
+          } else if (input instanceof URL) {
+            url = new URL(input.toString());
+          }
+          if (url) {
+            url.searchParams.set('adminToken', adminTokenValue);
+            finalInput = url.toString();
+          }
+        } catch {
+          // ignore URL parsing issues
+        }
+      }
+
       const headers = applyAuthHeaders(init?.headers);
-      return fetch(input, {
+      return fetch(finalInput, {
         ...init,
         headers,
         credentials: 'include',
         mode: 'same-origin'
       });
     },
-    [applyAuthHeaders]
+    [adminTokenValue, applyAuthHeaders]
   );
 
   const searchAbortRef = useRef<AbortController | null>(null);
