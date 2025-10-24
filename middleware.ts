@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   ADMIN_AUTH_COOKIE_NAME,
   ADMIN_TOKEN_HEADER,
+  ADMIN_TOKEN_QUERY_PARAM,
   getAdminAuthCookieValue,
   validateAdminSessionToken
 } from '@/lib/basic-auth';
@@ -32,7 +33,9 @@ export function middleware(request: NextRequest) {
   }
 
   const tokenHeader = request.headers.get(ADMIN_TOKEN_HEADER);
-  if (validateAdminSessionToken(tokenHeader)) {
+  const tokenQueryParam = url.searchParams.get(ADMIN_TOKEN_QUERY_PARAM);
+  const token = tokenHeader || tokenQueryParam;
+  if (validateAdminSessionToken(token)) {
     return NextResponse.next();
   }
 

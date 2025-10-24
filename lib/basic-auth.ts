@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 const BASIC_AUTH_PREFIX = 'Basic ';
 export const ADMIN_AUTH_COOKIE_NAME = 'vpp-admin-auth';
 export const ADMIN_TOKEN_HEADER = 'x-admin-token';
+export const ADMIN_TOKEN_QUERY_PARAM = 'adminToken';
 const ADMIN_TOKEN_MAX_AGE_SECONDS = 60 * 15; // 15 minutes
 
 interface AdminTokenPayload {
@@ -151,8 +152,27 @@ interface AdminAuthResult {
   response?: NextResponse;
 }
 
+function extractAdminToken(request: Request): string | null {
+  const headerToken = request.headers.get(ADMIN_TOKEN_HEADER);
+  if (headerToken) {
+    return headerToken;
+  }
+
+  try {
+    const url = new URL(request.url);
+    const queryToken = url.searchParams.get(ADMIN_TOKEN_QUERY_PARAM);
+    if (queryToken) {
+      return queryToken;
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  return null;
+}
+
 export function requireAdminAuth(request: Request): AdminAuthResult {
-  const adminToken = request.headers.get(ADMIN_TOKEN_HEADER);
+  const adminToken = extractAdminToken(request);
   if (validateAdminSessionToken(adminToken)) {
     return { ok: true };
   }
