@@ -15,7 +15,11 @@ type OptionalEnvKey =
   | 'CLOUDFLARE_ZONE_ID'
   | 'CLOUDFLARE_API_TOKEN'
   | 'CLOUDFLARE_ENABLE_PURGE_ON_PUBLISH'
-  | 'CLOUDFLARE_INCLUDE_PRODUCT_URLS';
+  | 'CLOUDFLARE_INCLUDE_PRODUCT_URLS'
+  | 'CF_IMAGES_ENABLED'
+  | 'CF_IMAGES_ACCOUNT_ID'
+  | 'CF_IMAGES_TOKEN'
+  | 'CF_IMAGES_BASE_URL';
 
 type EnvShape = Record<RequiredEnvKey, string> & Partial<Record<OptionalEnvKey, string>>;
 
@@ -46,7 +50,11 @@ function getEnv(): EnvShape {
     'CLOUDFLARE_ZONE_ID',
     'CLOUDFLARE_API_TOKEN',
     'CLOUDFLARE_ENABLE_PURGE_ON_PUBLISH',
-    'CLOUDFLARE_INCLUDE_PRODUCT_URLS'
+    'CLOUDFLARE_INCLUDE_PRODUCT_URLS',
+    'CF_IMAGES_ENABLED',
+    'CF_IMAGES_ACCOUNT_ID',
+    'CF_IMAGES_TOKEN',
+    'CF_IMAGES_BASE_URL'
   ] as const) {
     const value = process.env[key];
     if (typeof value === 'string') {
