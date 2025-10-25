@@ -3,6 +3,7 @@ import Image from 'next/image';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import styles from './page.module.css';
+import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
 import {
   getNormalizedPublishedProduct,
   type NormalizedProduct,
@@ -119,13 +120,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 const CTA_CONFIG = [
-  { key: 'cta_lead_url', label: 'Request a quote' },
-  { key: 'cta_affiliate_url', label: 'Buy via Affiliate' },
-  { key: 'cta_stripe_url', label: 'Pay with Stripe' },
-  { key: 'cta_paypal_url', label: 'Pay with PayPal' }
+  { type: 'lead', urlKey: 'cta_lead_url', labelKey: 'cta_lead_label' },
+  { type: 'affiliate', urlKey: 'cta_affiliate_url', labelKey: 'cta_affiliate_label' },
+  { type: 'stripe', urlKey: 'cta_stripe_url', labelKey: 'cta_stripe_label' },
+  { type: 'paypal', urlKey: 'cta_paypal_url', labelKey: 'cta_paypal_label' }
 ] as const;
-
-type CtaKey = (typeof CTA_CONFIG)[number]['key'];
 
 function truncateSummary(summary: string, maxLength = 160): string {
   return truncateDescription(summary, maxLength);
@@ -150,9 +149,16 @@ export default async function ProductPage({ params }: PageProps) {
   const jsonLd = buildProductJsonLd(normalized, canonical);
   const primaryImage = normalized.images[0];
   const summary = normalized.short_summary ? truncateSummary(normalized.short_summary) : '';
-  const resolveCtaUrl = (key: CtaKey): string => normalized[key as keyof NormalizedProduct] as string;
-  const ctas = CTA_CONFIG.filter((item) => resolveCtaUrl(item.key as CtaKey).length > 0);
-  const primaryCtaKey = ctas[0]?.key;
+  const ctas = CTA_CONFIG.map((item) => {
+    const url = normalized[item.urlKey as keyof NormalizedProduct] as string;
+    const labelValue = normalized[item.labelKey as keyof NormalizedProduct] as string;
+    return {
+      type: item.type,
+      url,
+      label: resolveCtaLabel(item.type as keyof typeof CTA_DEFAULT_LABELS, labelValue)
+    };
+  }).filter((cta) => cta.url.length > 0);
+  const primaryCtaType = ctas[0]?.type;
 
   return (
     <main className={styles.productPage}>
@@ -179,16 +185,15 @@ export default async function ProductPage({ params }: PageProps) {
           {ctas.length > 0 ? (
             <div className={styles.productCtas}>
               {ctas.map((cta) => {
-                const url = resolveCtaUrl(cta.key as CtaKey);
-                const isPrimary = cta.key === primaryCtaKey;
+                const isPrimary = cta.type === primaryCtaType;
                 const ctaClassName = [
                   styles.productCta,
                   isPrimary ? styles.productCtaPrimary : styles.productCtaSecondary
                 ].join(' ');
                 return (
                   <a
-                    key={cta.key}
-                    href={url}
+                    key={cta.type}
+                    href={cta.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={ctaClassName}

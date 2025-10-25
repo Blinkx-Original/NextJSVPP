@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { resolveCtaLabel } from '@/lib/product-cta';
 import { Product, resolvePrimaryCta } from '@/lib/products';
 import { CtaButton } from './cta-button';
 
@@ -6,43 +7,29 @@ interface Props {
   product: Product;
 }
 
-function getPrimaryLabel(type: keyof Product['ctas']) {
-  switch (type) {
-    case 'lead':
-      return 'Solicitar información';
-    case 'affiliate':
-      return 'Ver oferta';
-    case 'stripe':
-      return 'Comprar con Stripe';
-    case 'paypal':
-      return 'Comprar con PayPal';
-    default:
-      return 'Ver producto';
-  }
-}
-
-function getSecondaryLabel(type: keyof Product['ctas']) {
-  switch (type) {
-    case 'lead':
-      return 'Solicitar información';
-    case 'affiliate':
-      return 'Oferta alternativa';
-    case 'stripe':
-      return 'Stripe';
-    case 'paypal':
-      return 'PayPal';
-    default:
-      return 'Ver';
-  }
-}
-
 export function ProductHero({ product }: Props) {
   const primary = resolvePrimaryCta(product);
   const ctas = [
-    { type: 'lead' as const, url: product.ctas.lead },
-    { type: 'affiliate' as const, url: product.ctas.affiliate },
-    { type: 'stripe' as const, url: product.ctas.stripe },
-    { type: 'paypal' as const, url: product.ctas.paypal }
+    {
+      type: 'lead' as const,
+      url: product.ctas.lead,
+      label: resolveCtaLabel('lead', product.ctaLabels.lead)
+    },
+    {
+      type: 'affiliate' as const,
+      url: product.ctas.affiliate,
+      label: resolveCtaLabel('affiliate', product.ctaLabels.affiliate)
+    },
+    {
+      type: 'stripe' as const,
+      url: product.ctas.stripe,
+      label: resolveCtaLabel('stripe', product.ctaLabels.stripe)
+    },
+    {
+      type: 'paypal' as const,
+      url: product.ctas.paypal,
+      label: resolveCtaLabel('paypal', product.ctaLabels.paypal)
+    }
   ].filter((cta) => Boolean(cta.url));
 
   const gallery = product.images.length > 0 ? product.images : ['https://dummyimage.com/1200x675/0f172a/ffffff&text=Producto'];
@@ -75,7 +62,7 @@ export function ProductHero({ product }: Props) {
                 variant={isPrimary ? 'primary' : 'secondary'}
                 analyticsId={`cta-${cta.type}`}
               >
-                {isPrimary ? getPrimaryLabel(cta.type) : getSecondaryLabel(cta.type)}
+                {cta.label}
               </CtaButton>
             );
           })}
