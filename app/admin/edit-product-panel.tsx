@@ -250,6 +250,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<AsyncStatus>('idle');
+  const [descriptionSaveError, setDescriptionSaveError] = useState<string | null>(null);
+  const [descriptionSaveSuccess, setDescriptionSaveSuccess] = useState<string | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -299,6 +302,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       setLoadStatus('loading');
       setLoadError(null);
       setSaveSuccess(null);
+      setDescriptionSaveStatus('idle');
+      setDescriptionSaveError(null);
+      setDescriptionSaveSuccess(null);
       try {
         const response = await fetch(`/api/admin/products?slug=${encodeURIComponent(slug)}`, {
           cache: 'no-store'
@@ -369,6 +375,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     setSaveStatus('loading');
     setSaveError(null);
     setSaveSuccess(null);
+    setDescriptionSaveStatus('idle');
+    setDescriptionSaveError(null);
+    setDescriptionSaveSuccess(null);
 
     const payload = {
       slug: selectedSlug,
@@ -405,6 +414,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       applyProduct(body.product);
       setSaveStatus('success');
       setSaveSuccess('Producto guardado correctamente.');
+      setDescriptionSaveStatus('idle');
+      setDescriptionSaveError(null);
+      setDescriptionSaveSuccess(null);
     } catch (error) {
       setSaveStatus('error');
       setSaveError((error as Error)?.message ?? 'Error desconocido al guardar.');
@@ -413,6 +425,58 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
   const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
   const isDescriptionTooLong = descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH;
+
+  const handleSaveDescription = useCallback(async () => {
+    if (!selectedSlug) {
+      setDescriptionSaveError('Carga primero un producto para editarlo.');
+      setDescriptionSaveStatus('error');
+      return;
+    }
+
+    const descriptionMetricsLocal = measureHtmlContent(form.description);
+    if (descriptionMetricsLocal.characters > DESCRIPTION_MAX_LENGTH) {
+      setDescriptionSaveStatus('error');
+      setDescriptionSaveError(
+        `La descripción supera el máximo de ${DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres permitidos. Reduce el contenido e inténtalo nuevamente.`
+      );
+      return;
+    }
+
+    setDescriptionSaveStatus('loading');
+    setDescriptionSaveError(null);
+    setDescriptionSaveSuccess(null);
+
+    const payload = {
+      slug: selectedSlug,
+      desc_html: descriptionMetricsLocal.sanitized
+    };
+
+    try {
+      const response = await fetch('/api/admin/products', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      const body = (await response.json()) as AdminProductResponse;
+      if (!response.ok || !body.ok || !body.product) {
+        const message = body.message ?? 'No se pudo guardar la descripción.';
+        setDescriptionSaveStatus('error');
+        setDescriptionSaveError(message);
+        return;
+      }
+      applyProduct(body.product);
+      setDescriptionSaveStatus('success');
+      setDescriptionSaveSuccess('Descripción guardada correctamente.');
+      setSaveStatus('idle');
+      setSaveError(null);
+      setSaveSuccess(null);
+    } catch (error) {
+      setDescriptionSaveStatus('error');
+      setDescriptionSaveError((error as Error)?.message ?? 'Error desconocido al guardar la descripción.');
+    }
+  }, [applyProduct, form.description, selectedSlug]);
 
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
@@ -659,6 +723,20 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               placeholder="Escribe la descripción detallada, inserta tablas, imágenes o enlaces…"
               id="description"
             />
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                onClick={handleSaveDescription}
+                disabled={descriptionSaveStatus === 'loading'}
+              >
+                {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar descripción'}
+              </button>
+              {descriptionSaveError ? <p style={errorStyle}>{descriptionSaveError}</p> : null}
+              {descriptionSaveStatus === 'success' && descriptionSaveSuccess ? (
+                <p style={successStyle}>{descriptionSaveSuccess}</p>
+              ) : null}
+            </div>
             <p style={helperStyle}>
               El contenido se guarda en TiDB como HTML limpio. El editor incluye tablas, listas, enlaces, imágenes y carga automática.
             </p>
