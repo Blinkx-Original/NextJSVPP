@@ -32,7 +32,7 @@ import {
 } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle, textareaStyle } from './panel-styles';
-import TinyMceEditor from './tinymce-editor';
+import TinyMceEditor, { type TinyMceEditorHandle } from './tinymce-editor';
 import { DESCRIPTION_MAX_LENGTH, measureHtmlContent } from '@/lib/sanitize-html';
 import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
 import { normalizeProductSlugInput } from '@/lib/product-slug';
@@ -284,6 +284,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const [descriptionSaveSuccess, setDescriptionSaveSuccess] = useState<string | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
 
+  // Reference to the TinyMCE editor instance so we can clear autosave drafts after saving.
+  const tinyRef = useRef<TinyMceEditorHandle | null>(null);
+
   useEffect(() => {
     setSlugInput(initialInput);
   }, [initialInput]);
@@ -529,6 +532,12 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       setSaveStatus('idle');
       setSaveError(null);
       setSaveSuccess(null);
+      // Clear any TinyMCE autosave drafts so that stale content is not restored on refresh.
+      try {
+        tinyRef.current?.clearDraft();
+      } catch {
+        // Ignore errors.
+      }
     } catch (error) {
       setDescriptionSaveStatus('error');
       setDescriptionSaveError((error as Error)?.message ?? 'Error desconocido al guardar la descripción.');
@@ -770,6 +779,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               </span>
             </header>
             <TinyMceEditor
+              ref={tinyRef}
               value={form.description}
               onChange={(html) => {
                 setForm((prev) => ({ ...prev, description: html }));
