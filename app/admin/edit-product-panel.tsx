@@ -256,6 +256,17 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const descriptionEditorRef = useRef<TinyMceEditorHandle | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
 
+  const syncDescriptionFromEditor = useCallback(() => {
+    const editorContent = descriptionEditorRef.current?.getContent?.();
+    if (typeof editorContent === 'string') {
+      if (editorContent !== form.description) {
+        setForm((prev) => ({ ...prev, description: editorContent }));
+      }
+      return editorContent;
+    }
+    return form.description;
+  }, [form.description]);
+
   useEffect(() => {
     setSlugInput(initialInput);
   }, [initialInput]);
@@ -364,7 +375,8 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       return;
     }
 
-    const descriptionMetrics = measureHtmlContent(form.description);
+    const currentDescription = syncDescriptionFromEditor();
+    const descriptionMetrics = measureHtmlContent(currentDescription);
     if (descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH) {
       setSaveStatus('error');
       setSaveError(
@@ -384,7 +396,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       slug: selectedSlug,
       title_h1: form.title,
       short_summary: form.summary,
-      desc_html: form.description,
+      desc_html: currentDescription,
       price: form.price,
       cta_lead_url: form.ctaLead,
       cta_affiliate_url: form.ctaAffiliate,
@@ -423,7 +435,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       setSaveStatus('error');
       setSaveError((error as Error)?.message ?? 'Error desconocido al guardar.');
     }
-  }, [applyProduct, form, selectedSlug]);
+  }, [applyProduct, form, selectedSlug, syncDescriptionFromEditor]);
 
   const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
   const isDescriptionTooLong = descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH;
@@ -435,7 +447,8 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       return;
     }
 
-    const descriptionMetricsLocal = measureHtmlContent(form.description);
+    const currentDescription = syncDescriptionFromEditor();
+    const descriptionMetricsLocal = measureHtmlContent(currentDescription);
     if (descriptionMetricsLocal.characters > DESCRIPTION_MAX_LENGTH) {
       setDescriptionSaveStatus('error');
       setDescriptionSaveError(
@@ -450,7 +463,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
     const payload = {
       slug: selectedSlug,
-      desc_html: form.description
+      desc_html: currentDescription
     };
 
     try {
@@ -479,7 +492,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       setDescriptionSaveStatus('error');
       setDescriptionSaveError((error as Error)?.message ?? 'Error desconocido al guardar la descripción.');
     }
-  }, [applyProduct, form.description, selectedSlug]);
+  }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
 
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {

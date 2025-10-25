@@ -59,6 +59,7 @@ type EditorMode = 'visual' | 'html';
 
 export interface TinyMceEditorHandle {
   clearDraft: () => void;
+  getContent: () => string;
 }
 
 function sanitizeForId(value: string | null | undefined): string {
@@ -157,7 +158,25 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
     }
   }, []);
 
-  useImperativeHandle(ref, () => ({ clearDraft: clearAutosaveDraft }), [clearAutosaveDraft]);
+  const readEditorContent = useCallback(() => {
+    if (modeRef.current === 'html') {
+      return sourceValue ?? '';
+    }
+    const editor = editorRef.current;
+    if (editor) {
+      return editor.getContent({ format: 'html' }) || '';
+    }
+    return latestValueRef.current || '';
+  }, [sourceValue]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      clearDraft: clearAutosaveDraft,
+      getContent: readEditorContent
+    }),
+    [clearAutosaveDraft, readEditorContent]
+  );
 
   useEffect(() => {
     let cancelled = false;
