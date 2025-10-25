@@ -383,7 +383,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       slug: selectedSlug,
       title_h1: form.title,
       short_summary: form.summary,
-      desc_html: descriptionMetrics.sanitized,
+      desc_html: form.description,
       price: form.price,
       cta_lead_url: form.ctaLead,
       cta_affiliate_url: form.ctaAffiliate,
@@ -448,7 +448,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
     const payload = {
       slug: selectedSlug,
-      desc_html: descriptionMetricsLocal.sanitized
+      desc_html: form.description
     };
 
     try {
