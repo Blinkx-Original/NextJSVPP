@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { revalidatePath } from 'next/cache';
+import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, toDbErrorInfo } from '@/lib/db';
 import { safeGetEnv } from '@/lib/env';
 import { clearProductCache, getProductRecordBySlug, type RawProductRecord } from '@/lib/products';
@@ -170,6 +171,55 @@ async function ensureProductExists(slug: string): Promise<RawProductRecord | nul
   return getProductRecordBySlug(slug);
 }
 
+const TEXTUAL_PRICE_TYPES = new Set(['varchar', 'char', 'text', 'tinytext', 'mediumtext', 'longtext']);
+
+let priceColumnCheckPromise: Promise<void> | null = null;
+
+async function ensurePriceColumnAllowsText(connection: PoolConnection): Promise<void> {
+  if (priceColumnCheckPromise) {
+    return priceColumnCheckPromise;
+  }
+
+  priceColumnCheckPromise = (async () => {
+    try {
+      const [rows] = await connection.query<RowDataPacket[]>(
+        `SELECT DATA_TYPE, COLUMN_TYPE
+           FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'products'
+            AND COLUMN_NAME = 'price'
+          LIMIT 1`
+      );
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return;
+      }
+
+      const row = rows[0] ?? {};
+      const dataType = String((row as Record<string, unknown>).DATA_TYPE ?? (row as Record<string, unknown>).data_type ?? '')
+        .trim()
+        .toLowerCase();
+
+      if (TEXTUAL_PRICE_TYPES.has(dataType)) {
+        return;
+      }
+
+      await connection.query(
+        `ALTER TABLE products
+           MODIFY COLUMN price VARCHAR(120)
+           CHARACTER SET utf8mb4
+           COLLATE utf8mb4_unicode_ci
+           NULL DEFAULT NULL`
+      );
+    } catch (error) {
+      priceColumnCheckPromise = null;
+      throw error;
+    }
+  })();
+
+  return priceColumnCheckPromise;
+}
+
 function buildErrorResponse(
   code: AdminProductErrorCode,
   init?: { status?: number; message?: string; details?: unknown }
@@ -337,6 +387,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
   }
   const connection = await getPool().getConnection();
   try {
+    await ensurePriceColumnAllowsText(connection);
+
     const imagesJson = imageUrl ? JSON.stringify([imageUrl]) : JSON.stringify([]);
 
     const [result] = await connection.query<ResultSetHeader>(
@@ -368,6 +420,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
     );
 
     clearProductCache(normalizedSlug);
+    revalidatePath(`/p/${normalizedSlug}`);
 
     const record = await ensureProductExists(normalizedSlug);
     if (!record) {
