@@ -21,6 +21,7 @@ const productSchema = z.object({
   cta_stripe_url: z.string().nullable(),
   cta_affiliate_url: z.string().nullable(),
   cta_paypal_url: z.string().nullable(),
+  price: z.string().nullable(),
   is_published: z.number().or(z.boolean()),
   last_tidb_update_at: z.string().nullable(),
   updated_at: z.string().nullable().optional()
@@ -40,6 +41,11 @@ export interface NormalizedProduct {
   short_summary: string;
   meta_description: string;
   slug: string;
+  price: string;
+  cta_lead_url: string;
+  cta_affiliate_url: string;
+  cta_stripe_url: string;
+  cta_paypal_url: string;
   last_tidb_update_at: string | null;
 }
 
@@ -104,6 +110,7 @@ export interface Product {
     stripe?: string | null;
     paypal?: string | null;
   };
+  price?: string | null;
   lastUpdatedAt?: string | null;
 }
 
@@ -319,6 +326,11 @@ function normalizeProductRecordInternal(
     short_summary: toCleanString(record.short_summary),
     meta_description: toCleanString(record.meta_description),
     slug: toCleanString(record.slug) || options.slug,
+    price: toCleanString(record.price),
+    cta_lead_url: toCleanString(record.cta_lead_url),
+    cta_affiliate_url: toCleanString(record.cta_affiliate_url),
+    cta_stripe_url: toCleanString(record.cta_stripe_url),
+    cta_paypal_url: toCleanString(record.cta_paypal_url),
     last_tidb_update_at: normalizeOptionalDate(record.last_tidb_update_at)
   };
 
@@ -369,6 +381,7 @@ export async function getPublishedProductBySlug(slug: string): Promise<Product |
       stripe: parsed.cta_stripe_url,
       paypal: parsed.cta_paypal_url
     },
+    price: parsed.price,
     lastUpdatedAt: parsed.last_tidb_update_at
   };
   return product;
