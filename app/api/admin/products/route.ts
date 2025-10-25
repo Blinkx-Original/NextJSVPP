@@ -29,6 +29,10 @@ interface AdminProduct {
   cta_affiliate_url: string | null;
   cta_stripe_url: string | null;
   cta_paypal_url: string | null;
+  cta_lead_label: string | null;
+  cta_affiliate_label: string | null;
+  cta_stripe_label: string | null;
+  cta_paypal_label: string | null;
   primary_image_url: string | null;
   last_tidb_update_at: string | null;
 }
@@ -58,6 +62,10 @@ interface UpdatePayload {
   cta_affiliate_url?: unknown;
   cta_stripe_url?: unknown;
   cta_paypal_url?: unknown;
+  cta_lead_label?: unknown;
+  cta_affiliate_label?: unknown;
+  cta_stripe_label?: unknown;
+  cta_paypal_label?: unknown;
   image_url?: unknown;
 }
 
@@ -65,6 +73,7 @@ const TITLE_MAX_LENGTH = 120;
 const SUMMARY_MAX_LENGTH = 200;
 const URL_MAX_LENGTH = 2048;
 const PRICE_MAX_LENGTH = 120;
+const CTA_LABEL_MAX_LENGTH = 80;
 
 function toIsoString(value: Date | string | null | undefined): string | null {
   if (value == null) {
@@ -109,6 +118,10 @@ function mapProduct(record: RawProductRecord): AdminProduct {
       cta_affiliate_url?: string | null;
       cta_stripe_url?: string | null;
       cta_paypal_url?: string | null;
+      cta_lead_label?: string | null;
+      cta_affiliate_label?: string | null;
+      cta_stripe_label?: string | null;
+      cta_paypal_label?: string | null;
       images_json?: string | null;
       last_tidb_update_at?: Date | string | null;
     };
@@ -123,6 +136,10 @@ function mapProduct(record: RawProductRecord): AdminProduct {
     cta_affiliate_url: row.cta_affiliate_url ?? null,
     cta_stripe_url: row.cta_stripe_url ?? null,
     cta_paypal_url: row.cta_paypal_url ?? null,
+    cta_lead_label: row.cta_lead_label ?? null,
+    cta_affiliate_label: row.cta_affiliate_label ?? null,
+    cta_stripe_label: row.cta_stripe_label ?? null,
+    cta_paypal_label: row.cta_paypal_label ?? null,
     primary_image_url: parsePrimaryImage(row.images_json),
     last_tidb_update_at: toIsoString(row.last_tidb_update_at)
   };
@@ -137,6 +154,37 @@ function normalizeOptionalString(value: unknown, maxLength?: number): string | n
     return null;
   }
   if (maxLength && trimmed.length > maxLength) {
+    return trimmed.slice(0, maxLength);
+  }
+  return trimmed;
+}
+
+function normalizeOptionalUrl(value: unknown, field: string, maxLength?: number): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (!/^https?:\/\//i.test(trimmed)) {
+    throw new Error(field);
+  }
+  if (maxLength && trimmed.length > maxLength) {
+    return trimmed.slice(0, maxLength);
+  }
+  return trimmed;
+}
+
+function normalizeOptionalLabel(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (trimmed.length > maxLength) {
     return trimmed.slice(0, maxLength);
   }
   return trimmed;
@@ -307,6 +355,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
       cta_affiliate_url?: string | null;
       cta_stripe_url?: string | null;
       cta_paypal_url?: string | null;
+      cta_lead_label?: string | null;
+      cta_affiliate_label?: string | null;
+      cta_stripe_label?: string | null;
+      cta_paypal_label?: string | null;
       images_json?: string | null;
     };
 
@@ -322,6 +374,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
   let affiliateUrl: string;
   let stripeUrl: string;
   let paypalUrl: string;
+  let leadLabel: string;
+  let affiliateLabel: string;
+  let stripeLabel: string;
+  let paypalLabel: string;
   let imageUrl: string | null = null;
 
   try {
@@ -355,25 +411,49 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
       typeof payload.cta_lead_url === 'string'
         ? payload.cta_lead_url
         : existingRow.cta_lead_url ?? '';
-    leadUrl = normalizeOptionalString(leadInput, URL_MAX_LENGTH) ?? '';
+    leadUrl = normalizeOptionalUrl(leadInput, 'cta_lead_url', URL_MAX_LENGTH) ?? '';
 
     const affiliateInput =
       typeof payload.cta_affiliate_url === 'string'
         ? payload.cta_affiliate_url
         : existingRow.cta_affiliate_url ?? '';
-    affiliateUrl = normalizeOptionalString(affiliateInput, URL_MAX_LENGTH) ?? '';
+    affiliateUrl = normalizeOptionalUrl(affiliateInput, 'cta_affiliate_url', URL_MAX_LENGTH) ?? '';
 
     const stripeInput =
       typeof payload.cta_stripe_url === 'string'
         ? payload.cta_stripe_url
         : existingRow.cta_stripe_url ?? '';
-    stripeUrl = normalizeOptionalString(stripeInput, URL_MAX_LENGTH) ?? '';
+    stripeUrl = normalizeOptionalUrl(stripeInput, 'cta_stripe_url', URL_MAX_LENGTH) ?? '';
 
     const paypalInput =
       typeof payload.cta_paypal_url === 'string'
         ? payload.cta_paypal_url
         : existingRow.cta_paypal_url ?? '';
-    paypalUrl = normalizeOptionalString(paypalInput, URL_MAX_LENGTH) ?? '';
+    paypalUrl = normalizeOptionalUrl(paypalInput, 'cta_paypal_url', URL_MAX_LENGTH) ?? '';
+
+    const leadLabelInput =
+      typeof payload.cta_lead_label === 'string'
+        ? payload.cta_lead_label
+        : existingRow.cta_lead_label ?? '';
+    leadLabel = normalizeOptionalLabel(leadLabelInput, CTA_LABEL_MAX_LENGTH);
+
+    const affiliateLabelInput =
+      typeof payload.cta_affiliate_label === 'string'
+        ? payload.cta_affiliate_label
+        : existingRow.cta_affiliate_label ?? '';
+    affiliateLabel = normalizeOptionalLabel(affiliateLabelInput, CTA_LABEL_MAX_LENGTH);
+
+    const stripeLabelInput =
+      typeof payload.cta_stripe_label === 'string'
+        ? payload.cta_stripe_label
+        : existingRow.cta_stripe_label ?? '';
+    stripeLabel = normalizeOptionalLabel(stripeLabelInput, CTA_LABEL_MAX_LENGTH);
+
+    const paypalLabelInput =
+      typeof payload.cta_paypal_label === 'string'
+        ? payload.cta_paypal_label
+        : existingRow.cta_paypal_label ?? '';
+    paypalLabel = normalizeOptionalLabel(paypalLabelInput, CTA_LABEL_MAX_LENGTH);
 
     const imageInput =
       typeof payload.image_url === 'string' ? payload.image_url : existingPrimaryImage ?? '';
@@ -401,6 +481,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
             cta_affiliate_url = ?,
             cta_stripe_url = ?,
             cta_paypal_url = ?,
+            cta_lead_label = ?,
+            cta_affiliate_label = ?,
+            cta_stripe_label = ?,
+            cta_paypal_label = ?,
             images_json = ?,
             last_tidb_update_at = NOW(6)
         WHERE slug = ?
@@ -414,6 +498,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
         affiliateUrl,
         stripeUrl,
         paypalUrl,
+        leadLabel,
+        affiliateLabel,
+        stripeLabel,
+        paypalLabel,
         imagesJson,
         normalizedSlug
       ]

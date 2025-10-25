@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle, textareaStyle } from './panel-styles';
+import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
 import { normalizeProductSlugInput } from '@/lib/product-slug';
 
 interface EditProductPanelProps {
@@ -22,6 +23,10 @@ interface AdminProduct {
   cta_affiliate_url: string | null;
   cta_stripe_url: string | null;
   cta_paypal_url: string | null;
+  cta_lead_label: string | null;
+  cta_affiliate_label: string | null;
+  cta_stripe_label: string | null;
+  cta_paypal_label: string | null;
   primary_image_url: string | null;
   last_tidb_update_at: string | null;
 }
@@ -43,6 +48,10 @@ interface ProductFormState {
   ctaAffiliate: string;
   ctaStripe: string;
   ctaPaypal: string;
+  ctaLeadLabel: string;
+  ctaAffiliateLabel: string;
+  ctaStripeLabel: string;
+  ctaPaypalLabel: string;
   imageUrl: string;
   lastUpdatedAt: string | null;
 }
@@ -60,15 +69,39 @@ const emptyFormState: ProductFormState = {
   ctaAffiliate: '',
   ctaStripe: '',
   ctaPaypal: '',
+  ctaLeadLabel: '',
+  ctaAffiliateLabel: '',
+  ctaStripeLabel: '',
+  ctaPaypalLabel: '',
   imageUrl: '',
   lastUpdatedAt: null
 };
 
-const ctaConfig = [
-  { field: 'ctaLead' as const, label: 'Request a quote' },
-  { field: 'ctaAffiliate' as const, label: 'Buy via Affiliate' },
-  { field: 'ctaStripe' as const, label: 'Pay with Stripe' },
-  { field: 'ctaPaypal' as const, label: 'Pay with PayPal' }
+const CTA_FIELDS = [
+  {
+    key: 'lead' as const,
+    urlField: 'ctaLead' as const,
+    labelField: 'ctaLeadLabel' as const,
+    title: CTA_DEFAULT_LABELS.lead
+  },
+  {
+    key: 'affiliate' as const,
+    urlField: 'ctaAffiliate' as const,
+    labelField: 'ctaAffiliateLabel' as const,
+    title: CTA_DEFAULT_LABELS.affiliate
+  },
+  {
+    key: 'stripe' as const,
+    urlField: 'ctaStripe' as const,
+    labelField: 'ctaStripeLabel' as const,
+    title: CTA_DEFAULT_LABELS.stripe
+  },
+  {
+    key: 'paypal' as const,
+    urlField: 'ctaPaypal' as const,
+    labelField: 'ctaPaypalLabel' as const,
+    title: CTA_DEFAULT_LABELS.paypal
+  }
 ];
 
 const sectionStyle = {
@@ -256,6 +289,10 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       ctaAffiliate: product.cta_affiliate_url ?? '',
       ctaStripe: product.cta_stripe_url ?? '',
       ctaPaypal: product.cta_paypal_url ?? '',
+      ctaLeadLabel: product.cta_lead_label ?? '',
+      ctaAffiliateLabel: product.cta_affiliate_label ?? '',
+      ctaStripeLabel: product.cta_stripe_label ?? '',
+      ctaPaypalLabel: product.cta_paypal_label ?? '',
       imageUrl: product.primary_image_url ?? '',
       lastUpdatedAt: product.last_tidb_update_at ?? null
     });
@@ -341,6 +378,10 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       cta_affiliate_url: form.ctaAffiliate,
       cta_stripe_url: form.ctaStripe,
       cta_paypal_url: form.ctaPaypal,
+      cta_lead_label: form.ctaLeadLabel,
+      cta_affiliate_label: form.ctaAffiliateLabel,
+      cta_stripe_label: form.ctaStripeLabel,
+      cta_paypal_label: form.ctaPaypalLabel,
       image_url: form.imageUrl
     };
 
@@ -369,9 +410,15 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   }, [applyProduct, form, selectedSlug]);
 
   const activeCtas = useMemo(() => {
-    return ctaConfig
-      .map((item) => ({ ...item, value: form[item.field].trim() }))
-      .filter((item) => item.value.length > 0);
+    return CTA_FIELDS.map((item) => {
+      const url = form[item.urlField].trim();
+      const labelValue = form[item.labelField].trim();
+      return {
+        key: item.key,
+        url,
+        label: resolveCtaLabel(item.key, labelValue)
+      };
+    }).filter((item) => item.url.length > 0);
   }, [form]);
 
   const titleCount = form.title.length;
@@ -494,20 +541,39 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
             <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a' }}>Botones (CTA)</h3>
-              {ctaConfig.map((cta) => (
-                <div key={cta.field} style={fieldGroupStyle}>
-                  <label style={labelStyle} htmlFor={cta.field}>
-                    <span>{cta.label}</span>
-                  </label>
-                  <input
-                    id={cta.field}
-                    style={inputStyle}
-                    type="url"
-                    value={form[cta.field]}
-                    onChange={handleFieldChange(cta.field)}
-                    placeholder="https://"
-                  />
-                  <p style={helperStyle}>El botón aparece sólo si la URL tiene contenido.</p>
+              {CTA_FIELDS.map((cta) => (
+                <div key={cta.key} style={{ display: 'grid', gap: '0.75rem' }}>
+                  <div style={fieldGroupStyle}>
+                    <label style={labelStyle} htmlFor={`${cta.key}-label`}>
+                      <span>Label (opcional)</span>
+                    </label>
+                    <input
+                      id={`${cta.key}-label`}
+                      style={inputStyle}
+                      type="text"
+                      value={form[cta.labelField]}
+                      onChange={handleFieldChange(cta.labelField)}
+                      placeholder={cta.title}
+                      maxLength={80}
+                    />
+                    <p style={helperStyle}>
+                      Si lo dejas vacío se mostrará “{cta.title}”.
+                    </p>
+                  </div>
+                  <div style={fieldGroupStyle}>
+                    <label style={labelStyle} htmlFor={`${cta.key}-url`}>
+                      <span>URL</span>
+                    </label>
+                    <input
+                      id={`${cta.key}-url`}
+                      style={inputStyle}
+                      type="url"
+                      value={form[cta.urlField]}
+                      onChange={handleFieldChange(cta.urlField)}
+                      placeholder="https://"
+                    />
+                    <p style={helperStyle}>El botón aparece sólo si la URL tiene contenido.</p>
+                  </div>
                 </div>
               ))}
             </section>
@@ -547,8 +613,8 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
                   <div style={previewButtonRowStyle}>
                     {activeCtas.map((cta, index) => (
                       <a
-                        key={cta.field}
-                        href={cta.value}
+                        key={cta.key}
+                        href={cta.url}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={index === 0 ? primaryButtonStyle : secondaryButtonStyle}
