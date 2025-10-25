@@ -159,14 +159,14 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
   }, []);
 
   const readEditorContent = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return latestValueRef.current ?? '';
+    }
     if (modeRef.current === 'html') {
       return sourceValue ?? '';
     }
-    const editor = editorRef.current;
-    if (editor) {
-      return editor.getContent({ format: 'html' }) || '';
-    }
-    return latestValueRef.current || '';
+    return editor.getContent({ format: 'html' }) || '';
   }, [sourceValue]);
 
   useImperativeHandle(
@@ -304,6 +304,7 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
                 return;
               }
               lastEmittedValueRef.current = content;
+              latestValueRef.current = content;
               onChangeRef.current?.(content);
             };
             const changeEvents = [
@@ -426,6 +427,7 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
     const nextValue = event.target.value;
     setSourceValue(nextValue);
     lastEmittedValueRef.current = nextValue;
+    latestValueRef.current = nextValue;
     onChangeRef.current?.(nextValue);
   };
 
