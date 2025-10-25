@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
+import './page.css';
 import {
   getNormalizedPublishedProduct,
   type NormalizedProduct,
@@ -116,7 +118,20 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-export default async function ProductDebugPage({ params }: PageProps) {
+const CTA_CONFIG = [
+  { key: 'cta_lead_url', label: 'Request a quote' },
+  { key: 'cta_affiliate_url', label: 'Buy via Affiliate' },
+  { key: 'cta_stripe_url', label: 'Pay with Stripe' },
+  { key: 'cta_paypal_url', label: 'Pay with PayPal' }
+] as const;
+
+type CtaKey = (typeof CTA_CONFIG)[number]['key'];
+
+function truncateSummary(summary: string, maxLength = 160): string {
+  return truncateDescription(summary, maxLength);
+}
+
+export default async function ProductPage({ params }: PageProps) {
   const requestId = createRequestId();
   const startedAt = Date.now();
   const productResult = await loadProduct(params.slug, { requestId });
@@ -129,18 +144,82 @@ export default async function ProductDebugPage({ params }: PageProps) {
 
   console.log(`[page/p][${requestId}] slug=${params.slug} loaded (${duration}ms)`);
 
-  const { normalized, raw } = productResult;
+  const { normalized } = productResult;
   const host = headers().get('host') ?? undefined;
   const canonical = buildProductUrl(normalized.slug, host);
   const jsonLd = buildProductJsonLd(normalized, canonical);
+  const primaryImage = normalized.images[0];
+  const summary = normalized.short_summary ? truncateSummary(normalized.short_summary) : '';
+  const resolveCtaUrl = (key: CtaKey): string => normalized[key];
+  const ctas = CTA_CONFIG.filter((item) => resolveCtaUrl(item.key).length > 0);
+  const primaryCtaKey = ctas[0]?.key;
 
   return (
-    <main>
-      <h1>{normalized.title_h1 || normalized.slug}</h1>
+    <main className="vpp-product-page">
+      <section className="vpp-product-hero">
+        <div className="vpp-product-media">
+          {primaryImage ? (
+            <Image
+              src={primaryImage}
+              alt={normalized.title_h1 || normalized.slug}
+              fill
+              sizes="(max-width: 900px) 100vw, 540px"
+              priority
+              className="vpp-product-media-image"
+            />
+          ) : (
+            <div className="vpp-product-media-placeholder" aria-hidden="true">
+              <span>Image coming soon</span>
+            </div>
+          )}
+        </div>
+        <div className="vpp-product-details">
+          <h1 className="vpp-product-title">{normalized.title_h1 || normalized.slug}</h1>
+          {summary ? <p className="vpp-product-summary">{summary}</p> : null}
+          {ctas.length > 0 ? (
+            <div className="vpp-product-ctas">
+              {ctas.map((cta) => {
+                const url = resolveCtaUrl(cta.key);
+                const isPrimary = cta.key === primaryCtaKey;
+                const ctaClassName = [
+                  'vpp-product-cta',
+                  isPrimary ? 'vpp-product-cta-primary' : 'vpp-product-cta-secondary'
+                ].join(' ');
+                return (
+                  <a
+                    key={cta.key}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={ctaClassName}
+                  >
+                    {cta.label}
+                  </a>
+                );
+              })}
+            </div>
+          ) : null}
+          <div
+            className={
+              [
+                'vpp-product-price',
+                normalized.price ? 'vpp-product-price-visible' : 'vpp-product-price-empty'
+              ].join(' ')
+            }
+            aria-hidden={normalized.price ? undefined : true}
+          >
+            {normalized.price ? <span>{normalized.price}</span> : null}
+          </div>
+        </div>
+      </section>
       {normalized.desc_html ? (
-        <article dangerouslySetInnerHTML={{ __html: normalized.desc_html }} />
+        <section className="vpp-product-description">
+          <article
+            className="vpp-product-description-content"
+            dangerouslySetInnerHTML={{ __html: normalized.desc_html }}
+          />
+        </section>
       ) : null}
-      <pre>{JSON.stringify({ normalized, raw }, null, 2)}</pre>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
     </main>
   );
