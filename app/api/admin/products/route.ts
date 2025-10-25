@@ -159,12 +159,9 @@ function normalizeRequiredString(
   return output;
 }
 
-function normalizeHtml(value: unknown): string | null {
+function normalizeHtml(value: unknown): string {
   if (typeof value !== 'string') {
     throw new Error('desc_html');
-  }
-  if (!value.trim()) {
-    return null;
   }
   return value;
 }
@@ -245,30 +242,92 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
     });
   }
 
+  const existing = await ensureProductExists(normalizedSlug);
+  if (!existing) {
+    return buildErrorResponse('product_not_found', { status: 404, message: 'Product not found' });
+  }
+
+  type ExistingProductRow = RawProductRecord &
+    RowDataPacket & {
+      title_h1?: string | null;
+      short_summary?: string | null;
+      desc_html?: string | null;
+      price?: string | null;
+      cta_lead_url?: string | null;
+      cta_affiliate_url?: string | null;
+      cta_stripe_url?: string | null;
+      cta_paypal_url?: string | null;
+      images_json?: string | null;
+    };
+
+  const existingRow = existing as ExistingProductRow;
+
+  const existingPrimaryImage = parsePrimaryImage(existingRow.images_json);
+
   let title: string;
   let summary: string;
-  let description: string | null;
-  let price: string | null;
-  let leadUrl: string | null;
-  let affiliateUrl: string | null;
-  let stripeUrl: string | null;
-  let paypalUrl: string | null;
+  let description: string;
+  let price: string;
+  let leadUrl: string;
+  let affiliateUrl: string;
+  let stripeUrl: string;
+  let paypalUrl: string;
   let imageUrl: string | null = null;
 
   try {
-    title = normalizeRequiredString(payload.title_h1, { maxLength: TITLE_MAX_LENGTH }, 'title_h1');
+    const titleInput =
+      typeof payload.title_h1 === 'string' ? payload.title_h1 : existingRow.title_h1 ?? '';
+    title = normalizeRequiredString(titleInput, { maxLength: TITLE_MAX_LENGTH }, 'title_h1');
+
+    const summaryInput =
+      typeof payload.short_summary === 'string'
+        ? payload.short_summary
+        : existingRow.short_summary ?? '';
     summary = normalizeRequiredString(
-      payload.short_summary,
+      summaryInput,
       { maxLength: SUMMARY_MAX_LENGTH, allowEmpty: true },
       'short_summary'
     );
-    description = normalizeHtml(payload.desc_html);
-    price = normalizeOptionalString(payload.price, PRICE_MAX_LENGTH);
-    leadUrl = normalizeOptionalString(payload.cta_lead_url, URL_MAX_LENGTH);
-    affiliateUrl = normalizeOptionalString(payload.cta_affiliate_url, URL_MAX_LENGTH);
-    stripeUrl = normalizeOptionalString(payload.cta_stripe_url, URL_MAX_LENGTH);
-    paypalUrl = normalizeOptionalString(payload.cta_paypal_url, URL_MAX_LENGTH);
-    imageUrl = normalizeOptionalString(payload.image_url, URL_MAX_LENGTH);
+
+    const descriptionInput =
+      typeof payload.desc_html === 'string' ? payload.desc_html : existingRow.desc_html ?? '';
+    description = normalizeHtml(descriptionInput);
+
+    const priceInput =
+      typeof payload.price === 'string'
+        ? payload.price
+        : typeof existingRow.price === 'string'
+          ? existingRow.price
+          : '';
+    price = normalizeOptionalString(priceInput, PRICE_MAX_LENGTH) ?? '';
+
+    const leadInput =
+      typeof payload.cta_lead_url === 'string'
+        ? payload.cta_lead_url
+        : existingRow.cta_lead_url ?? '';
+    leadUrl = normalizeOptionalString(leadInput, URL_MAX_LENGTH) ?? '';
+
+    const affiliateInput =
+      typeof payload.cta_affiliate_url === 'string'
+        ? payload.cta_affiliate_url
+        : existingRow.cta_affiliate_url ?? '';
+    affiliateUrl = normalizeOptionalString(affiliateInput, URL_MAX_LENGTH) ?? '';
+
+    const stripeInput =
+      typeof payload.cta_stripe_url === 'string'
+        ? payload.cta_stripe_url
+        : existingRow.cta_stripe_url ?? '';
+    stripeUrl = normalizeOptionalString(stripeInput, URL_MAX_LENGTH) ?? '';
+
+    const paypalInput =
+      typeof payload.cta_paypal_url === 'string'
+        ? payload.cta_paypal_url
+        : existingRow.cta_paypal_url ?? '';
+    paypalUrl = normalizeOptionalString(paypalInput, URL_MAX_LENGTH) ?? '';
+
+    const imageInput =
+      typeof payload.image_url === 'string' ? payload.image_url : existingPrimaryImage ?? '';
+    imageUrl = normalizeOptionalString(imageInput, URL_MAX_LENGTH);
   } catch (error) {
     const field = (error as Error)?.message ?? 'invalid_payload';
     return buildErrorResponse('invalid_payload', {
@@ -276,15 +335,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
       message: `Invalid value for ${field}`
     });
   }
-
   const connection = await getPool().getConnection();
-
   try {
-    const existing = await ensureProductExists(normalizedSlug);
-    if (!existing) {
-      return buildErrorResponse('product_not_found', { status: 404, message: 'Product not found' });
-    }
-
     const imagesJson = imageUrl ? JSON.stringify([imageUrl]) : JSON.stringify([]);
 
     const [result] = await connection.query<ResultSetHeader>(
@@ -336,6 +388,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
     const info = toDbErrorInfo(error);
     return buildErrorResponse('sql_error', {
       status: 500,
+      message: info.message,
       details: info
     });
   } finally {
