@@ -3,8 +3,11 @@ import { headers as nextHeaders } from 'next/headers';
 import ConnectivityPanel from './connectivity-panel';
 import PublishingPanel from './publishing-panel';
 import AssetsPanel from './assets-panel';
+import EditProductPanel from './edit-product-panel';
+import QuickProductNavigator from './quick-product-navigator';
 import { readCloudflareImagesConfig } from '@/lib/cloudflare-images';
 import { issueAdminSessionToken } from '@/lib/basic-auth';
+import { normalizeProductSlugInput } from '@/lib/product-slug';
 
 export const revalidate = 0;
 
@@ -44,7 +47,9 @@ interface AdminPageProps {
   searchParams?: Record<string, string | string[] | undefined>;
 }
 
-function normalizeTab(input: string | string[] | undefined): 'connectivity' | 'publishing' | 'assets' {
+type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product';
+
+function normalizeTab(input: string | string[] | undefined): AdminTab {
   if (Array.isArray(input)) {
     return normalizeTab(input[0]);
   }
@@ -56,12 +61,31 @@ function normalizeTab(input: string | string[] | undefined): 'connectivity' | 'p
     if (normalized === 'assets') {
       return 'assets';
     }
+    if (normalized === 'edit-product' || normalized === 'edit' || normalized === 'product') {
+      return 'edit-product';
+    }
   }
   return 'connectivity';
 }
 
+function coerceSearchParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? coerceSearchParam(value[0]) : null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  return null;
+}
+
 export default function AdminPage({ searchParams }: AdminPageProps) {
-  const activeTab = normalizeTab(searchParams?.tab);
+  const rawProductParam =
+    coerceSearchParam(searchParams?.product) ?? coerceSearchParam(searchParams?.slug);
+  const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
+
+  const initialTab = normalizeTab(searchParams?.tab);
+  const activeTab: AdminTab = normalizedProductSlug ? 'edit-product' : initialTab;
 
   const headerList = nextHeaders();
   const authHeader = headerList.get('authorization');
@@ -73,9 +97,10 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
   );
   const cfImagesBaseUrl = cfImagesConfig.baseUrl ?? null;
 
-  const tabs: Array<{ id: 'connectivity' | 'publishing' | 'assets'; label: string; href: string }> = [
+  const tabs: Array<{ id: AdminTab; label: string; href: string }> = [
     { id: 'connectivity', label: 'Connectivity', href: '/admin' },
     { id: 'publishing', label: 'Publishing', href: '/admin?tab=publishing' },
+    { id: 'edit-product', label: 'Edit Product', href: '/admin?tab=edit-product' },
     { id: 'assets', label: 'Assets', href: '/admin?tab=assets' }
   ];
 
@@ -112,6 +137,8 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
         })}
       </nav>
 
+      <QuickProductNavigator initialValue={rawProductParam ?? ''} />
+
       {activeTab === 'publishing' ? (
         <PublishingPanel />
       ) : activeTab === 'assets' ? (
@@ -121,6 +148,8 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
           authHeader={authHeader}
           adminToken={adminToken}
         />
+      ) : activeTab === 'edit-product' ? (
+        <EditProductPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
       ) : (
         <ConnectivityPanel />
       )}
