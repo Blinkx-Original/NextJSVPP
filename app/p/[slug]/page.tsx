@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
-import './page.css';
+import styles from './page.module.css';
 import {
   getNormalizedPublishedProduct,
   type NormalizedProduct,
@@ -155,9 +155,9 @@ export default async function ProductPage({ params }: PageProps) {
   const primaryCtaKey = ctas[0]?.key;
 
   return (
-    <main className="vpp-product-page">
-      <section className="vpp-product-hero">
-        <div className="vpp-product-media">
+    <main className={styles.productPage}>
+      <section className={styles.productHero}>
+        <div className={styles.productMedia}>
           {primaryImage ? (
             <Image
               src={primaryImage}
@@ -165,25 +165,25 @@ export default async function ProductPage({ params }: PageProps) {
               fill
               sizes="(max-width: 900px) 100vw, 540px"
               priority
-              className="vpp-product-media-image"
+              className={styles.productMediaImage}
             />
           ) : (
-            <div className="vpp-product-media-placeholder" aria-hidden="true">
+            <div className={styles.productMediaPlaceholder} aria-hidden="true">
               <span>Image coming soon</span>
             </div>
           )}
         </div>
-        <div className="vpp-product-details">
-          <h1 className="vpp-product-title">{normalized.title_h1 || normalized.slug}</h1>
-          {summary ? <p className="vpp-product-summary">{summary}</p> : null}
+        <div className={styles.productDetails}>
+          <h1 className={styles.productTitle}>{normalized.title_h1 || normalized.slug}</h1>
+          {summary ? <p className={styles.productSummary}>{summary}</p> : null}
           {ctas.length > 0 ? (
-            <div className="vpp-product-ctas">
+            <div className={styles.productCtas}>
               {ctas.map((cta) => {
                 const url = resolveCtaUrl(cta.key);
                 const isPrimary = cta.key === primaryCtaKey;
                 const ctaClassName = [
-                  'vpp-product-cta',
-                  isPrimary ? 'vpp-product-cta-primary' : 'vpp-product-cta-secondary'
+                  styles.productCta,
+                  isPrimary ? styles.productCtaPrimary : styles.productCtaSecondary
                 ].join(' ');
                 return (
                   <a
@@ -202,8 +202,8 @@ export default async function ProductPage({ params }: PageProps) {
           <div
             className={
               [
-                'vpp-product-price',
-                normalized.price ? 'vpp-product-price-visible' : 'vpp-product-price-empty'
+                styles.productPrice,
+                normalized.price ? styles.productPriceVisible : styles.productPriceEmpty
               ].join(' ')
             }
             aria-hidden={normalized.price ? undefined : true}
@@ -213,9 +213,9 @@ export default async function ProductPage({ params }: PageProps) {
         </div>
       </section>
       {normalized.desc_html ? (
-        <section className="vpp-product-description">
+        <section className={styles.productDescription}>
           <article
-            className="vpp-product-description-content"
+            className={styles.productDescriptionContent}
             dangerouslySetInnerHTML={{ __html: normalized.desc_html }}
           />
         </section>

@@ -22,7 +22,7 @@
   aspect-ratio: 4 / 3;
 }
 
-.productMedia img {
+.productMediaImage {
   object-fit: contain;
   background: #0f172a;
 }
