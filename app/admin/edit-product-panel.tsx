@@ -463,26 +463,27 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       </article>
 
       {selectedSlug ? (
-        <div style={gridStyle}>
-          <section style={{ ...cardStyle, gap: '1.5rem' }}>
-            <header>
-              <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>Contenido principal</h2>
-            </header>
-            <div style={fieldGroupStyle}>
-              <label style={labelStyle} htmlFor="title">
-                <span>Título (H1)</span>
-                <span style={{ fontSize: '0.85rem', color: titleCount > TITLE_MAX_LENGTH ? '#ef4444' : '#475569' }}>
-                  {titleCount}/{TITLE_MAX_LENGTH}
-                </span>
-              </label>
-              <input
-                id="title"
-                style={inputStyle}
-                type="text"
-                maxLength={TITLE_MAX_LENGTH}
-                value={form.title}
-                onChange={handleFieldChange('title')}
-              />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={gridStyle}>
+            <section style={{ ...cardStyle, gap: '1.5rem' }}>
+              <header>
+                <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>Contenido principal</h2>
+              </header>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="title">
+                  <span>Título (H1)</span>
+                  <span style={{ fontSize: '0.85rem', color: titleCount > TITLE_MAX_LENGTH ? '#ef4444' : '#475569' }}>
+                    {titleCount}/{TITLE_MAX_LENGTH}
+                  </span>
+                </label>
+                <input
+                  id="title"
+                  style={inputStyle}
+                  type="text"
+                  maxLength={TITLE_MAX_LENGTH}
+                  value={form.title}
+                  onChange={handleFieldChange('title')}
+                />
             </div>
 
             <div style={fieldGroupStyle}>
@@ -620,8 +621,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               </div>
             </div>
           </section>
+          </div>
 
-          <section style={{ ...cardStyle, gap: '1.25rem' }}>
+          <section style={{ ...cardStyle, gap: '1.25rem', width: '100%' }}>
             <header
               style={{
                 display: 'flex',
