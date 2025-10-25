@@ -21,6 +21,10 @@ const productSchema = z.object({
   cta_stripe_url: z.string().nullable(),
   cta_affiliate_url: z.string().nullable(),
   cta_paypal_url: z.string().nullable(),
+  cta_lead_label: z.string().nullable().optional(),
+  cta_affiliate_label: z.string().nullable().optional(),
+  cta_stripe_label: z.string().nullable().optional(),
+  cta_paypal_label: z.string().nullable().optional(),
   price: z.string().nullable(),
   is_published: z.number().or(z.boolean()),
   last_tidb_update_at: z.string().nullable(),
@@ -46,6 +50,10 @@ export interface NormalizedProduct {
   cta_affiliate_url: string;
   cta_stripe_url: string;
   cta_paypal_url: string;
+  cta_lead_label: string;
+  cta_affiliate_label: string;
+  cta_stripe_label: string;
+  cta_paypal_label: string;
   last_tidb_update_at: string | null;
 }
 
@@ -110,9 +118,17 @@ export interface Product {
     stripe?: string | null;
     paypal?: string | null;
   };
+  ctaLabels: {
+    lead?: string | null;
+    affiliate?: string | null;
+    stripe?: string | null;
+    paypal?: string | null;
+  };
   price?: string | null;
   lastUpdatedAt?: string | null;
 }
+
+export { CTA_DEFAULT_LABELS, resolveCtaLabel } from './product-cta';
 
 function parseImages(value: string | null): string[] {
   if (!value) return [];
@@ -331,6 +347,10 @@ function normalizeProductRecordInternal(
     cta_affiliate_url: toCleanString(record.cta_affiliate_url),
     cta_stripe_url: toCleanString(record.cta_stripe_url),
     cta_paypal_url: toCleanString(record.cta_paypal_url),
+    cta_lead_label: toCleanString((record as any).cta_lead_label),
+    cta_affiliate_label: toCleanString((record as any).cta_affiliate_label),
+    cta_stripe_label: toCleanString((record as any).cta_stripe_label),
+    cta_paypal_label: toCleanString((record as any).cta_paypal_label),
     last_tidb_update_at: normalizeOptionalDate(record.last_tidb_update_at)
   };
 
@@ -380,6 +400,12 @@ export async function getPublishedProductBySlug(slug: string): Promise<Product |
       affiliate: parsed.cta_affiliate_url,
       stripe: parsed.cta_stripe_url,
       paypal: parsed.cta_paypal_url
+    },
+    ctaLabels: {
+      lead: (parsed as any).cta_lead_label ?? null,
+      affiliate: (parsed as any).cta_affiliate_label ?? null,
+      stripe: (parsed as any).cta_stripe_label ?? null,
+      paypal: (parsed as any).cta_paypal_label ?? null
     },
     price: parsed.price,
     lastUpdatedAt: parsed.last_tidb_update_at
