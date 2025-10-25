@@ -207,7 +207,7 @@ export default function TinyMceEditor({
               }
               setEditorInitialized(true);
             });
-            editor.on('change input undo redo keyup setcontent', () => {
+            const emitChange = () => {
               if (suppressChangeRef.current) {
                 return;
               }
@@ -217,6 +217,23 @@ export default function TinyMceEditor({
               }
               lastEmittedValueRef.current = content;
               onChangeRef.current?.(content);
+            };
+            const changeEvents = [
+              'change',
+              'input',
+              'undo',
+              'redo',
+              'keyup',
+              'setcontent',
+              'Change',
+              'Input',
+              'Undo',
+              'Redo',
+              'KeyUp',
+              'SetContent'
+            ];
+            changeEvents.forEach((eventName) => {
+              editor.on(eventName, emitChange);
             });
             editor.on('remove', () => {
               if (!destroyed) {
