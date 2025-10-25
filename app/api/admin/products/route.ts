@@ -5,6 +5,7 @@ import { getPool, toDbErrorInfo } from '@/lib/db';
 import { safeGetEnv } from '@/lib/env';
 import { clearProductCache, getProductRecordBySlug, type RawProductRecord } from '@/lib/products';
 import { normalizeProductSlugInput } from '@/lib/product-slug';
+import { DESCRIPTION_MAX_LENGTH, sanitizeProductHtml } from '@/lib/sanitize-html';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -212,7 +213,11 @@ function normalizeHtml(value: unknown): string {
   if (typeof value !== 'string') {
     throw new Error('desc_html');
   }
-  return value;
+  const sanitized = sanitizeProductHtml(value);
+  if (sanitized.length > DESCRIPTION_MAX_LENGTH) {
+    throw new Error('desc_html_length');
+  }
+  return sanitized;
 }
 
 async function ensureProductExists(slug: string): Promise<RawProductRecord | null> {
@@ -460,9 +465,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
     imageUrl = normalizeOptionalString(imageInput, URL_MAX_LENGTH);
   } catch (error) {
     const field = (error as Error)?.message ?? 'invalid_payload';
+    let message = `Invalid value for ${field}`;
+    if (field === 'desc_html_length') {
+      message = `La descripción supera el máximo de ${DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres permitidos.`;
+    } else if (field === 'desc_html') {
+      message = 'La descripción enviada no es válida.';
+    }
     return buildErrorResponse('invalid_payload', {
       status: 400,
-      message: `Invalid value for ${field}`
+      message
     });
   }
   const connection = await getPool().getConnection();

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle, textareaStyle } from './panel-styles';
+import TinyMceEditor from './tinymce-editor';
+import { DESCRIPTION_MAX_LENGTH, measureHtmlContent } from '@/lib/sanitize-html';
 import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
 import { normalizeProductSlugInput } from '@/lib/product-slug';
 
@@ -364,6 +366,15 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       return;
     }
 
+    const descriptionMetrics = measureHtmlContent(form.description);
+    if (descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH) {
+      setSaveStatus('error');
+      setSaveError(
+        `La descripción supera el máximo de ${DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres permitidos. Reduce el contenido e inténtalo nuevamente.`
+      );
+      return;
+    }
+
     setSaveStatus('loading');
     setSaveError(null);
     setSaveSuccess(null);
@@ -372,7 +383,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       slug: selectedSlug,
       title_h1: form.title,
       short_summary: form.summary,
-      desc_html: form.description,
+      desc_html: descriptionMetrics.sanitized,
       price: form.price,
       cta_lead_url: form.ctaLead,
       cta_affiliate_url: form.ctaAffiliate,
@@ -408,6 +419,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       setSaveError((error as Error)?.message ?? 'Error desconocido al guardar.');
     }
   }, [applyProduct, form, selectedSlug]);
+
+  const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
+  const isDescriptionTooLong = descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH;
 
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
@@ -498,15 +512,34 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
             <div style={fieldGroupStyle}>
               <label style={labelStyle} htmlFor="description">
-                <span>Descripción (HTML)</span>
+                <span>Descripción detallada</span>
+                <span
+                  style={{
+                    fontSize: '0.85rem',
+                    color: isDescriptionTooLong ? '#ef4444' : '#475569'
+                  }}
+                >
+                  {descriptionMetrics.characters.toLocaleString()} / {DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres ·{' '}
+                  {descriptionMetrics.words.toLocaleString()} palabras
+                </span>
               </label>
-              <textarea
-                id="description"
-                style={{ ...textareaStyle, minHeight: '12rem' }}
+              <TinyMceEditor
                 value={form.description}
-                onChange={handleFieldChange('description')}
+                onChange={(html) => {
+                  setForm((prev) => ({ ...prev, description: html }));
+                }}
+                slug={selectedSlug}
+                placeholder="Escribe la descripción del producto…"
+                id="description"
               />
-              <p style={helperStyle}>Puedes pegar HTML completo; se mostrará exactamente como lo ingreses.</p>
+              <p style={helperStyle}>
+                Editor enriquecido con guardado automático, vista previa y herramientas para enlaces, tablas, imágenes y código.
+              </p>
+              {isDescriptionTooLong ? (
+                <p style={errorStyle}>
+                  La descripción supera el máximo recomendado. Reduce el contenido antes de guardar.
+                </p>
+              ) : null}
             </div>
 
             <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
@@ -627,9 +660,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
                 {form.price ? <div style={priceStyle}>{form.price}</div> : null}
               </div>
             </div>
-            {form.description ? (
+            {descriptionMetrics.sanitized ? (
               <div style={descriptionPreviewStyle}>
-                <div dangerouslySetInnerHTML={{ __html: form.description }} />
+                <div dangerouslySetInnerHTML={{ __html: descriptionMetrics.sanitized }} />
               </div>
             ) : null}
           </section>
