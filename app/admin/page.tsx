@@ -12,8 +12,8 @@ import { normalizeProductSlugInput } from '@/lib/product-slug';
 export const revalidate = 0;
 
 const containerStyle: CSSProperties = {
-  padding: '4rem 1.5rem',
-  maxWidth: 960,
+  padding: '4rem 2.5rem',
+  maxWidth: 1280,
   margin: '0 auto',
   display: 'flex',
   flexDirection: 'column',
