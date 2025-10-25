@@ -102,11 +102,30 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
     modeRef.current = mode;
   }, [mode]);
 
+  const syncEditorContent = useCallback(
+    (nextValue: string) => {
+      const editor = editorRef.current;
+      if (!editor) {
+        return;
+      }
+      const currentContent = editor.getContent({ format: 'html' }) || '';
+      if (currentContent === nextValue) {
+        return;
+      }
+      suppressChangeRef.current = true;
+      editor.setContent(nextValue);
+      suppressChangeRef.current = false;
+    },
+    []
+  );
+
   useEffect(() => {
-    setSourceValue(value);
-    latestValueRef.current = value;
-    lastEmittedValueRef.current = value;
-  }, [value]);
+    const normalized = value ?? '';
+    setSourceValue(normalized);
+    latestValueRef.current = normalized;
+    lastEmittedValueRef.current = normalized;
+    syncEditorContent(normalized);
+  }, [value, syncEditorContent]);
 
   useEffect(() => {
     autosavePrefixRef.current = autosavePrefix;
@@ -305,6 +324,9 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
               }
               lastEmittedValueRef.current = content;
               latestValueRef.current = content;
+              if (modeRef.current === 'html') {
+                setSourceValue(content);
+              }
               onChangeRef.current?.(content);
             };
             const changeEvents = [
@@ -395,20 +417,31 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
   }, [autosavePrefix, disabled, hostId, placeholder, scriptLoaded]);
 
   useEffect(() => {
-    if (!editorRef.current) {
+    const editor = editorRef.current;
+    if (!editor) {
       return;
     }
-    const editor = editorRef.current;
     const container: HTMLElement | null = editor.getContainer?.() ?? null;
     if (container) {
       container.style.display = mode === 'visual' ? '' : 'none';
     }
     if (mode === 'html') {
       const content = editor.getContent({ format: 'html' }) || '';
+      lastEmittedValueRef.current = content;
+      latestValueRef.current = content;
       setSourceValue(content);
+    } else {
+      syncEditorContent(latestValueRef.current ?? '');
     }
     editor.mode.set(disabled || mode === 'html' ? 'readonly' : 'design');
-  }, [disabled, mode]);
+  }, [disabled, mode, syncEditorContent]);
+
+  useEffect(() => {
+    if (!editorInitialized) {
+      return;
+    }
+    syncEditorContent(latestValueRef.current ?? '');
+  }, [editorInitialized, syncEditorContent]);
 
   useEffect(() => {
     if (!editorRef.current) {
