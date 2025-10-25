@@ -224,15 +224,6 @@ const priceStyle = {
   color: '#0f172a'
 };
 
-const descriptionPreviewStyle = {
-  marginTop: '2rem',
-  padding: '1.5rem',
-  borderRadius: 16,
-  background: '#f1f5f9',
-  color: '#0f172a',
-  lineHeight: 1.6
-};
-
 function formatTimestamp(value: string | null): string {
   if (!value) {
     return 'No disponible';
@@ -510,38 +501,6 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               />
             </div>
 
-            <div style={fieldGroupStyle}>
-              <label style={labelStyle} htmlFor="description">
-                <span>Descripción detallada</span>
-                <span
-                  style={{
-                    fontSize: '0.85rem',
-                    color: isDescriptionTooLong ? '#ef4444' : '#475569'
-                  }}
-                >
-                  {descriptionMetrics.characters.toLocaleString()} / {DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres ·{' '}
-                  {descriptionMetrics.words.toLocaleString()} palabras
-                </span>
-              </label>
-              <TinyMceEditor
-                value={form.description}
-                onChange={(html) => {
-                  setForm((prev) => ({ ...prev, description: html }));
-                }}
-                slug={selectedSlug}
-                placeholder="Escribe la descripción del producto…"
-                id="description"
-              />
-              <p style={helperStyle}>
-                Editor enriquecido con guardado automático, vista previa y herramientas para enlaces, tablas, imágenes y código.
-              </p>
-              {isDescriptionTooLong ? (
-                <p style={errorStyle}>
-                  La descripción supera el máximo recomendado. Reduce el contenido antes de guardar.
-                </p>
-              ) : null}
-            </div>
-
             <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle} htmlFor="price">
@@ -660,10 +619,51 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
                 {form.price ? <div style={priceStyle}>{form.price}</div> : null}
               </div>
             </div>
-            {descriptionMetrics.sanitized ? (
-              <div style={descriptionPreviewStyle}>
-                <div dangerouslySetInnerHTML={{ __html: descriptionMetrics.sanitized }} />
+          </section>
+
+          <section style={{ ...cardStyle, gap: '1.25rem' }}>
+            <header
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                flexWrap: 'wrap',
+                gap: '0.75rem'
+              }}
+            >
+              <div style={{ flex: '1 1 260px', minWidth: 260 }}>
+                <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>Long description (HTML)</h2>
+                <p style={helperStyle}>
+                  Usa el modo Visual para editar con formato o cambia a Código HTML para pegar contenido avanzado.
+                </p>
               </div>
+              <span
+                style={{
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  color: isDescriptionTooLong ? '#ef4444' : '#475569'
+                }}
+              >
+                {descriptionMetrics.characters.toLocaleString()} / {DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres ·{' '}
+                {descriptionMetrics.words.toLocaleString()} palabras
+              </span>
+            </header>
+            <TinyMceEditor
+              value={form.description}
+              onChange={(html) => {
+                setForm((prev) => ({ ...prev, description: html }));
+              }}
+              slug={selectedSlug}
+              placeholder="Escribe la descripción detallada, inserta tablas, imágenes o enlaces…"
+              id="description"
+            />
+            <p style={helperStyle}>
+              El contenido se guarda en TiDB como HTML limpio. El editor incluye tablas, listas, enlaces, imágenes y carga automática.
+            </p>
+            {isDescriptionTooLong ? (
+              <p style={errorStyle}>
+                La descripción supera el máximo recomendado. Reduce el contenido antes de guardar.
+              </p>
             ) : null}
           </section>
         </div>
