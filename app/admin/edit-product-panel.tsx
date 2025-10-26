@@ -15,11 +15,21 @@ interface EditProductPanelProps {
 
 type AsyncStatus = 'idle' | 'loading' | 'success' | 'error';
 
+// Deprecated: retained to satisfy historical references during build time.
+type NewCategoryFormState = {
+  name: string;
+  slug: string;
+  shortDescription: string;
+  longDescription: string;
+  isPublished: boolean;
+};
+
 interface AdminProduct {
   slug: string;
   title_h1: string | null;
   short_summary: string | null;
   desc_html: string | null;
+  category: string | null;
   price: string | null;
   cta_lead_url: string | null;
   cta_affiliate_url: string | null;
@@ -40,12 +50,18 @@ interface AdminProductResponse {
   message?: string;
 }
 
+interface CategoryOption {
+  slug: string;
+  name: string;
+}
+
 interface ProductFormState {
   slug: string;
   title: string;
   summary: string;
   description: string;
   price: string;
+  categorySlug: string;
   ctaLead: string;
   ctaAffiliate: string;
   ctaStripe: string;
@@ -67,6 +83,7 @@ const emptyFormState: ProductFormState = {
   summary: '',
   description: '',
   price: '',
+  categorySlug: '',
   ctaLead: '',
   ctaAffiliate: '',
   ctaStripe: '',
@@ -253,6 +270,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<AsyncStatus>('idle');
   const [descriptionSaveError, setDescriptionSaveError] = useState<string | null>(null);
   const [descriptionSaveSuccess, setDescriptionSaveSuccess] = useState<string | null>(null);
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
+  const [categoryFetchStatus, setCategoryFetchStatus] = useState<AsyncStatus>('idle');
+  const [categoryFetchError, setCategoryFetchError] = useState<string | null>(null);
   const descriptionEditorRef = useRef<TinyMceEditorHandle | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
 
@@ -271,6 +291,56 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     setSlugInput(initialInput);
   }, [initialInput]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadCategories = async () => {
+      setCategoryFetchStatus('loading');
+      setCategoryFetchError(null);
+      try {
+        const params = new URLSearchParams({ type: 'product', limit: '60' });
+        const response = await fetch(`/api/admin/categories?${params.toString()}`, {
+          cache: 'no-store'
+        });
+        const body = (await response.json()) as Array<{
+          slug?: string;
+          name?: string;
+        }>;
+        if (!response.ok) {
+          const message = Array.isArray(body)
+            ? 'No se pudieron cargar las categorías.'
+            : (body as { message?: string })?.message ?? 'No se pudieron cargar las categorías.';
+          throw new Error(message);
+        }
+
+        const normalized: CategoryOption[] = Array.isArray(body)
+          ? body
+              .map((item) => ({
+                slug: typeof item.slug === 'string' ? item.slug : '',
+                name: typeof item.name === 'string' ? item.name : ''
+              }))
+              .filter((item) => item.slug && item.name)
+              .sort((a, b) => a.name.localeCompare(b.name))
+          : [];
+
+        if (!cancelled) {
+          setCategoryOptions(normalized);
+          setCategoryFetchStatus('success');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCategoryFetchStatus('error');
+          setCategoryFetchError((error as Error)?.message ?? 'No se pudieron cargar las categorías.');
+        }
+      }
+    };
+
+    loadCategories();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const updateUrl = useCallback(
     (slug: string) => {
       const currentProduct = searchParams.get('product');
@@ -287,12 +357,15 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   );
 
   const applyProduct = useCallback((product: AdminProduct) => {
+    const normalizedCategory = product.category?.trim() ?? '';
+
     setForm({
       slug: product.slug,
       title: product.title_h1 ?? '',
       summary: product.short_summary ?? '',
       description: product.desc_html ?? '',
       price: product.price ?? '',
+      categorySlug: normalizedCategory,
       ctaLead: product.cta_lead_url ?? '',
       ctaAffiliate: product.cta_affiliate_url ?? '',
       ctaStripe: product.cta_stripe_url ?? '',
@@ -307,6 +380,16 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     setSelectedSlug(product.slug);
     setSlugInput(product.slug);
     lastLoadedSlugRef.current = product.slug;
+
+    if (normalizedCategory) {
+      setCategoryOptions((prev) => {
+        if (prev.some((option) => option.slug === normalizedCategory)) {
+          return prev;
+        }
+        const next = [...prev, { slug: normalizedCategory, name: normalizedCategory }];
+        return next.sort((a, b) => a.name.localeCompare(b.name));
+      });
+    }
   }, []);
 
   const fetchProduct = useCallback(
@@ -368,6 +451,11 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     []
   );
 
+  const handleCategoryChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value;
+    setForm((prev) => ({ ...prev, categorySlug: value }));
+  }, []);
+
   const handleSave = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
       setSaveError('Carga primero un producto para editarlo.');
@@ -398,12 +486,15 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       previewWindow = window.open('', '_blank');
     }
 
+    const categoryValue = form.categorySlug ? form.categorySlug : null;
+
     const payload = {
       slug: selectedSlug,
       title_h1: form.title,
       short_summary: form.summary,
       desc_html: currentDescription,
       price: form.price,
+      category: categoryValue,
       cta_lead_url: form.ctaLead,
       cta_affiliate_url: form.ctaAffiliate,
       cta_stripe_url: form.ctaStripe,
@@ -462,7 +553,12 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
         previewWindow.close();
       }
     }
-  }, [applyProduct, form, selectedSlug, syncDescriptionFromEditor]);
+  }, [
+    applyProduct,
+    form,
+    selectedSlug,
+    syncDescriptionFromEditor
+  ]);
 
   const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
   const isDescriptionTooLong = descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH;
@@ -804,6 +900,31 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               placeholder="Escribe la descripción detallada, inserta tablas, imágenes o enlaces…"
               id="description"
             />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <label style={labelStyle} htmlFor="product-category">
+                <span>Categoría</span>
+              </label>
+              <select
+                id="product-category"
+                style={inputStyle}
+                value={form.categorySlug}
+                onChange={handleCategoryChange}
+              >
+                <option value="">Sin categoría</option>
+                {categoryOptions.map((option) => (
+                  <option key={option.slug} value={option.slug}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+              {categoryFetchStatus === 'loading' ? <p style={helperStyle}>Cargando categorías…</p> : null}
+              {categoryFetchStatus === 'error' && categoryFetchError ? (
+                <p style={errorStyle}>{categoryFetchError}</p>
+              ) : null}
+              {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
+                <p style={helperStyle}>No hay categorías publicadas todavía.</p>
+              ) : null}
+            </div>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
