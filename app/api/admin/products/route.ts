@@ -34,7 +34,13 @@ interface AdminProduct {
   cta_affiliate_label: string | null;
   cta_stripe_label: string | null;
   cta_paypal_label: string | null;
+  brand: string | null;
+  model: string | null;
+  sku: string | null;
+  images: string[];
   primary_image_url: string | null;
+  meta_description: string | null;
+  schema_json: string | null;
   last_tidb_update_at: string | null;
 }
 
@@ -87,24 +93,48 @@ function toIsoString(value: Date | string | null | undefined): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function parsePrimaryImage(value: unknown): string | null {
-  if (typeof value !== 'string' || !value) {
-    return null;
+function parseImagesField(value: unknown): string[] {
+  if (typeof value !== 'string' || !value.trim()) {
+    return [];
   }
   try {
     const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) {
-      return null;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((item) => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => item.trim());
     }
-    for (const item of parsed) {
-      if (typeof item === 'string' && item.trim().length > 0) {
-        return item.trim();
-      }
-    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
+function getPrimaryImage(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const images = parseImagesField(value);
+  return images[0] ?? null;
+}
+
+function normalizeSchemaField(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) {
+    const text = value.toString('utf8').trim();
+    return text.length > 0 ? text : null;
+  }
+  try {
+    return JSON.stringify(value);
   } catch {
     return null;
   }
-  return null;
 }
 
 function mapProduct(record: RawProductRecord): AdminProduct {
@@ -124,8 +154,15 @@ function mapProduct(record: RawProductRecord): AdminProduct {
       cta_stripe_label?: string | null;
       cta_paypal_label?: string | null;
       images_json?: string | null;
+      brand?: string | null;
+      model?: string | null;
+      sku?: string | null;
+      meta_description?: string | null;
+      schema_json?: unknown;
       last_tidb_update_at?: Date | string | null;
     };
+
+  const images = parseImagesField(row.images_json);
 
   return {
     slug: row.slug ?? '',
@@ -141,7 +178,13 @@ function mapProduct(record: RawProductRecord): AdminProduct {
     cta_affiliate_label: row.cta_affiliate_label ?? null,
     cta_stripe_label: row.cta_stripe_label ?? null,
     cta_paypal_label: row.cta_paypal_label ?? null,
-    primary_image_url: parsePrimaryImage(row.images_json),
+    brand: row.brand ?? null,
+    model: row.model ?? null,
+    sku: row.sku ?? null,
+    images,
+    primary_image_url: images[0] ?? null,
+    meta_description: row.meta_description ?? null,
+    schema_json: normalizeSchemaField(row.schema_json),
     last_tidb_update_at: toIsoString(row.last_tidb_update_at)
   };
 }
@@ -369,7 +412,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
 
   const existingRow = existing as ExistingProductRow;
 
-  const existingPrimaryImage = parsePrimaryImage(existingRow.images_json);
+  const existingPrimaryImage = getPrimaryImage(existingRow.images_json);
 
   let title: string;
   let summary: string;
