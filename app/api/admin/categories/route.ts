@@ -273,7 +273,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CategoryO
     return NextResponse.json(responseBody, { status: 201 });
   } catch (error) {
     const info = toDbErrorInfo(error);
-    if ((info.code === 'ER_DUP_ENTRY' || info.code === '23505') && info.sqlMessage) {
+    if ((info.code === 'ER_DUP_ENTRY' || info.code === '23505') && info.message) {
       return buildErrorResponse('duplicate_slug', {
         status: 409,
         message: 'Slug already exists for this category type',

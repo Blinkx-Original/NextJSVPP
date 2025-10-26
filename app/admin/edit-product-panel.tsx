@@ -528,22 +528,6 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     });
   }, [isCategoryModalOpen, categorySlugManuallyEdited, categoryForm.name]);
 
-  useEffect(() => {
-    if (!isCategoryModalOpen) {
-      return;
-    }
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        handleCloseCategoryModal();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => {
-      window.removeEventListener('keydown', handler);
-    };
-  }, [isCategoryModalOpen, handleCloseCategoryModal]);
-
   const updateUrl = useCallback(
     (slug: string) => {
       const currentProduct = searchParams.get('product');
@@ -726,6 +710,22 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     setCategoryModalError(null);
   }, []);
 
+  useEffect(() => {
+    if (!isCategoryModalOpen) {
+      return;
+    }
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCloseCategoryModal();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+    };
+  }, [isCategoryModalOpen, handleCloseCategoryModal]);
+
   const handleCategoryNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
     setCategoryForm((prev) => ({ ...prev, name: value }));
@@ -810,14 +810,21 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
           })
         });
 
-        const body = (await response.json()) as
+        const rawBody = (await response.json()) as
           | { slug?: string; name?: string; is_published?: boolean; isPublished?: boolean }
           | { ok: false; message?: string; error_code?: string };
 
-        if (!response.ok || ('ok' in body && body.ok === false)) {
-          const message = 'message' in body && body.message ? body.message : 'No se pudo crear la categoría.';
+        if (!response.ok || ('ok' in rawBody && rawBody.ok === false)) {
+          const message = 'message' in rawBody && rawBody.message ? rawBody.message : 'No se pudo crear la categoría.';
           throw new Error(message);
         }
+
+        const body = rawBody as {
+          slug?: string;
+          name?: string;
+          is_published?: boolean;
+          isPublished?: boolean;
+        };
 
         const created: CategoryOption = {
           slug: typeof body.slug === 'string' ? body.slug : slug,
@@ -846,6 +853,8 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     },
     [categoryForm, categoryModalStatus]
   );
+
+  const trimmedCategoryInput = useMemo(() => form.categoryInput.trim(), [form.categoryInput]);
 
   const handleSave = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
@@ -955,7 +964,6 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
   const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
   const isDescriptionTooLong = descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH;
-  const trimmedCategoryInput = useMemo(() => form.categoryInput.trim(), [form.categoryInput]);
   const hasUnmanagedCategory = useMemo(
     () => trimmedCategoryInput.length > 0 && !categorySelectionSlug,
     [trimmedCategoryInput, categorySelectionSlug]
