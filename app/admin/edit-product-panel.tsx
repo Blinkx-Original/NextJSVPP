@@ -774,7 +774,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     return categoryOptions.find((option) => option.slug === trimmedCategoryInput) ?? null;
   }, [categoryOptions, trimmedCategoryInput]);
 
-  const hasUnmanagedCategory = useMemo(() => {
+  const hasUnmanagedCategorySelection = useMemo(() => {
     if (trimmedCategoryInput.length === 0) {
       return false;
     }
@@ -1177,7 +1177,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
                 <p style={helperStyle}>No hay categorías publicadas todavía.</p>
               ) : null}
-              {hasUnmanagedCategory ? (
+              {hasUnmanagedCategorySelection ? (
                 <p style={helperStyle}>
                   Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
                   {categorySelectionSlug ? ` (Slug: ${categorySelectionSlug})` : null}
