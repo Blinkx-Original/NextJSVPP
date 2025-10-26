@@ -15,6 +15,7 @@ const productSchema = z.object({
   sku: z.string().nullable(),
   short_summary: z.string().nullable(),
   meta_description: z.string().nullable(),
+  schema_json: z.any().nullable().optional(),
   images_json: z.string().nullable(),
   desc_html: z.string().nullable(),
   cta_lead_url: z.string().nullable(),
@@ -44,6 +45,7 @@ export interface NormalizedProduct {
   desc_html: string;
   short_summary: string;
   meta_description: string;
+  schema_json: string;
   slug: string;
   price: string;
   cta_lead_url: string;
@@ -174,6 +176,34 @@ function tryParseJson(text: string): unknown | null {
   } catch {
     return null;
   }
+}
+
+function normalizeSchemaJson(value: unknown, warnings: string[]): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return '';
+    }
+    const parsed = tryParseJson(trimmed);
+    if (parsed === null) {
+      warnings.push('schema_json invalid JSON');
+    }
+    return trimmed;
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) {
+    return normalizeSchemaJson(value.toString('utf8'), warnings);
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch (error) {
+      warnings.push(`schema_json stringify failed: ${(error as Error)?.message ?? 'unknown error'}`);
+    }
+  }
+  return '';
 }
 
 function isJsonLdObject(value: unknown): value is Record<string, unknown> {
@@ -341,6 +371,7 @@ function normalizeProductRecordInternal(
     desc_html: normalizeDescHtml(record.desc_html, warnings),
     short_summary: toCleanString(record.short_summary),
     meta_description: toCleanString(record.meta_description),
+    schema_json: normalizeSchemaJson((record as any).schema_json ?? null, warnings),
     slug: toCleanString(record.slug) || options.slug,
     price: toCleanString(record.price),
     cta_lead_url: toCleanString(record.cta_lead_url),

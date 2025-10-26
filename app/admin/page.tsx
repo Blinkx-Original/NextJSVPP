@@ -4,6 +4,7 @@ import ConnectivityPanel from './connectivity-panel';
 import PublishingPanel from './publishing-panel';
 import AssetsPanel from './assets-panel';
 import EditProductPanel from './edit-product-panel';
+import SeoPanel from './seo-panel';
 import QuickProductNavigator from './quick-product-navigator';
 import { readCloudflareImagesConfig } from '@/lib/cloudflare-images';
 import { issueAdminSessionToken } from '@/lib/basic-auth';
@@ -47,7 +48,7 @@ interface AdminPageProps {
   searchParams?: Record<string, string | string[] | undefined>;
 }
 
-type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product';
+type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'seo';
 
 function normalizeTab(input: string | string[] | undefined): AdminTab {
   if (Array.isArray(input)) {
@@ -63,6 +64,9 @@ function normalizeTab(input: string | string[] | undefined): AdminTab {
     }
     if (normalized === 'edit-product' || normalized === 'edit' || normalized === 'product') {
       return 'edit-product';
+    }
+    if (normalized === 'seo') {
+      return 'seo';
     }
   }
   return 'connectivity';
@@ -84,8 +88,12 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
     coerceSearchParam(searchParams?.product) ?? coerceSearchParam(searchParams?.slug);
   const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
 
-  const initialTab = normalizeTab(searchParams?.tab);
-  const activeTab: AdminTab = normalizedProductSlug ? 'edit-product' : initialTab;
+  const tabParamRaw = searchParams?.tab;
+  const initialTab = normalizeTab(tabParamRaw);
+  const hasTabParam = Array.isArray(tabParamRaw)
+    ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
+    : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
+  const activeTab: AdminTab = normalizedProductSlug && !hasTabParam ? 'edit-product' : initialTab;
 
   const headerList = nextHeaders();
   const authHeader = headerList.get('authorization');
@@ -101,6 +109,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
     { id: 'connectivity', label: 'Connectivity', href: '/admin' },
     { id: 'publishing', label: 'Publishing', href: '/admin?tab=publishing' },
     { id: 'edit-product', label: 'Edit Product', href: '/admin?tab=edit-product' },
+    { id: 'seo', label: 'SEO', href: '/admin?tab=seo' },
     { id: 'assets', label: 'Assets', href: '/admin?tab=assets' }
   ];
 
@@ -148,6 +157,8 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
           authHeader={authHeader}
           adminToken={adminToken}
         />
+      ) : activeTab === 'seo' ? (
+        <SeoPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
       ) : activeTab === 'edit-product' ? (
         <EditProductPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
       ) : (

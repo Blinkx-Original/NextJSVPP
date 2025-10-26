@@ -41,15 +41,19 @@ export default function QuickProductNavigator({ initialValue = '' }: QuickProduc
   const searchParams = useSearchParams();
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
+  const tabParam = searchParams.get('tab');
+  const normalizedTab = typeof tabParam === 'string' ? tabParam.toLowerCase() : '';
+  const targetTab = normalizedTab === 'seo' ? 'seo' : 'edit-product';
+  const buttonLabel = targetTab === 'seo' ? 'Editar SEO' : 'Editar producto';
 
   const navigateToProduct = useCallback(
     (slug: string) => {
       const params = new URLSearchParams(searchParams.toString());
-      params.set('tab', 'edit-product');
+      params.set('tab', targetTab);
       params.set('product', slug);
       router.push(`/admin?${params.toString()}`);
     },
-    [router, searchParams]
+    [router, searchParams, targetTab]
   );
 
   const handleSubmit = useCallback(
@@ -83,7 +87,7 @@ export default function QuickProductNavigator({ initialValue = '' }: QuickProduc
           }}
         />
         <button type="submit" style={buttonStyle}>
-          Editar producto
+          {buttonLabel}
         </button>
       </form>
       <p style={error ? errorTextStyle : helperTextStyle}>
