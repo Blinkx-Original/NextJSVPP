@@ -26,6 +26,7 @@ interface AdminProduct {
   short_summary: string | null;
   desc_html: string | null;
   price: string | null;
+  category: string | null;
   cta_lead_url: string | null;
   cta_affiliate_url: string | null;
   cta_stripe_url: string | null;
@@ -65,6 +66,7 @@ interface UpdatePayload {
   short_summary?: unknown;
   desc_html?: unknown;
   price?: unknown;
+  category?: unknown;
   cta_lead_url?: unknown;
   cta_affiliate_url?: unknown;
   cta_stripe_url?: unknown;
@@ -81,6 +83,8 @@ const SUMMARY_MAX_LENGTH = 200;
 const URL_MAX_LENGTH = 2048;
 const PRICE_MAX_LENGTH = 120;
 const CTA_LABEL_MAX_LENGTH = 80;
+const CATEGORY_MAX_LENGTH = 120;
+const CATEGORY_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function toIsoString(value: Date | string | null | undefined): string | null {
   if (value == null) {
@@ -145,6 +149,7 @@ function mapProduct(record: RawProductRecord): AdminProduct {
       short_summary?: string | null;
       desc_html?: string | null;
       price?: string | null;
+      category?: string | null;
       cta_lead_url?: string | null;
       cta_affiliate_url?: string | null;
       cta_stripe_url?: string | null;
@@ -170,6 +175,7 @@ function mapProduct(record: RawProductRecord): AdminProduct {
     short_summary: row.short_summary ?? null,
     desc_html: row.desc_html ?? null,
     price: row.price ?? null,
+    category: row.category ?? null,
     cta_lead_url: row.cta_lead_url ?? null,
     cta_affiliate_url: row.cta_affiliate_url ?? null,
     cta_stripe_url: row.cta_stripe_url ?? null,
@@ -399,6 +405,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
       short_summary?: string | null;
       desc_html?: string | null;
       price?: string | null;
+      category?: string | null;
       cta_lead_url?: string | null;
       cta_affiliate_url?: string | null;
       cta_stripe_url?: string | null;
@@ -413,6 +420,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
   const existingRow = existing as ExistingProductRow;
 
   const existingPrimaryImage = getPrimaryImage(existingRow.images_json);
+  const previousCategory = normalizeOptionalString(existingRow.category ?? '', CATEGORY_MAX_LENGTH);
 
   let title: string;
   let summary: string;
@@ -427,6 +435,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
   let stripeLabel: string;
   let paypalLabel: string;
   let imageUrl: string | null = null;
+  let categoryValue: string | null = previousCategory;
 
   try {
     const titleInput =
@@ -506,6 +515,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
     const imageInput =
       typeof payload.image_url === 'string' ? payload.image_url : existingPrimaryImage ?? '';
     imageUrl = normalizeOptionalString(imageInput, URL_MAX_LENGTH);
+
+    if (payload.category === null) {
+      categoryValue = null;
+    } else if (typeof payload.category === 'string') {
+      categoryValue = normalizeOptionalString(payload.category, CATEGORY_MAX_LENGTH);
+    } else if (typeof existingRow.category === 'string') {
+      categoryValue = normalizeOptionalString(existingRow.category, CATEGORY_MAX_LENGTH);
+    } else {
+      categoryValue = null;
+    }
   } catch (error) {
     const field = (error as Error)?.message ?? 'invalid_payload';
     let message = `Invalid value for ${field}`;
@@ -531,6 +550,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
             short_summary = ?,
             desc_html = ?,
             price = ?,
+            category = ?,
             cta_lead_url = ?,
             cta_affiliate_url = ?,
             cta_stripe_url = ?,
@@ -548,6 +568,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
         summary,
         description,
         price,
+        categoryValue,
         leadUrl,
         affiliateUrl,
         stripeUrl,
@@ -563,6 +584,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
 
     clearProductCache(normalizedSlug);
     revalidatePath(`/p/${normalizedSlug}`);
+
+    if (previousCategory && previousCategory !== categoryValue && CATEGORY_SLUG_REGEX.test(previousCategory)) {
+      revalidatePath(`/c/${previousCategory}`);
+    }
+    if (categoryValue && categoryValue !== previousCategory && CATEGORY_SLUG_REGEX.test(categoryValue)) {
+      revalidatePath(`/c/${categoryValue}`);
+    }
 
     const record = await ensureProductExists(normalizedSlug);
     if (!record) {
