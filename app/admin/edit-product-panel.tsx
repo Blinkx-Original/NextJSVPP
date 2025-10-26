@@ -765,21 +765,16 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
 
   const categorySelectionSlug = form.categorySlug.trim();
-  const trimmedCategoryInput = categorySelectionSlug;
 
   const categorySelection = useMemo(() => {
-    if (trimmedCategoryInput.length === 0) {
+    if (categorySelectionSlug.length === 0) {
       return null;
     }
-    return categoryOptions.find((option) => option.slug === trimmedCategoryInput) ?? null;
-  }, [categoryOptions, trimmedCategoryInput]);
+    return categoryOptions.find((option) => option.slug === categorySelectionSlug) ?? null;
+  }, [categoryOptions, categorySelectionSlug]);
 
-  const hasUnmanagedCategorySelection = useMemo(() => {
-    if (trimmedCategoryInput.length === 0) {
-      return false;
-    }
-    return categorySelection == null;
-  }, [categorySelection, trimmedCategoryInput]);
+  const hasUnmanagedCategorySelection =
+    categorySelectionSlug.length > 0 && categorySelection == null;
 
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
