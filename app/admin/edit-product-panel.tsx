@@ -374,6 +374,10 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
   const [categoryFetchStatus, setCategoryFetchStatus] = useState<AsyncStatus>('idle');
   const [categoryFetchError, setCategoryFetchError] = useState<string | null>(null);
+  // Legacy placeholder: the category creation modal is no longer available, but
+  // some historical builds still expect this flag to exist. Keep it as a noop so
+  // TypeScript and downstream JSX references compile safely.
+  const isCategoryModalOpen = false;
   const descriptionEditorRef = useRef<TinyMceEditorHandle | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
   const categoryFetchAbortRef = useRef<AbortController | null>(null);
@@ -785,6 +789,18 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     }
   }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
 
+  const categorySelectionSlug = form.categorySlug.trim();
+
+  const categorySelection = useMemo(() => {
+    if (categorySelectionSlug.length === 0) {
+      return null;
+    }
+    return categoryOptions.find((option) => option.slug === categorySelectionSlug) ?? null;
+  }, [categoryOptions, categorySelectionSlug]);
+
+  const hasUnmanagedCategorySelection =
+    categorySelectionSlug.length > 0 && categorySelection == null;
+
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
       const url = form[item.urlField].trim();
@@ -802,124 +818,8 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
   return (
     <section style={sectionStyle} aria-label="Product editor">
-      {isCategoryModalOpen ? (
-        <div
-          style={modalOverlayStyle}
-          role="dialog"
-          aria-modal="true"
-          onClick={(event) => {
-            if (event.target === event.currentTarget && categoryModalStatus !== 'loading') {
-              handleCloseCategoryModal();
-            }
-          }}
-        >
-          <form style={modalCardStyle} onSubmit={handleCreateCategory}>
-            <div style={modalHeaderStyle}>
-              <h2 style={modalTitleStyle}>Nueva categoría de producto</h2>
-              <p style={helperStyle}>Crea y publica una categoría sin salir del editor.</p>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle} htmlFor="new-category-name">
-                  <span>Nombre</span>
-                </label>
-                <input
-                  id="new-category-name"
-                  style={inputStyle}
-                  type="text"
-                  value={categoryForm.name}
-                  onChange={handleCategoryNameChange}
-                  placeholder="Storage Bins"
-                  minLength={2}
-                  maxLength={120}
-                  autoFocus
-                  required
-                />
-              </div>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle} htmlFor="new-category-slug">
-                  <span>Slug</span>
-                </label>
-                <input
-                  id="new-category-slug"
-                  style={inputStyle}
-                  type="text"
-                  value={categoryForm.slug}
-                  onChange={handleCategorySlugChange}
-                  placeholder="storage-bins"
-                  maxLength={80}
-                  required
-                />
-                <p style={helperStyle}>Usa minúsculas, números y guiones.</p>
-              </div>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle} htmlFor="new-category-short">
-                  <span>Descripción corta</span>
-                  <span style={helperStyle}>{categoryForm.shortDescription.length}/255</span>
-                </label>
-                <input
-                  id="new-category-short"
-                  style={inputStyle}
-                  type="text"
-                  value={categoryForm.shortDescription}
-                  onChange={handleCategoryShortChange}
-                  placeholder="Resumen opcional"
-                  maxLength={255}
-                />
-              </div>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle} htmlFor="new-category-long">
-                  <span>Descripción larga</span>
-                  <span style={helperStyle}>{categoryForm.longDescription.length}/4000</span>
-                </label>
-                <textarea
-                  id="new-category-long"
-                  style={{ ...textareaStyle, minHeight: 140 }}
-                  value={categoryForm.longDescription}
-                  onChange={handleCategoryLongChange}
-                  placeholder="Describe la categoría con más detalle (opcional)"
-                  maxLength={4000}
-                />
-              </div>
-              <label
-                style={{
-                  ...labelStyle,
-                  justifyContent: 'flex-start',
-                  gap: '0.5rem',
-                  alignItems: 'center'
-                }}
-                htmlFor="new-category-published"
-              >
-                <input
-                  id="new-category-published"
-                  type="checkbox"
-                  checked={categoryForm.isPublished}
-                  onChange={handleCategoryPublishedChange}
-                />
-                <span>Publicar inmediatamente</span>
-              </label>
-              {categoryModalError ? <p style={errorStyle}>{categoryModalError}</p> : null}
-            </div>
-            <div style={modalActionsStyle}>
-              <button
-                type="button"
-                style={buttonStyle}
-                onClick={handleCloseCategoryModal}
-                disabled={categoryModalStatus === 'loading'}
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                style={categoryModalStatus === 'loading' ? disabledButtonStyle : buttonStyle}
-                disabled={categoryModalStatus === 'loading'}
-              >
-                {categoryModalStatus === 'loading' ? 'Creando…' : 'Crear categoría'}
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
+      {/* Legacy placeholder for the removed category creation modal. */}
+      {isCategoryModalOpen ? null : null}
       <article style={{ ...cardStyle, gap: '1rem' }}>
         <header>
           <h2 style={{ margin: '0 0 0.5rem 0', fontSize: '1.5rem', color: '#0f172a' }}>Buscar producto</h2>
@@ -1130,93 +1030,71 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
                   gap: '0.75rem'
                 }}
               >
-                <div style={{ flex: '1 1 260px', minWidth: 260 }}>
-                  <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>Long description (HTML)</h2>
-                  <p style={helperStyle}>
-                    Usa el modo Visual para editar con formato o cambia a Código HTML para pegar contenido avanzado.
-                  </p>
-                </div>
-                <span
-                  style={{
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: isDescriptionTooLong ? '#ef4444' : '#475569'
-                  }}
-                >
-                  {descriptionMetrics.characters.toLocaleString()} / {DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres ·{' '}
-                  {descriptionMetrics.words.toLocaleString()} palabras
-                </span>
-              </header>
-              <TinyMceEditor
-                ref={descriptionEditorRef}
-                value={form.description}
-                onChange={(html) => {
-                  setForm((prev) => ({ ...prev, description: html }));
-                }}
-                slug={selectedSlug}
-                placeholder="Escribe la descripción detallada, inserta tablas, imágenes o enlaces…"
-                id="description"
-              />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <label style={labelStyle} htmlFor="product-category">
-                  <span>Categoría</span>
-                </label>
-                <select
-                  id="product-category"
-                  style={inputStyle}
-                  value={form.categorySlug}
-                  onChange={handleCategoryChange}
-                >
-                  <option value="">Sin categoría</option>
-                  {categoryOptions.map((option) => (
-                    <option key={option.slug} value={option.slug}>
-                      {option.name}
-                    </option>
-                  ))}
-                </select>
-                {categoryFetchStatus === 'loading' ? <p style={helperStyle}>Cargando categorías…</p> : null}
-                {categoryFetchStatus === 'error' && categoryFetchError ? (
-                  <p style={errorStyle}>{categoryFetchError}</p>
-                ) : null}
-                {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
-                  <p style={helperStyle}>No hay categorías publicadas todavía.</p>
-                ) : null}
-                {hasUnmanagedCategory ? (
-                  <p style={helperStyle}>
-                    Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
-                    {categorySelectionSlug ? ` (Slug: ${categorySelectionSlug})` : null}
-                  </p>
-                ) : null}
-              </div>
-              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
-                  onClick={() => handleSaveDescription()}
-                  disabled={descriptionSaveStatus === 'loading'}
-                >
-                  {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar descripción'}
-                </button>
-                <button
-                  type="button"
-                  style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
-                  onClick={() => handleSaveDescription(true)}
-                  disabled={descriptionSaveStatus === 'loading'}
-                >
-                  {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar y Ver'}
-                </button>
-                {descriptionSaveError ? <p style={errorStyle}>{descriptionSaveError}</p> : null}
-                {descriptionSaveStatus === 'success' && descriptionSaveSuccess ? (
-                  <p style={successStyle}>{descriptionSaveSuccess}</p>
-                ) : null}
-              </div>
-              <p style={helperStyle}>
-                El contenido se guarda en TiDB como HTML limpio. El editor incluye tablas, listas, enlaces, imágenes y carga automática.
-              </p>
-              {isDescriptionTooLong ? (
-                <p style={errorStyle}>
-                  La descripción supera el máximo recomendado. Reduce el contenido antes de guardar.
+                {descriptionMetrics.characters.toLocaleString()} / {DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres ·{' '}
+                {descriptionMetrics.words.toLocaleString()} palabras
+              </span>
+            </header>
+            <TinyMceEditor
+              ref={descriptionEditorRef}
+              value={form.description}
+              onChange={(html) => {
+                setForm((prev) => ({ ...prev, description: html }));
+              }}
+              slug={selectedSlug}
+              placeholder="Escribe la descripción detallada, inserta tablas, imágenes o enlaces…"
+              id="description"
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <label style={labelStyle} htmlFor="product-category">
+                <span>Categoría</span>
+              </label>
+              <select
+                id="product-category"
+                style={inputStyle}
+                value={form.categorySlug}
+                onChange={handleCategoryChange}
+              >
+                <option value="">Sin categoría</option>
+                {categoryOptions.map((option) => (
+                  <option key={option.slug} value={option.slug}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+              {categoryFetchStatus === 'loading' ? <p style={helperStyle}>Cargando categorías…</p> : null}
+              {categoryFetchStatus === 'error' && categoryFetchError ? (
+                <p style={errorStyle}>{categoryFetchError}</p>
+              ) : null}
+              {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
+                <p style={helperStyle}>No hay categorías publicadas todavía.</p>
+              ) : null}
+              {hasUnmanagedCategorySelection ? (
+                <p style={helperStyle}>
+                  Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
+                  {categorySelectionSlug ? ` (Slug: ${categorySelectionSlug})` : null}
                 </p>
+              ) : null}
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                onClick={() => handleSaveDescription()}
+                disabled={descriptionSaveStatus === 'loading'}
+              >
+                {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar descripción'}
+              </button>
+              <button
+                type="button"
+                style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                onClick={() => handleSaveDescription(true)}
+                disabled={descriptionSaveStatus === 'loading'}
+              >
+                {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar y Ver'}
+              </button>
+              {descriptionSaveError ? <p style={errorStyle}>{descriptionSaveError}</p> : null}
+              {descriptionSaveStatus === 'success' && descriptionSaveSuccess ? (
+                <p style={successStyle}>{descriptionSaveSuccess}</p>
               ) : null}
             </section>
           </div>
