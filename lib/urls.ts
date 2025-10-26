@@ -13,3 +13,15 @@ export function getSiteUrl(headersHost?: string): string {
 export function buildProductUrl(slug: string, headersHost?: string): string {
   return `${getSiteUrl(headersHost)}/p/${slug}`;
 }
+
+export function buildProductCategoryUrl(slug: string, headersHost?: string): string {
+  return `${getSiteUrl(headersHost)}/c/${slug}`;
+}
+
+export function buildBlogCategoryUrl(slug: string, headersHost?: string): string {
+  return `${getSiteUrl(headersHost)}/bc/${slug}`;
+}
+
+export function buildCategoriesHubUrl(headersHost?: string): string {
+  return `${getSiteUrl(headersHost)}/categories`;
+}
