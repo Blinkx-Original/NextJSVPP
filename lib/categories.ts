@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getPool, toDbErrorInfo } from './db';
 
 const bigintLike = z.union([z.bigint(), z.number(), z.string()]);
+type BigintLike = z.infer<typeof bigintLike>;
 
 const categoryRecordSchema = z.object({
   id: bigintLike,
@@ -41,7 +42,7 @@ export interface CategoryQueryResult {
   totalCount: number;
 }
 
-function toBigInt(value: bigintLike): bigint {
+function toBigInt(value: BigintLike): bigint {
   if (typeof value === 'bigint') {
     return value;
   }
