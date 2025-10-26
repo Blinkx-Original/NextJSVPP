@@ -8,8 +8,9 @@ const DESCRIPTION_MAX_LENGTH = 150000;
 
 type CategoryOption = { slug: string; name: string };
 
-type EditProductPanelProps = {
+export type EditProductPanelProps = {
   initialSlug?: string | null;
+  initialInput?: string | null; // accepted to match page.tsx usage
 };
 
 function stripHtml(html: string): string {
@@ -24,8 +25,11 @@ function measureHtmlContent(html: string) {
   return { words, characters };
 }
 
-export default function EditProductPanel({ initialSlug = null }: EditProductPanelProps) {
-  // Minimal form state (safe for compiling everywhere)
+export default function EditProductPanel({
+  initialSlug = null,
+  initialInput: _initialInput = '', // accepted but not required for layout; underscore prevents unused warnings
+}: EditProductPanelProps) {
+  // Minimal, stable form state
   const [slug, setSlug] = useState<string>(initialSlug ?? '');
   const [title, setTitle] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
