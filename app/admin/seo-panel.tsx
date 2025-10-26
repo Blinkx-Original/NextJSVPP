@@ -506,7 +506,8 @@ export default function SeoPanel({ initialSlug, initialInput }: SeoPanelProps) {
           throw new Error(text || 'No se pudo guardar el SEO.');
         }
         const payload = (await response.json()) as SeoUpdateResponse;
-        if (!payload.ok || !payload.data) {
+        const payloadData = payload.data;
+        if (!payload.ok || !payloadData) {
           throw new Error(payload.message || 'Respuesta inválida del servidor.');
         }
         setSaveStatus('success');
@@ -522,7 +523,7 @@ export default function SeoPanel({ initialSlug, initialInput }: SeoPanelProps) {
           prev
             ? {
                 ...prev,
-                meta_description: payload.data.meta_description,
+                meta_description: payloadData.meta_description,
                 schema_json: prettySchema || null
               }
             : prev
