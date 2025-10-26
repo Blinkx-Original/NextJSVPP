@@ -766,12 +766,19 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
   const categorySelectionSlug = useMemo(() => form.categorySlug.trim(), [form.categorySlug]);
 
+  const categorySelection = useMemo(() => {
+    if (categorySelectionSlug.length === 0) {
+      return null;
+    }
+    return categoryOptions.find((option) => option.slug === categorySelectionSlug) ?? null;
+  }, [categoryOptions, categorySelectionSlug]);
+
   const hasUnmanagedCategorySelection = useMemo(() => {
     if (categorySelectionSlug.length === 0) {
       return false;
     }
-    return !categoryOptions.some((option) => option.slug === categorySelectionSlug);
-  }, [categoryOptions, categorySelectionSlug]);
+    return categorySelection == null;
+  }, [categorySelection, categorySelectionSlug]);
 
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
