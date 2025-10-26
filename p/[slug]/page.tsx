@@ -11,25 +11,13 @@ import {
 } from '@/lib/products';
 import { createRequestId } from '@/lib/request-id';
 import { buildProductUrl } from '@/lib/urls';
+import { buildMetaTitle, buildSeo } from '@/lib/seo';
 
 export const runtime = 'nodejs';
 export const revalidate = 300;
 
 interface PageProps {
   params: { slug: string };
-}
-
-function collapseWhitespace(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
-}
-
-function buildMetaTitle(product: NormalizedProduct): string {
-  const brandModel = collapseWhitespace([product.brand, product.model].filter(Boolean).join(' '));
-  const title = collapseWhitespace(product.title_h1 || product.slug);
-  if (brandModel) {
-    return collapseWhitespace(`${title} | ${brandModel}`);
-  }
-  return title;
 }
 
 function truncateDescription(text: string, maxLength = 160): string {
@@ -42,40 +30,6 @@ function truncateDescription(text: string, maxLength = 160): string {
     return `${truncated.slice(0, lastSpace).trimEnd()}…`;
   }
   return `${truncated.trimEnd()}…`;
-}
-
-function buildMetaDescription(product: NormalizedProduct): string {
-  const source = collapseWhitespace(product.meta_description || product.short_summary || '');
-  if (!source) {
-    return '';
-  }
-  return truncateDescription(source);
-}
-
-function buildProductJsonLd(product: NormalizedProduct, canonicalUrl: string): string {
-  const payload: Record<string, unknown> = {
-    '@context': 'https://schema.org',
-    '@type': 'Product',
-    name: product.title_h1 || product.slug,
-    url: canonicalUrl
-  };
-  if (product.brand) {
-    payload.brand = { '@type': 'Brand', name: product.brand };
-  }
-  if (product.model) {
-    payload.model = product.model;
-  }
-  if (product.sku) {
-    payload.sku = product.sku;
-  }
-  if (product.images.length > 0) {
-    payload.image = product.images;
-  }
-  const description = collapseWhitespace(product.meta_description || product.short_summary || '');
-  if (description) {
-    payload.description = description;
-  }
-  return JSON.stringify(payload, null, 2);
 }
 
 async function loadProduct(
@@ -94,7 +48,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const host = headers().get('host') ?? undefined;
   const canonical = buildProductUrl(productResult.normalized.slug, host);
   const metaTitle = buildMetaTitle(productResult.normalized);
-  const metaDescription = buildMetaDescription(productResult.normalized);
+  const seo = buildSeo(productResult.normalized, canonical);
+  const metaDescription = seo.description;
   const primaryImage = productResult.normalized.images[0];
 
   return {
@@ -113,6 +68,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description: metaDescription || undefined,
       images: primaryImage ? [primaryImage] : undefined
     },
+    robots: { index: true, follow: true },
     other: {
       'og:type': 'product'
     }
@@ -146,7 +102,7 @@ export default async function ProductPage({ params }: PageProps) {
   const { normalized } = productResult!;
   const host = headers().get('host') ?? undefined;
   const canonical = buildProductUrl(normalized.slug, host);
-  const jsonLd = buildProductJsonLd(normalized, canonical);
+  const seo = buildSeo(normalized, canonical);
   const primaryImage = normalized.images[0];
   const summary = normalized.short_summary ? truncateSummary(normalized.short_summary) : '';
   const ctas = CTA_CONFIG.map((item) => {
@@ -225,7 +181,7 @@ export default async function ProductPage({ params }: PageProps) {
           />
         </section>
       ) : null}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: seo.jsonLd }} suppressHydrationWarning />
     </main>
   );
 }
