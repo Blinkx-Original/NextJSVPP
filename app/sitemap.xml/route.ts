@@ -35,10 +35,19 @@ async function generateSitemapIndex(path: string): Promise<Response> {
       pageSize: SITEMAP_PAGE_SIZE
     });
 
-    const entries: SitemapIndexEntry[] = batches.map((records, index) => ({
+    const staticLastMod = new Date().toISOString();
+    const staticEntries: SitemapIndexEntry[] = [
+      { loc: `${siteUrl}/sitemaps/static.xml`, lastmod: staticLastMod },
+      { loc: `${siteUrl}/sitemaps/categories.xml`, lastmod: staticLastMod },
+      { loc: `${siteUrl}/sitemaps/blog-categories.xml`, lastmod: staticLastMod }
+    ];
+
+    const dynamicEntries: SitemapIndexEntry[] = batches.map((records, index) => ({
       loc: `${siteUrl}/sitemaps/sitemap-${index + 1}.xml`,
       lastmod: computeChunkLastModified(records)
     }));
+
+    const entries: SitemapIndexEntry[] = [...staticEntries, ...dynamicEntries];
 
     const xml = renderSitemapIndexXml(entries);
     setCachedSitemap(siteUrl, path, xml);
