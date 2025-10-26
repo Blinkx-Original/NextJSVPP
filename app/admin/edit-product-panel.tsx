@@ -764,7 +764,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     }
   }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
 
-  const categorySelectionSlug = useMemo(() => form.categorySlug.trim(), [form.categorySlug]);
+  const categorySelectionSlug = form.categorySlug.trim();
 
   const categorySelection = useMemo(() => {
     if (categorySelectionSlug.length === 0) {
@@ -773,12 +773,8 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     return categoryOptions.find((option) => option.slug === categorySelectionSlug) ?? null;
   }, [categoryOptions, categorySelectionSlug]);
 
-  const hasUnmanagedCategorySelection = useMemo(() => {
-    if (categorySelectionSlug.length === 0) {
-      return false;
-    }
-    return categorySelection == null;
-  }, [categorySelection, categorySelectionSlug]);
+  const hasUnmanagedCategorySelection =
+    categorySelectionSlug.length > 0 && categorySelection == null;
 
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
