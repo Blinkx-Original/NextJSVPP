@@ -764,6 +764,15 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     }
   }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
 
+  const trimmedCategorySelection = useMemo(() => form.categorySlug.trim(), [form.categorySlug]);
+
+  const hasUnmanagedCategory = useMemo(() => {
+    if (trimmedCategorySelection.length === 0) {
+      return false;
+    }
+    return !categoryOptions.some((option) => option.slug === trimmedCategorySelection);
+  }, [categoryOptions, trimmedCategorySelection]);
+
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
       const url = form[item.urlField].trim();
@@ -1159,6 +1168,12 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               ) : null}
               {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
                 <p style={helperStyle}>No hay categorías publicadas todavía.</p>
+              ) : null}
+              {hasUnmanagedCategory ? (
+                <p style={helperStyle}>
+                  Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
+                  {trimmedCategorySelection ? ` (Slug: ${trimmedCategorySelection})` : null}
+                </p>
               ) : null}
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
