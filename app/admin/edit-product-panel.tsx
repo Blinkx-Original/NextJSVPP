@@ -765,16 +765,21 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
 
   const categorySelectionSlug = form.categorySlug.trim();
+  const trimmedCategoryInput = categorySelectionSlug;
 
   const categorySelection = useMemo(() => {
-    if (categorySelectionSlug.length === 0) {
+    if (trimmedCategoryInput.length === 0) {
       return null;
     }
-    return categoryOptions.find((option) => option.slug === categorySelectionSlug) ?? null;
-  }, [categoryOptions, categorySelectionSlug]);
+    return categoryOptions.find((option) => option.slug === trimmedCategoryInput) ?? null;
+  }, [categoryOptions, trimmedCategoryInput]);
 
-  const hasUnmanagedCategorySelection =
-    categorySelectionSlug.length > 0 && categorySelection == null;
+  const hasUnmanagedCategory = useMemo(() => {
+    if (trimmedCategoryInput.length === 0) {
+      return false;
+    }
+    return categorySelection == null;
+  }, [categorySelection, trimmedCategoryInput]);
 
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
@@ -1172,7 +1177,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
                 <p style={helperStyle}>No hay categorías publicadas todavía.</p>
               ) : null}
-              {hasUnmanagedCategorySelection ? (
+              {hasUnmanagedCategory ? (
                 <p style={helperStyle}>
                   Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
                   {categorySelectionSlug ? ` (Slug: ${categorySelectionSlug})` : null}
