@@ -165,6 +165,30 @@ const helperStyle = {
   margin: 0
 };
 
+const assignedCategoryStyle = {
+  ...helperStyle,
+  display: 'inline-flex',
+  flexWrap: 'wrap' as const,
+  alignItems: 'center',
+  gap: '0.35rem',
+  padding: '0.35rem 0.75rem',
+  borderRadius: 999,
+  background: '#e2e8f0',
+  color: '#0f172a',
+  fontWeight: 600
+};
+
+const unmanagedCategoryStyle = {
+  ...assignedCategoryStyle,
+  background: '#fff7ed',
+  color: '#c2410c'
+};
+
+const emptyCategoryStyle = {
+  ...helperStyle,
+  fontStyle: 'italic' as const
+};
+
 const errorStyle = {
   ...helperStyle,
   color: '#ef4444'
@@ -799,9 +823,6 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     return categoryOptions.find((option) => option.slug === categorySelectionSlug) ?? null;
   }, [categoryOptions, categorySelectionSlug]);
 
-  const hasUnmanagedCategorySelection =
-    categorySelectionSlug.length > 0 && categorySelection == null;
-
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
       const url = form[item.urlField].trim();
@@ -960,6 +981,78 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
                   Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
                   {categorySelectionSlug ? ` (Slug: ${categorySelectionSlug})` : null}
                 </p>
+              ) : null}
+            </div>
+
+            <div style={fieldGroupStyle}>
+              <label style={labelStyle} htmlFor="product-category">
+                <span>Categoría</span>
+              </label>
+              <select
+                id="product-category"
+                style={inputStyle}
+                value={form.categorySlug}
+                onChange={handleCategoryChange}
+              >
+                <option value="">Sin categoría</option>
+                {categoryOptions.map((option) => (
+                  <option key={option.slug} value={option.slug}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+              {categorySelection ? (
+                <p style={assignedCategoryStyle}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: '#16a34a'
+                      }}
+                    />
+                    Categoría asignada:
+                  </span>
+                  <span>{categorySelection.name}</span>
+                  <code
+                    style={{
+                      background: '#cbd5f5',
+                      color: '#1d4ed8',
+                      borderRadius: 6,
+                      padding: '0.2rem 0.4rem',
+                      fontWeight: 500
+                    }}
+                  >
+                    {categorySelection.slug}
+                  </code>
+                </p>
+              ) : categorySelectionSlug.length > 0 ? (
+                <p style={unmanagedCategoryStyle}>
+                  Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
+                  <code
+                    style={{
+                      marginLeft: '0.4rem',
+                      background: '#fed7aa',
+                      color: '#7c2d12',
+                      borderRadius: 6,
+                      padding: '0.2rem 0.4rem',
+                      fontWeight: 600
+                    }}
+                  >
+                    {categorySelectionSlug}
+                  </code>
+                </p>
+              ) : (
+                <p style={emptyCategoryStyle}>Este producto no tiene categoría asignada.</p>
+              )}
+              {categoryFetchStatus === 'loading' ? <p style={helperStyle}>Cargando categorías…</p> : null}
+              {categoryFetchStatus === 'error' && categoryFetchError ? (
+                <p style={errorStyle}>{categoryFetchError}</p>
+              ) : null}
+              {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
+                <p style={helperStyle}>No hay categorías publicadas todavía.</p>
               ) : null}
             </div>
 
