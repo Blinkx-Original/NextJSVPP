@@ -20,6 +20,7 @@ interface AdminProduct {
   title_h1: string | null;
   short_summary: string | null;
   desc_html: string | null;
+  category: string | null;
   price: string | null;
   cta_lead_url: string | null;
   cta_affiliate_url: string | null;
@@ -40,12 +41,42 @@ interface AdminProductResponse {
   message?: string;
 }
 
+interface CategoryOption {
+  slug: string;
+  name: string;
+  isPublished: boolean;
+}
+
+interface NewCategoryFormState {
+  name: string;
+  slug: string;
+  shortDescription: string;
+  longDescription: string;
+  isPublished: boolean;
+}
+
+type CategoryFetchStatus = 'idle' | 'loading' | 'success' | 'error';
+
+const CATEGORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const CATEGORY_FETCH_DEBOUNCE_MS = 250;
+
+function slugifyCategoryName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
 interface ProductFormState {
   slug: string;
   title: string;
   summary: string;
   description: string;
   price: string;
+  categoryInput: string;
   ctaLead: string;
   ctaAffiliate: string;
   ctaStripe: string;
@@ -67,6 +98,7 @@ const emptyFormState: ProductFormState = {
   summary: '',
   description: '',
   price: '',
+  categoryInput: '',
   ctaLead: '',
   ctaAffiliate: '',
   ctaStripe: '',
@@ -77,6 +109,14 @@ const emptyFormState: ProductFormState = {
   ctaPaypalLabel: '',
   imageUrl: '',
   lastUpdatedAt: null
+};
+
+const emptyCategoryForm: NewCategoryFormState = {
+  name: '',
+  slug: '',
+  shortDescription: '',
+  longDescription: '',
+  isPublished: true
 };
 
 const CTA_FIELDS = [
@@ -148,6 +188,99 @@ const errorStyle = {
 const successStyle = {
   ...helperStyle,
   color: '#16a34a'
+};
+
+const warningStyle = {
+  ...helperStyle,
+  color: '#b45309'
+};
+
+const categoryFieldContainerStyle = {
+  position: 'relative' as const,
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '0.5rem'
+};
+
+const categorySuggestionListStyle = {
+  position: 'absolute' as const,
+  top: '100%',
+  left: 0,
+  right: 0,
+  background: '#fff',
+  border: '1px solid #cbd5f5',
+  borderRadius: 12,
+  marginTop: '0.25rem',
+  boxShadow: '0 20px 40px rgba(15, 23, 42, 0.15)',
+  maxHeight: 240,
+  overflowY: 'auto' as const,
+  zIndex: 20
+};
+
+const categorySuggestionItemStyle = {
+  padding: '0.65rem 0.85rem',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '0.25rem',
+  cursor: 'pointer' as const
+};
+
+const categorySuggestionActiveStyle = {
+  ...categorySuggestionItemStyle,
+  background: '#eef2ff'
+};
+
+const categoryBadgeStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.35rem',
+  fontSize: '0.8rem',
+  fontWeight: 500,
+  color: '#334155',
+  background: '#e2e8f0',
+  borderRadius: 999,
+  padding: '0.25rem 0.6rem'
+};
+
+const modalOverlayStyle = {
+  position: 'fixed' as const,
+  inset: 0,
+  background: 'rgba(15, 23, 42, 0.55)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '1.5rem',
+  zIndex: 1000
+};
+
+const modalCardStyle = {
+  background: '#fff',
+  borderRadius: 20,
+  padding: '2rem',
+  width: 'min(520px, 100%)',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '1rem',
+  boxShadow: '0 24px 60px rgba(15, 23, 42, 0.25)'
+};
+
+const modalHeaderStyle = {
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '0.35rem'
+};
+
+const modalTitleStyle = {
+  margin: 0,
+  fontSize: '1.5rem',
+  color: '#0f172a'
+};
+
+const modalActionsStyle = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: '0.75rem',
+  flexWrap: 'wrap' as const
 };
 
 const previewLayoutStyle = {
@@ -253,8 +386,23 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<AsyncStatus>('idle');
   const [descriptionSaveError, setDescriptionSaveError] = useState<string | null>(null);
   const [descriptionSaveSuccess, setDescriptionSaveSuccess] = useState<string | null>(null);
+  const [categorySelectionSlug, setCategorySelectionSlug] = useState<string | null>(null);
+  const [categorySelection, setCategorySelection] = useState<CategoryOption | null>(null);
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
+  const [categoryFetchStatus, setCategoryFetchStatus] = useState<CategoryFetchStatus>('idle');
+  const [categoryFetchError, setCategoryFetchError] = useState<string | null>(null);
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [categoryForm, setCategoryForm] = useState<NewCategoryFormState>(emptyCategoryForm);
+  const [categoryModalStatus, setCategoryModalStatus] = useState<AsyncStatus>('idle');
+  const [categoryModalError, setCategoryModalError] = useState<string | null>(null);
+  const [categorySlugManuallyEdited, setCategorySlugManuallyEdited] = useState(false);
   const descriptionEditorRef = useRef<TinyMceEditorHandle | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
+  const categoryFetchAbortRef = useRef<AbortController | null>(null);
+  const categoryDropdownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const categoryFetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const categoryInputRef = useRef<HTMLInputElement | null>(null);
 
   const syncDescriptionFromEditor = useCallback(() => {
     const editorContent = descriptionEditorRef.current?.getContent?.();
@@ -270,6 +418,131 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   useEffect(() => {
     setSlugInput(initialInput);
   }, [initialInput]);
+
+  useEffect(() => {
+    const trimmed = form.categoryInput.trim();
+    if (categoryFetchTimeoutRef.current) {
+      clearTimeout(categoryFetchTimeoutRef.current);
+      categoryFetchTimeoutRef.current = null;
+    }
+    if (categoryFetchAbortRef.current) {
+      categoryFetchAbortRef.current.abort();
+      categoryFetchAbortRef.current = null;
+    }
+
+    const controller = new AbortController();
+    categoryFetchAbortRef.current = controller;
+    setCategoryFetchStatus('loading');
+    setCategoryFetchError(null);
+
+    categoryFetchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ type: 'product', limit: '20' });
+        if (trimmed) {
+          params.set('query', trimmed);
+        }
+        const response = await fetch(`/api/admin/categories?${params.toString()}`, {
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        const body = (await response.json()) as Array<{
+          slug?: string;
+          name?: string;
+          is_published?: boolean;
+          isPublished?: boolean;
+        }>;
+        if (!response.ok) {
+          const message = Array.isArray(body)
+            ? 'No se pudieron cargar las categorías.'
+            : (body as { message?: string })?.message ?? 'No se pudieron cargar las categorías.';
+          throw new Error(message);
+        }
+
+        const normalized: CategoryOption[] = Array.isArray(body)
+          ? body
+              .map((item) => ({
+                slug: typeof item.slug === 'string' ? item.slug : '',
+                name: typeof item.name === 'string' ? item.name : '',
+                isPublished: Boolean(
+                  typeof item.isPublished !== 'undefined' ? item.isPublished : item.is_published
+                )
+              }))
+              .filter((item) => item.slug && item.name)
+          : [];
+
+        setCategoryOptions(normalized);
+        setCategoryFetchStatus('success');
+
+        if (categorySelectionSlug) {
+          const match = normalized.find((item) => item.slug === categorySelectionSlug);
+          if (match) {
+            setCategorySelection(match);
+            setForm((prev) => {
+              const currentTrimmed = prev.categoryInput.trim();
+              if (currentTrimmed === categorySelectionSlug && match.name && match.name !== prev.categoryInput) {
+                return { ...prev, categoryInput: match.name };
+              }
+              return prev;
+            });
+          } else {
+            setCategorySelection((prev) => (prev && prev.slug === categorySelectionSlug ? prev : null));
+          }
+        } else {
+          setCategorySelection(null);
+        }
+      } catch (error) {
+        if ((error as Error)?.name === 'AbortError') {
+          return;
+        }
+        setCategoryFetchStatus('error');
+        setCategoryFetchError((error as Error)?.message ?? 'No se pudieron cargar las categorías.');
+      } finally {
+        if (categoryFetchAbortRef.current === controller) {
+          categoryFetchAbortRef.current = null;
+        }
+      }
+    }, CATEGORY_FETCH_DEBOUNCE_MS);
+
+    return () => {
+      if (categoryFetchTimeoutRef.current) {
+        clearTimeout(categoryFetchTimeoutRef.current);
+        categoryFetchTimeoutRef.current = null;
+      }
+      controller.abort();
+      if (categoryFetchAbortRef.current === controller) {
+        categoryFetchAbortRef.current = null;
+      }
+    };
+  }, [form.categoryInput, categorySelectionSlug, setForm]);
+
+  useEffect(() => {
+    if (!isCategoryModalOpen || categorySlugManuallyEdited) {
+      return;
+    }
+    setCategoryForm((prev) => {
+      const generated = slugifyCategoryName(prev.name);
+      if (generated === prev.slug) {
+        return prev;
+      }
+      return { ...prev, slug: generated };
+    });
+  }, [isCategoryModalOpen, categorySlugManuallyEdited, categoryForm.name]);
+
+  useEffect(() => {
+    if (!isCategoryModalOpen) {
+      return;
+    }
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCloseCategoryModal();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+    };
+  }, [isCategoryModalOpen, handleCloseCategoryModal]);
 
   const updateUrl = useCallback(
     (slug: string) => {
@@ -293,6 +566,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       summary: product.short_summary ?? '',
       description: product.desc_html ?? '',
       price: product.price ?? '',
+      categoryInput: product.category ?? '',
       ctaLead: product.cta_lead_url ?? '',
       ctaAffiliate: product.cta_affiliate_url ?? '',
       ctaStripe: product.cta_stripe_url ?? '',
@@ -307,6 +581,13 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     setSelectedSlug(product.slug);
     setSlugInput(product.slug);
     lastLoadedSlugRef.current = product.slug;
+    const normalizedCategory = product.category?.trim() ?? '';
+    if (normalizedCategory) {
+      setCategorySelectionSlug(normalizedCategory);
+    } else {
+      setCategorySelectionSlug(null);
+    }
+    setCategorySelection(null);
   }, []);
 
   const fetchProduct = useCallback(
@@ -368,6 +649,204 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     []
   );
 
+  const clearCategoryDropdownTimeout = useCallback(() => {
+    if (categoryDropdownTimeoutRef.current) {
+      clearTimeout(categoryDropdownTimeoutRef.current);
+      categoryDropdownTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleCategoryDropdownClose = useCallback(() => {
+    clearCategoryDropdownTimeout();
+    categoryDropdownTimeoutRef.current = setTimeout(() => {
+      setIsCategoryDropdownOpen(false);
+    }, 120);
+  }, [clearCategoryDropdownTimeout]);
+
+  const handleCategoryInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.value;
+      setForm((prev) => ({ ...prev, categoryInput: value }));
+      if (categorySelectionSlug) {
+        setCategorySelectionSlug(null);
+      }
+      setCategorySelection(null);
+    },
+    [categorySelectionSlug]
+  );
+
+  const handleCategoryInputFocus = useCallback(() => {
+    clearCategoryDropdownTimeout();
+    setIsCategoryDropdownOpen(true);
+  }, [clearCategoryDropdownTimeout]);
+
+  const handleCategoryInputBlur = useCallback(() => {
+    scheduleCategoryDropdownClose();
+  }, [scheduleCategoryDropdownClose]);
+
+  const handleCategoryDropdownMouseEnter = useCallback(() => {
+    clearCategoryDropdownTimeout();
+  }, [clearCategoryDropdownTimeout]);
+
+  const handleCategoryDropdownMouseLeave = useCallback(() => {
+    scheduleCategoryDropdownClose();
+  }, [scheduleCategoryDropdownClose]);
+
+  const handleCategorySelect = useCallback(
+    (option: CategoryOption) => {
+      clearCategoryDropdownTimeout();
+      setCategorySelection(option);
+      setCategorySelectionSlug(option.slug);
+      setForm((prev) => ({ ...prev, categoryInput: option.name }));
+      setIsCategoryDropdownOpen(false);
+    },
+    [clearCategoryDropdownTimeout]
+  );
+
+  const handleOpenCategoryModal = useCallback(() => {
+    const baseName = form.categoryInput.trim();
+    const initialName = baseName.length > 0 ? baseName : '';
+    const initialSlug = initialName ? slugifyCategoryName(initialName) : '';
+    setCategoryForm({
+      name: initialName,
+      slug: initialSlug,
+      shortDescription: '',
+      longDescription: '',
+      isPublished: true
+    });
+    setCategorySlugManuallyEdited(false);
+    setCategoryModalStatus('idle');
+    setCategoryModalError(null);
+    setIsCategoryModalOpen(true);
+  }, [form.categoryInput]);
+
+  const handleCloseCategoryModal = useCallback(() => {
+    setIsCategoryModalOpen(false);
+    setCategoryModalStatus('idle');
+    setCategoryModalError(null);
+  }, []);
+
+  const handleCategoryNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setCategoryForm((prev) => ({ ...prev, name: value }));
+  }, []);
+
+  const handleCategorySlugChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    const normalized = value
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+    setCategorySlugManuallyEdited(true);
+    setCategoryForm((prev) => ({ ...prev, slug: normalized }));
+  }, []);
+
+  const handleCategoryShortChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setCategoryForm((prev) => ({ ...prev, shortDescription: event.target.value }));
+  }, []);
+
+  const handleCategoryLongChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
+    setCategoryForm((prev) => ({ ...prev, longDescription: event.target.value }));
+  }, []);
+
+  const handleCategoryPublishedChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setCategoryForm((prev) => ({ ...prev, isPublished: event.target.checked }));
+  }, []);
+
+  const handleCreateCategory = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (categoryModalStatus === 'loading') {
+        return;
+      }
+
+      const name = categoryForm.name.trim();
+      const slug = categoryForm.slug.trim();
+      const shortDescription = categoryForm.shortDescription.trim();
+      const longDescription = categoryForm.longDescription.trim();
+
+      if (name.length < 2 || name.length > 120) {
+        setCategoryModalStatus('error');
+        setCategoryModalError('El nombre debe tener entre 2 y 120 caracteres.');
+        return;
+      }
+
+      if (!slug || slug.length > 80 || !CATEGORY_SLUG_PATTERN.test(slug)) {
+        setCategoryModalStatus('error');
+        setCategoryModalError('El slug debe usar letras minúsculas, números y guiones.');
+        return;
+      }
+
+      if (shortDescription.length > 255) {
+        setCategoryModalStatus('error');
+        setCategoryModalError('La descripción corta supera el límite de 255 caracteres.');
+        return;
+      }
+
+      if (longDescription.length > 4000) {
+        setCategoryModalStatus('error');
+        setCategoryModalError('La descripción larga supera el límite de 4000 caracteres.');
+        return;
+      }
+
+      setCategoryModalStatus('loading');
+      setCategoryModalError(null);
+
+      try {
+        const response = await fetch('/api/admin/categories', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            type: 'product',
+            name,
+            slug,
+            short_description: shortDescription || undefined,
+            long_description: longDescription || undefined,
+            is_published: categoryForm.isPublished
+          })
+        });
+
+        const body = (await response.json()) as
+          | { slug?: string; name?: string; is_published?: boolean; isPublished?: boolean }
+          | { ok: false; message?: string; error_code?: string };
+
+        if (!response.ok || ('ok' in body && body.ok === false)) {
+          const message = 'message' in body && body.message ? body.message : 'No se pudo crear la categoría.';
+          throw new Error(message);
+        }
+
+        const created: CategoryOption = {
+          slug: typeof body.slug === 'string' ? body.slug : slug,
+          name: typeof body.name === 'string' ? body.name : name,
+          isPublished: Boolean(
+            typeof body.isPublished !== 'undefined' ? body.isPublished : body.is_published ?? true
+          )
+        };
+
+        setCategoryModalStatus('success');
+        setCategorySelection(created);
+        setCategorySelectionSlug(created.slug);
+        setForm((prev) => ({ ...prev, categoryInput: created.name }));
+        setCategoryOptions((prev) => {
+          const filtered = prev.filter((item) => item.slug !== created.slug);
+          return [created, ...filtered].slice(0, 20);
+        });
+        setIsCategoryModalOpen(false);
+        setTimeout(() => {
+          categoryInputRef.current?.focus();
+        }, 160);
+      } catch (error) {
+        setCategoryModalStatus('error');
+        setCategoryModalError((error as Error)?.message ?? 'No se pudo crear la categoría.');
+      }
+    },
+    [categoryForm, categoryModalStatus]
+  );
+
   const handleSave = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
       setSaveError('Carga primero un producto para editarlo.');
@@ -398,12 +877,15 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       previewWindow = window.open('', '_blank');
     }
 
+    const categoryValue = categorySelectionSlug ?? (trimmedCategoryInput ? trimmedCategoryInput : null);
+
     const payload = {
       slug: selectedSlug,
       title_h1: form.title,
       short_summary: form.summary,
       desc_html: currentDescription,
       price: form.price,
+      category: categoryValue,
       cta_lead_url: form.ctaLead,
       cta_affiliate_url: form.ctaAffiliate,
       cta_stripe_url: form.ctaStripe,
@@ -462,10 +944,31 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
         previewWindow.close();
       }
     }
-  }, [applyProduct, form, selectedSlug, syncDescriptionFromEditor]);
+  }, [
+    applyProduct,
+    form,
+    selectedSlug,
+    syncDescriptionFromEditor,
+    categorySelectionSlug,
+    trimmedCategoryInput
+  ]);
 
   const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
   const isDescriptionTooLong = descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH;
+  const trimmedCategoryInput = useMemo(() => form.categoryInput.trim(), [form.categoryInput]);
+  const hasUnmanagedCategory = useMemo(
+    () => trimmedCategoryInput.length > 0 && !categorySelectionSlug,
+    [trimmedCategoryInput, categorySelectionSlug]
+  );
+  const managedCategoryLabel = useMemo(() => {
+    if (categorySelection) {
+      return `${categorySelection.name} · ${categorySelection.slug}`;
+    }
+    if (categorySelectionSlug && trimmedCategoryInput === categorySelectionSlug) {
+      return categorySelectionSlug;
+    }
+    return null;
+  }, [categorySelection, categorySelectionSlug, trimmedCategoryInput]);
 
   const handleSaveDescription = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
@@ -567,6 +1070,124 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
   return (
     <section style={sectionStyle} aria-label="Product editor">
+      {isCategoryModalOpen ? (
+        <div
+          style={modalOverlayStyle}
+          role="dialog"
+          aria-modal="true"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && categoryModalStatus !== 'loading') {
+              handleCloseCategoryModal();
+            }
+          }}
+        >
+          <form style={modalCardStyle} onSubmit={handleCreateCategory}>
+            <div style={modalHeaderStyle}>
+              <h2 style={modalTitleStyle}>Nueva categoría de producto</h2>
+              <p style={helperStyle}>Crea y publica una categoría sin salir del editor.</p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="new-category-name">
+                  <span>Nombre</span>
+                </label>
+                <input
+                  id="new-category-name"
+                  style={inputStyle}
+                  type="text"
+                  value={categoryForm.name}
+                  onChange={handleCategoryNameChange}
+                  placeholder="Storage Bins"
+                  minLength={2}
+                  maxLength={120}
+                  autoFocus
+                  required
+                />
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="new-category-slug">
+                  <span>Slug</span>
+                </label>
+                <input
+                  id="new-category-slug"
+                  style={inputStyle}
+                  type="text"
+                  value={categoryForm.slug}
+                  onChange={handleCategorySlugChange}
+                  placeholder="storage-bins"
+                  maxLength={80}
+                  required
+                />
+                <p style={helperStyle}>Usa minúsculas, números y guiones.</p>
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="new-category-short">
+                  <span>Descripción corta</span>
+                  <span style={helperStyle}>{categoryForm.shortDescription.length}/255</span>
+                </label>
+                <input
+                  id="new-category-short"
+                  style={inputStyle}
+                  type="text"
+                  value={categoryForm.shortDescription}
+                  onChange={handleCategoryShortChange}
+                  placeholder="Resumen opcional"
+                  maxLength={255}
+                />
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="new-category-long">
+                  <span>Descripción larga</span>
+                  <span style={helperStyle}>{categoryForm.longDescription.length}/4000</span>
+                </label>
+                <textarea
+                  id="new-category-long"
+                  style={{ ...textareaStyle, minHeight: 140 }}
+                  value={categoryForm.longDescription}
+                  onChange={handleCategoryLongChange}
+                  placeholder="Describe la categoría con más detalle (opcional)"
+                  maxLength={4000}
+                />
+              </div>
+              <label
+                style={{
+                  ...labelStyle,
+                  justifyContent: 'flex-start',
+                  gap: '0.5rem',
+                  alignItems: 'center'
+                }}
+                htmlFor="new-category-published"
+              >
+                <input
+                  id="new-category-published"
+                  type="checkbox"
+                  checked={categoryForm.isPublished}
+                  onChange={handleCategoryPublishedChange}
+                />
+                <span>Publicar inmediatamente</span>
+              </label>
+              {categoryModalError ? <p style={errorStyle}>{categoryModalError}</p> : null}
+            </div>
+            <div style={modalActionsStyle}>
+              <button
+                type="button"
+                style={buttonStyle}
+                onClick={handleCloseCategoryModal}
+                disabled={categoryModalStatus === 'loading'}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                style={categoryModalStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                disabled={categoryModalStatus === 'loading'}
+              >
+                {categoryModalStatus === 'loading' ? 'Creando…' : 'Crear categoría'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
       <article style={{ ...cardStyle, gap: '1rem' }}>
         <header>
           <h2 style={{ margin: '0 0 0.5rem 0', fontSize: '1.5rem', color: '#0f172a' }}>Buscar producto</h2>
@@ -804,6 +1425,98 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               placeholder="Escribe la descripción detallada, inserta tablas, imágenes o enlaces…"
               id="description"
             />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <label style={labelStyle} htmlFor="product-category">
+                <span>Categoría</span>
+                {managedCategoryLabel ? (
+                  <span style={categoryBadgeStyle}>
+                    {managedCategoryLabel}
+                    {categorySelection && !categorySelection.isPublished ? (
+                      <span style={{ fontSize: '0.75rem', color: '#b45309' }}> · No publicada</span>
+                    ) : null}
+                  </span>
+                ) : null}
+              </label>
+              <div style={categoryFieldContainerStyle}>
+                <input
+                  id="product-category"
+                  ref={categoryInputRef}
+                  type="text"
+                  style={{ ...inputStyle, paddingRight: '2.5rem' }}
+                  placeholder="Busca o escribe una categoría…"
+                  value={form.categoryInput}
+                  onChange={handleCategoryInputChange}
+                  onFocus={handleCategoryInputFocus}
+                  onBlur={handleCategoryInputBlur}
+                  autoComplete="off"
+                />
+                {isCategoryDropdownOpen ? (
+                  <div
+                    style={categorySuggestionListStyle}
+                    onMouseEnter={handleCategoryDropdownMouseEnter}
+                    onMouseLeave={handleCategoryDropdownMouseLeave}
+                  >
+                    {categoryFetchStatus === 'loading' ? (
+                      <div style={categorySuggestionItemStyle}>
+                        <span style={{ fontSize: '0.85rem', color: '#475569' }}>Buscando categorías…</span>
+                      </div>
+                    ) : categoryFetchStatus === 'error' ? (
+                      <div style={categorySuggestionItemStyle}>
+                        <span style={{ fontSize: '0.85rem', color: '#ef4444' }}>
+                          {categoryFetchError ?? 'No se pudieron cargar las categorías.'}
+                        </span>
+                      </div>
+                    ) : categoryOptions.length > 0 ? (
+                      categoryOptions.map((option) => {
+                        const isActive = option.slug === categorySelectionSlug;
+                        return (
+                          <div
+                            key={option.slug}
+                            role="button"
+                            tabIndex={-1}
+                            style={isActive ? categorySuggestionActiveStyle : categorySuggestionItemStyle}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              handleCategorySelect(option);
+                            }}
+                          >
+                            <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>{option.name}</strong>
+                            <span style={{ fontSize: '0.8rem', color: '#475569' }}>{option.slug}</span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div style={categorySuggestionItemStyle}>
+                        <span style={{ fontSize: '0.85rem', color: '#475569' }}>No se encontraron categorías.</span>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  flexWrap: 'wrap' as const
+                }}
+              >
+                <button type="button" style={buttonStyle} onClick={handleOpenCategoryModal}>
+                  + Nueva categoría
+                </button>
+                {categoryFetchStatus === 'loading' && !isCategoryDropdownOpen ? (
+                  <p style={helperStyle}>Buscando categorías…</p>
+                ) : null}
+                {categoryFetchStatus === 'error' && categoryFetchError ? (
+                  <p style={errorStyle}>{categoryFetchError}</p>
+                ) : null}
+              </div>
+              {hasUnmanagedCategory ? (
+                <p style={warningStyle}>
+                  Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
+                </p>
+              ) : null}
+            </div>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
