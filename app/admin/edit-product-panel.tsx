@@ -765,6 +765,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
 
   const categorySelectionSlug = form.categorySlug.trim();
+  const trimmedCategoryInput = categorySelectionSlug;
 
   const categorySelection = useMemo(() => {
     if (categorySelectionSlug.length === 0) {
@@ -774,7 +775,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   }, [categoryOptions, categorySelectionSlug]);
 
   const hasUnmanagedCategorySelection =
-    categorySelectionSlug.length > 0 && categorySelection == null;
+    trimmedCategoryInput.length > 0 && categorySelection == null;
 
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
