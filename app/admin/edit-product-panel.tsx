@@ -60,7 +60,7 @@ export default function EditProductPanel({ initialSlug = null, initialInput = ''
         if (!cancelled) setCategoryOptions(items);
       } catch {}
     })();
-    return () => { cancelled = True; };
+    return () => { cancelled = true; };
   }, []);
 
   // Save Desc (and optionally open preview in new tab with cache-buster)
@@ -104,7 +104,7 @@ export default function EditProductPanel({ initialSlug = null, initialInput = ''
       {/* === Top area: 2-column grid (Main Content | Preview) === */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
         {/* Main content card */}
-        <section style={{ ...cardStyle as any, gap: '1rem' }}>
+        <section style={{ ...(cardStyle as any), gap: '1rem' }}>
           <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Contenido principal</h2>
           </header>
@@ -201,7 +201,7 @@ export default function EditProductPanel({ initialSlug = null, initialInput = ''
         </section>
 
         {/* Preview card */}
-        <section style={{ ...cardStyle as any, gap: '1rem' }}>
+        <section style={{ ...(cardStyle as any), gap: '1rem' }}>
           <header>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Vista previa</h2>
             <p style={{ color: '#64748b', marginTop: 4 }}>Así se verá la cabecera del producto en la página pública.</p>
@@ -221,7 +221,7 @@ export default function EditProductPanel({ initialSlug = null, initialInput = ''
       </div>
 
       {/* === Full-width editor below === */}
-      <section style={{ ...cardStyle as any, gap: '1.25rem', width: '100%', marginTop: '1.25rem' }}>
+      <section style={{ ...(cardStyle as any), gap: '1.25rem', width: '100%', marginTop: '1.25rem' }}>
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Descripción (HTML)</h2>
