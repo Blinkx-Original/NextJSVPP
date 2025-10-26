@@ -96,6 +96,14 @@ const emptyFormState: ProductFormState = {
   lastUpdatedAt: null
 };
 
+const emptyCategoryForm: NewCategoryFormState = {
+  name: '',
+  slug: '',
+  shortDescription: '',
+  longDescription: '',
+  isPublished: true
+};
+
 const CTA_FIELDS = [
   {
     key: 'lead' as const,
@@ -165,6 +173,99 @@ const errorStyle = {
 const successStyle = {
   ...helperStyle,
   color: '#16a34a'
+};
+
+const warningStyle = {
+  ...helperStyle,
+  color: '#b45309'
+};
+
+const categoryFieldContainerStyle = {
+  position: 'relative' as const,
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '0.5rem'
+};
+
+const categorySuggestionListStyle = {
+  position: 'absolute' as const,
+  top: '100%',
+  left: 0,
+  right: 0,
+  background: '#fff',
+  border: '1px solid #cbd5f5',
+  borderRadius: 12,
+  marginTop: '0.25rem',
+  boxShadow: '0 20px 40px rgba(15, 23, 42, 0.15)',
+  maxHeight: 240,
+  overflowY: 'auto' as const,
+  zIndex: 20
+};
+
+const categorySuggestionItemStyle = {
+  padding: '0.65rem 0.85rem',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '0.25rem',
+  cursor: 'pointer' as const
+};
+
+const categorySuggestionActiveStyle = {
+  ...categorySuggestionItemStyle,
+  background: '#eef2ff'
+};
+
+const categoryBadgeStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.35rem',
+  fontSize: '0.8rem',
+  fontWeight: 500,
+  color: '#334155',
+  background: '#e2e8f0',
+  borderRadius: 999,
+  padding: '0.25rem 0.6rem'
+};
+
+const modalOverlayStyle = {
+  position: 'fixed' as const,
+  inset: 0,
+  background: 'rgba(15, 23, 42, 0.55)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '1.5rem',
+  zIndex: 1000
+};
+
+const modalCardStyle = {
+  background: '#fff',
+  borderRadius: 20,
+  padding: '2rem',
+  width: 'min(520px, 100%)',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '1rem',
+  boxShadow: '0 24px 60px rgba(15, 23, 42, 0.25)'
+};
+
+const modalHeaderStyle = {
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '0.35rem'
+};
+
+const modalTitleStyle = {
+  margin: 0,
+  fontSize: '1.5rem',
+  color: '#0f172a'
+};
+
+const modalActionsStyle = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: '0.75rem',
+  flexWrap: 'wrap' as const
 };
 
 const previewLayoutStyle = {
@@ -275,6 +376,10 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const [categoryFetchError, setCategoryFetchError] = useState<string | null>(null);
   const descriptionEditorRef = useRef<TinyMceEditorHandle | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
+  const categoryFetchAbortRef = useRef<AbortController | null>(null);
+  const categoryDropdownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const categoryFetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const categoryInputRef = useRef<HTMLInputElement | null>(null);
 
   const syncDescriptionFromEditor = useCallback(() => {
     const editorContent = descriptionEditorRef.current?.getContent?.();
@@ -562,6 +667,19 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
   const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
   const isDescriptionTooLong = descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH;
+  const hasUnmanagedCategory = useMemo(
+    () => trimmedCategoryInput.length > 0 && !categorySelectionSlug,
+    [trimmedCategoryInput, categorySelectionSlug]
+  );
+  const managedCategoryLabel = useMemo(() => {
+    if (categorySelection) {
+      return `${categorySelection.name} · ${categorySelection.slug}`;
+    }
+    if (categorySelectionSlug && trimmedCategoryInput === categorySelectionSlug) {
+      return categorySelectionSlug;
+    }
+    return null;
+  }, [categorySelection, categorySelectionSlug, trimmedCategoryInput]);
 
   const handleSaveDescription = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
@@ -680,6 +798,124 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
   return (
     <section style={sectionStyle} aria-label="Product editor">
+      {isCategoryModalOpen ? (
+        <div
+          style={modalOverlayStyle}
+          role="dialog"
+          aria-modal="true"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && categoryModalStatus !== 'loading') {
+              handleCloseCategoryModal();
+            }
+          }}
+        >
+          <form style={modalCardStyle} onSubmit={handleCreateCategory}>
+            <div style={modalHeaderStyle}>
+              <h2 style={modalTitleStyle}>Nueva categoría de producto</h2>
+              <p style={helperStyle}>Crea y publica una categoría sin salir del editor.</p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="new-category-name">
+                  <span>Nombre</span>
+                </label>
+                <input
+                  id="new-category-name"
+                  style={inputStyle}
+                  type="text"
+                  value={categoryForm.name}
+                  onChange={handleCategoryNameChange}
+                  placeholder="Storage Bins"
+                  minLength={2}
+                  maxLength={120}
+                  autoFocus
+                  required
+                />
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="new-category-slug">
+                  <span>Slug</span>
+                </label>
+                <input
+                  id="new-category-slug"
+                  style={inputStyle}
+                  type="text"
+                  value={categoryForm.slug}
+                  onChange={handleCategorySlugChange}
+                  placeholder="storage-bins"
+                  maxLength={80}
+                  required
+                />
+                <p style={helperStyle}>Usa minúsculas, números y guiones.</p>
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="new-category-short">
+                  <span>Descripción corta</span>
+                  <span style={helperStyle}>{categoryForm.shortDescription.length}/255</span>
+                </label>
+                <input
+                  id="new-category-short"
+                  style={inputStyle}
+                  type="text"
+                  value={categoryForm.shortDescription}
+                  onChange={handleCategoryShortChange}
+                  placeholder="Resumen opcional"
+                  maxLength={255}
+                />
+              </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="new-category-long">
+                  <span>Descripción larga</span>
+                  <span style={helperStyle}>{categoryForm.longDescription.length}/4000</span>
+                </label>
+                <textarea
+                  id="new-category-long"
+                  style={{ ...textareaStyle, minHeight: 140 }}
+                  value={categoryForm.longDescription}
+                  onChange={handleCategoryLongChange}
+                  placeholder="Describe la categoría con más detalle (opcional)"
+                  maxLength={4000}
+                />
+              </div>
+              <label
+                style={{
+                  ...labelStyle,
+                  justifyContent: 'flex-start',
+                  gap: '0.5rem',
+                  alignItems: 'center'
+                }}
+                htmlFor="new-category-published"
+              >
+                <input
+                  id="new-category-published"
+                  type="checkbox"
+                  checked={categoryForm.isPublished}
+                  onChange={handleCategoryPublishedChange}
+                />
+                <span>Publicar inmediatamente</span>
+              </label>
+              {categoryModalError ? <p style={errorStyle}>{categoryModalError}</p> : null}
+            </div>
+            <div style={modalActionsStyle}>
+              <button
+                type="button"
+                style={buttonStyle}
+                onClick={handleCloseCategoryModal}
+                disabled={categoryModalStatus === 'loading'}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                style={categoryModalStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                disabled={categoryModalStatus === 'loading'}
+              >
+                {categoryModalStatus === 'loading' ? 'Creando…' : 'Crear categoría'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
       <article style={{ ...cardStyle, gap: '1rem' }}>
         <header>
           <h2 style={{ margin: '0 0 0.5rem 0', fontSize: '1.5rem', color: '#0f172a' }}>Buscar producto</h2>
