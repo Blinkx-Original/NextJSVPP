@@ -368,7 +368,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     []
   );
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
       setSaveError('Carga primero un producto para editarlo.');
       setSaveStatus('error');
@@ -391,6 +391,12 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     setDescriptionSaveStatus('idle');
     setDescriptionSaveError(null);
     setDescriptionSaveSuccess(null);
+
+    const shouldOpenPreview = viewAfter && typeof window !== 'undefined';
+    let previewWindow: Window | null = null;
+    if (shouldOpenPreview) {
+      previewWindow = window.open('', '_blank');
+    }
 
     const payload = {
       slug: selectedSlug,
@@ -422,25 +428,46 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
         const message = body.message ?? 'No se pudo guardar el producto.';
         setSaveError(message);
         setSaveStatus('error');
+        if (previewWindow) {
+          previewWindow.close();
+        }
         return;
       }
-      applyProduct(body.product);
+      const savedProduct = body.product;
+      applyProduct(savedProduct);
       descriptionEditorRef.current?.clearDraft();
       setSaveStatus('success');
-      setSaveSuccess('Producto guardado correctamente.');
+      setSaveSuccess(viewAfter ? 'Producto guardado. Abriendo vista previa…' : 'Producto guardado correctamente.');
       setDescriptionSaveStatus('idle');
       setDescriptionSaveError(null);
       setDescriptionSaveSuccess(null);
+      if (shouldOpenPreview) {
+        const slugToView = savedProduct?.slug ?? selectedSlug;
+        if (slugToView) {
+          const url = `/p/${encodeURIComponent(slugToView)}?v=${Date.now()}`;
+          if (previewWindow) {
+            previewWindow.location.href = url;
+            previewWindow.focus();
+          } else {
+            window.open(url, '_blank');
+          }
+        } else if (previewWindow) {
+          previewWindow.close();
+        }
+      }
     } catch (error) {
       setSaveStatus('error');
       setSaveError((error as Error)?.message ?? 'Error desconocido al guardar.');
+      if (previewWindow) {
+        previewWindow.close();
+      }
     }
   }, [applyProduct, form, selectedSlug, syncDescriptionFromEditor]);
 
   const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
   const isDescriptionTooLong = descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH;
 
-  const handleSaveDescription = useCallback(async () => {
+  const handleSaveDescription = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
       setDescriptionSaveError('Carga primero un producto para editarlo.');
       setDescriptionSaveStatus('error');
@@ -461,6 +488,12 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     setDescriptionSaveError(null);
     setDescriptionSaveSuccess(null);
 
+    const shouldOpenPreview = viewAfter && typeof window !== 'undefined';
+    let previewWindow: Window | null = null;
+    if (shouldOpenPreview) {
+      previewWindow = window.open('', '_blank');
+    }
+
     const payload = {
       slug: selectedSlug,
       desc_html: currentDescription
@@ -479,18 +512,41 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
         const message = body.message ?? 'No se pudo guardar la descripción.';
         setDescriptionSaveStatus('error');
         setDescriptionSaveError(message);
+        if (previewWindow) {
+          previewWindow.close();
+        }
         return;
       }
-      applyProduct(body.product);
+      const savedProduct = body.product;
+      applyProduct(savedProduct);
       descriptionEditorRef.current?.clearDraft();
       setDescriptionSaveStatus('success');
-      setDescriptionSaveSuccess('Descripción guardada correctamente.');
+      setDescriptionSaveSuccess(
+        viewAfter ? 'Descripción guardada. Abriendo vista previa…' : 'Descripción guardada correctamente.'
+      );
       setSaveStatus('idle');
       setSaveError(null);
       setSaveSuccess(null);
+      if (shouldOpenPreview) {
+        const slugToView = savedProduct?.slug ?? selectedSlug;
+        if (slugToView) {
+          const url = `/p/${encodeURIComponent(slugToView)}?v=${Date.now()}`;
+          if (previewWindow) {
+            previewWindow.location.href = url;
+            previewWindow.focus();
+          } else {
+            window.open(url, '_blank');
+          }
+        } else if (previewWindow) {
+          previewWindow.close();
+        }
+      }
     } catch (error) {
       setDescriptionSaveStatus('error');
       setDescriptionSaveError((error as Error)?.message ?? 'Error desconocido al guardar la descripción.');
+      if (previewWindow) {
+        previewWindow.close();
+      }
     }
   }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
 
@@ -655,10 +711,18 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               <button
                 type="button"
                 style={saveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
-                onClick={handleSave}
+                onClick={() => handleSave()}
                 disabled={saveStatus === 'loading'}
               >
                 {saveStatus === 'loading' ? 'Guardando…' : 'Guardar cambios'}
+              </button>
+              <button
+                type="button"
+                style={saveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                onClick={() => handleSave(true)}
+                disabled={saveStatus === 'loading'}
+              >
+                {saveStatus === 'loading' ? 'Guardando…' : 'Guardar y Ver'}
               </button>
               {saveError ? <p style={errorStyle}>{saveError}</p> : null}
               {saveStatus === 'success' && saveSuccess ? <p style={successStyle}>{saveSuccess}</p> : null}
@@ -744,10 +808,18 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               <button
                 type="button"
                 style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
-                onClick={handleSaveDescription}
+                onClick={() => handleSaveDescription()}
                 disabled={descriptionSaveStatus === 'loading'}
               >
                 {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar descripción'}
+              </button>
+              <button
+                type="button"
+                style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                onClick={() => handleSaveDescription(true)}
+                disabled={descriptionSaveStatus === 'loading'}
+              >
+                {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar y Ver'}
               </button>
               {descriptionSaveError ? <p style={errorStyle}>{descriptionSaveError}</p> : null}
               {descriptionSaveStatus === 'success' && descriptionSaveSuccess ? (
