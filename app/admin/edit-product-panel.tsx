@@ -790,6 +790,18 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     }
   }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
 
+  const categorySelectionSlug = form.categorySlug.trim();
+
+  const categorySelection = useMemo(() => {
+    if (categorySelectionSlug.length === 0) {
+      return null;
+    }
+    return categoryOptions.find((option) => option.slug === categorySelectionSlug) ?? null;
+  }, [categoryOptions, categorySelectionSlug]);
+
+  const hasUnmanagedCategorySelection =
+    categorySelectionSlug.length > 0 && categorySelection == null;
+
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
       const url = form[item.urlField].trim();
@@ -910,41 +922,81 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
                 </div>
               </div>
 
-              <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a' }}>Botones (CTA)</h3>
-                {CTA_FIELDS.map((cta) => (
-                  <div key={cta.key} style={{ display: 'grid', gap: '0.75rem' }}>
-                    <div style={fieldGroupStyle}>
-                      <label style={labelStyle} htmlFor={`${cta.key}-label`}>
-                        <span>Label (opcional)</span>
-                      </label>
-                      <input
-                        id={`${cta.key}-label`}
-                        style={inputStyle}
-                        type="text"
-                        value={form[cta.labelField]}
-                        onChange={handleFieldChange(cta.labelField)}
-                        placeholder={cta.title}
-                        maxLength={80}
-                      />
-                      <p style={helperStyle}>
-                        Si lo dejas vacío se mostrará “{cta.title}”.
-                      </p>
-                    </div>
-                    <div style={fieldGroupStyle}>
-                      <label style={labelStyle} htmlFor={`${cta.key}-url`}>
-                        <span>URL</span>
-                      </label>
-                      <input
-                        id={`${cta.key}-url`}
-                        style={inputStyle}
-                        type="url"
-                        value={form[cta.urlField]}
-                        onChange={handleFieldChange(cta.urlField)}
-                        placeholder="https://"
-                      />
-                      <p style={helperStyle}>El botón aparece sólo si la URL tiene contenido.</p>
-                    </div>
+            <div style={fieldGroupStyle}>
+              <label style={labelStyle} htmlFor="product-category">
+                <span>Categoría</span>
+                {categorySelection ? (
+                  <span style={{ fontSize: '0.85rem', color: '#2563eb' }}>
+                    Asignada: {categorySelection.name} · {categorySelection.slug}
+                  </span>
+                ) : categorySelectionSlug.length > 0 ? (
+                  <span style={{ fontSize: '0.85rem', color: '#f97316' }}>
+                    Slug asignado: {categorySelectionSlug}
+                  </span>
+                ) : null}
+              </label>
+              <select
+                id="product-category"
+                style={inputStyle}
+                value={form.categorySlug}
+                onChange={handleCategoryChange}
+              >
+                <option value="">Sin categoría</option>
+                {categoryOptions.map((option) => (
+                  <option key={option.slug} value={option.slug}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+              {categoryFetchStatus === 'loading' ? <p style={helperStyle}>Cargando categorías…</p> : null}
+              {categoryFetchStatus === 'error' && categoryFetchError ? (
+                <p style={errorStyle}>{categoryFetchError}</p>
+              ) : null}
+              {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
+                <p style={helperStyle}>No hay categorías publicadas todavía.</p>
+              ) : null}
+              {hasUnmanagedCategorySelection ? (
+                <p style={helperStyle}>
+                  Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
+                  {categorySelectionSlug ? ` (Slug: ${categorySelectionSlug})` : null}
+                </p>
+              ) : null}
+            </div>
+
+            <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a' }}>Botones (CTA)</h3>
+              {CTA_FIELDS.map((cta) => (
+                <div key={cta.key} style={{ display: 'grid', gap: '0.75rem' }}>
+                  <div style={fieldGroupStyle}>
+                    <label style={labelStyle} htmlFor={`${cta.key}-label`}>
+                      <span>Label (opcional)</span>
+                    </label>
+                    <input
+                      id={`${cta.key}-label`}
+                      style={inputStyle}
+                      type="text"
+                      value={form[cta.labelField]}
+                      onChange={handleFieldChange(cta.labelField)}
+                      placeholder={cta.title}
+                      maxLength={80}
+                    />
+                    <p style={helperStyle}>
+                      Si lo dejas vacío se mostrará “{cta.title}”.
+                    </p>
+                  </div>
+                  <div style={fieldGroupStyle}>
+                    <label style={labelStyle} htmlFor={`${cta.key}-url`}>
+                      <span>URL</span>
+                    </label>
+                    <input
+                      id={`${cta.key}-url`}
+                      style={inputStyle}
+                      type="url"
+                      value={form[cta.urlField]}
+                      onChange={handleFieldChange(cta.urlField)}
+                      placeholder="https://"
+                    />
+                    <p style={helperStyle}>El botón aparece sólo si la URL tiene contenido.</p>
                   </div>
                 ))}
               </section>
