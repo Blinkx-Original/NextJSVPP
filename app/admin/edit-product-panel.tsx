@@ -374,10 +374,6 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
   const [categoryFetchStatus, setCategoryFetchStatus] = useState<AsyncStatus>('idle');
   const [categoryFetchError, setCategoryFetchError] = useState<string | null>(null);
-  // Legacy placeholder: the category creation modal is no longer available, but
-  // some historical builds still expect this flag to exist. Keep it as a noop so
-  // TypeScript and downstream JSX references compile safely.
-  const isCategoryModalOpen = false;
   const descriptionEditorRef = useRef<TinyMceEditorHandle | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
   const categoryFetchAbortRef = useRef<AbortController | null>(null);
