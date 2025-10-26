@@ -96,6 +96,14 @@ const emptyFormState: ProductFormState = {
   lastUpdatedAt: null
 };
 
+const emptyCategoryForm: NewCategoryFormState = {
+  name: '',
+  slug: '',
+  shortDescription: '',
+  longDescription: '',
+  isPublished: true
+};
+
 const CTA_FIELDS = [
   {
     key: 'lead' as const,
@@ -165,6 +173,99 @@ const errorStyle = {
 const successStyle = {
   ...helperStyle,
   color: '#16a34a'
+};
+
+const warningStyle = {
+  ...helperStyle,
+  color: '#b45309'
+};
+
+const categoryFieldContainerStyle = {
+  position: 'relative' as const,
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '0.5rem'
+};
+
+const categorySuggestionListStyle = {
+  position: 'absolute' as const,
+  top: '100%',
+  left: 0,
+  right: 0,
+  background: '#fff',
+  border: '1px solid #cbd5f5',
+  borderRadius: 12,
+  marginTop: '0.25rem',
+  boxShadow: '0 20px 40px rgba(15, 23, 42, 0.15)',
+  maxHeight: 240,
+  overflowY: 'auto' as const,
+  zIndex: 20
+};
+
+const categorySuggestionItemStyle = {
+  padding: '0.65rem 0.85rem',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '0.25rem',
+  cursor: 'pointer' as const
+};
+
+const categorySuggestionActiveStyle = {
+  ...categorySuggestionItemStyle,
+  background: '#eef2ff'
+};
+
+const categoryBadgeStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.35rem',
+  fontSize: '0.8rem',
+  fontWeight: 500,
+  color: '#334155',
+  background: '#e2e8f0',
+  borderRadius: 999,
+  padding: '0.25rem 0.6rem'
+};
+
+const modalOverlayStyle = {
+  position: 'fixed' as const,
+  inset: 0,
+  background: 'rgba(15, 23, 42, 0.55)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '1.5rem',
+  zIndex: 1000
+};
+
+const modalCardStyle = {
+  background: '#fff',
+  borderRadius: 20,
+  padding: '2rem',
+  width: 'min(520px, 100%)',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '1rem',
+  boxShadow: '0 24px 60px rgba(15, 23, 42, 0.25)'
+};
+
+const modalHeaderStyle = {
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '0.35rem'
+};
+
+const modalTitleStyle = {
+  margin: 0,
+  fontSize: '1.5rem',
+  color: '#0f172a'
+};
+
+const modalActionsStyle = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: '0.75rem',
+  flexWrap: 'wrap' as const
 };
 
 const previewLayoutStyle = {
@@ -279,6 +380,10 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const isCategoryModalOpen = false;
   const descriptionEditorRef = useRef<TinyMceEditorHandle | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
+  const categoryFetchAbortRef = useRef<AbortController | null>(null);
+  const categoryDropdownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const categoryFetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const categoryInputRef = useRef<HTMLInputElement | null>(null);
 
   const syncDescriptionFromEditor = useCallback(() => {
     const editorContent = descriptionEditorRef.current?.getContent?.();
@@ -566,6 +671,40 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
 
   const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
   const isDescriptionTooLong = descriptionMetrics.characters > DESCRIPTION_MAX_LENGTH;
+  /**
+   * Category handling.
+   *
+   * We derive the current category slug from the form, normalize it, then determine if it
+   * corresponds to a managed category (one that exists in `categoryOptions`). If the user
+   * typed a slug that doesn't exist, we still keep the raw value so it can be saved but
+   * mark it as unmanaged. We then compute a friendly label for display purposes.
+   */
+  const categorySelectionSlug = form.categorySlug.trim();
+  const trimmedCategoryInput = categorySelectionSlug;
+
+  const categorySelection = useMemo(() => {
+    if (trimmedCategoryInput.length === 0) {
+      return null;
+    }
+    return categoryOptions.find((option) => option.slug === trimmedCategoryInput) ?? null;
+  }, [categoryOptions, trimmedCategoryInput]);
+
+  const hasUnmanagedCategory = useMemo(() => {
+    if (trimmedCategoryInput.length === 0) {
+      return false;
+    }
+    return categorySelection == null;
+  }, [categorySelection, trimmedCategoryInput]);
+
+  const managedCategoryLabel = useMemo(() => {
+    if (categorySelection) {
+      return `${categorySelection.name} · ${categorySelection.slug}`;
+    }
+    if (trimmedCategoryInput.length > 0) {
+      return trimmedCategoryInput;
+    }
+    return null;
+  }, [categorySelection, trimmedCategoryInput]);
 
   const handleSaveDescription = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
@@ -734,174 +873,161 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
                   value={form.title}
                   onChange={handleFieldChange('title')}
                 />
-            </div>
-
-            <div style={fieldGroupStyle}>
-              <label style={labelStyle} htmlFor="summary">
-                <span>Short summary</span>
-                <span style={{ fontSize: '0.85rem', color: summaryCount > SUMMARY_MAX_LENGTH ? '#ef4444' : '#475569' }}>
-                  {summaryCount}/{SUMMARY_MAX_LENGTH}
-                </span>
-              </label>
-              <textarea
-                id="summary"
-                style={{ ...textareaStyle, minHeight: '4rem' }}
-                maxLength={SUMMARY_MAX_LENGTH}
-                value={form.summary}
-                onChange={handleFieldChange('summary')}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle} htmlFor="price">
-                  <span>Precio (texto)</span>
-                </label>
-                <input
-                  id="price"
-                  style={inputStyle}
-                  type="text"
-                  value={form.price}
-                  onChange={handleFieldChange('price')}
-                />
-                <p style={helperStyle}>Se muestra sólo si contiene texto.</p>
               </div>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle} htmlFor="image">
-                  <span>Imagen principal (URL)</span>
-                </label>
-                <input
-                  id="image"
-                  style={inputStyle}
-                  type="url"
-                  value={form.imageUrl}
-                  onChange={handleFieldChange('imageUrl')}
-                  placeholder="https://imagedelivery.net/..."
-                />
-                <p style={helperStyle}>Usa la URL completa de Cloudflare Images u otra imagen.</p>
-              </div>
-            </div>
 
-            <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a' }}>Botones (CTA)</h3>
-              {CTA_FIELDS.map((cta) => (
-                <div key={cta.key} style={{ display: 'grid', gap: '0.75rem' }}>
-                  <div style={fieldGroupStyle}>
-                    <label style={labelStyle} htmlFor={`${cta.key}-label`}>
-                      <span>Label (opcional)</span>
-                    </label>
-                    <input
-                      id={`${cta.key}-label`}
-                      style={inputStyle}
-                      type="text"
-                      value={form[cta.labelField]}
-                      onChange={handleFieldChange(cta.labelField)}
-                      placeholder={cta.title}
-                      maxLength={80}
-                    />
-                    <p style={helperStyle}>
-                      Si lo dejas vacío se mostrará “{cta.title}”.
-                    </p>
-                  </div>
-                  <div style={fieldGroupStyle}>
-                    <label style={labelStyle} htmlFor={`${cta.key}-url`}>
-                      <span>URL</span>
-                    </label>
-                    <input
-                      id={`${cta.key}-url`}
-                      style={inputStyle}
-                      type="url"
-                      value={form[cta.urlField]}
-                      onChange={handleFieldChange(cta.urlField)}
-                      placeholder="https://"
-                    />
-                    <p style={helperStyle}>El botón aparece sólo si la URL tiene contenido.</p>
-                  </div>
+              <div style={fieldGroupStyle}>
+                <label style={labelStyle} htmlFor="summary">
+                  <span>Short summary</span>
+                  <span style={{ fontSize: '0.85rem', color: summaryCount > SUMMARY_MAX_LENGTH ? '#ef4444' : '#475569' }}>
+                    {summaryCount}/{SUMMARY_MAX_LENGTH}
+                  </span>
+                </label>
+                <textarea
+                  id="summary"
+                  style={{ ...textareaStyle, minHeight: '4rem' }}
+                  maxLength={SUMMARY_MAX_LENGTH}
+                  value={form.summary}
+                  onChange={handleFieldChange('summary')}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                <div style={fieldGroupStyle}>
+                  <label style={labelStyle} htmlFor="price">
+                    <span>Precio (texto)</span>
+                  </label>
+                  <input
+                    id="price"
+                    style={inputStyle}
+                    type="text"
+                    value={form.price}
+                    onChange={handleFieldChange('price')}
+                  />
+                  <p style={helperStyle}>Se muestra sólo si contiene texto.</p>
                 </div>
-              ))}
+                <div style={fieldGroupStyle}>
+                  <label style={labelStyle} htmlFor="image">
+                    <span>Imagen principal (URL)</span>
+                  </label>
+                  <input
+                    id="image"
+                    style={inputStyle}
+                    type="url"
+                    value={form.imageUrl}
+                    onChange={handleFieldChange('imageUrl')}
+                    placeholder="https://imagedelivery.net/..."
+                  />
+                  <p style={helperStyle}>Usa la URL completa de Cloudflare Images u otra imagen.</p>
+                </div>
+              </div>
+
+              <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a' }}>Botones (CTA)</h3>
+                {CTA_FIELDS.map((cta) => (
+                  <div key={cta.key} style={{ display: 'grid', gap: '0.75rem' }}>
+                    <div style={fieldGroupStyle}>
+                      <label style={labelStyle} htmlFor={`${cta.key}-label`}>
+                        <span>Label (opcional)</span>
+                      </label>
+                      <input
+                        id={`${cta.key}-label`}
+                        style={inputStyle}
+                        type="text"
+                        value={form[cta.labelField]}
+                        onChange={handleFieldChange(cta.labelField)}
+                        placeholder={cta.title}
+                        maxLength={80}
+                      />
+                      <p style={helperStyle}>
+                        Si lo dejas vacío se mostrará “{cta.title}”.
+                      </p>
+                    </div>
+                    <div style={fieldGroupStyle}>
+                      <label style={labelStyle} htmlFor={`${cta.key}-url`}>
+                        <span>URL</span>
+                      </label>
+                      <input
+                        id={`${cta.key}-url`}
+                        style={inputStyle}
+                        type="url"
+                        value={form[cta.urlField]}
+                        onChange={handleFieldChange(cta.urlField)}
+                        placeholder="https://"
+                      />
+                      <p style={helperStyle}>El botón aparece sólo si la URL tiene contenido.</p>
+                    </div>
+                  </div>
+                ))}
+              </section>
+
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  style={saveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                  onClick={() => handleSave()}
+                  disabled={saveStatus === 'loading'}
+                >
+                  {saveStatus === 'loading' ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+                <button
+                  type="button"
+                  style={saveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                  onClick={() => handleSave(true)}
+                  disabled={saveStatus === 'loading'}
+                >
+                  {saveStatus === 'loading' ? 'Guardando…' : 'Guardar y Ver'}
+                </button>
+                {saveError ? <p style={errorStyle}>{saveError}</p> : null}
+                {saveStatus === 'success' && saveSuccess ? <p style={successStyle}>{saveSuccess}</p> : null}
+              </div>
             </section>
 
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                style={saveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
-                onClick={() => handleSave()}
-                disabled={saveStatus === 'loading'}
-              >
-                {saveStatus === 'loading' ? 'Guardando…' : 'Guardar cambios'}
-              </button>
-              <button
-                type="button"
-                style={saveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
-                onClick={() => handleSave(true)}
-                disabled={saveStatus === 'loading'}
-              >
-                {saveStatus === 'loading' ? 'Guardando…' : 'Guardar y Ver'}
-              </button>
-              {saveError ? <p style={errorStyle}>{saveError}</p> : null}
-              {saveStatus === 'success' && saveSuccess ? <p style={successStyle}>{saveSuccess}</p> : null}
+            <section style={{ ...cardStyle, gap: '1.5rem' }}>
+              <header>
+                <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>Vista previa</h2>
+                <p style={helperStyle}>Así se verá la cabecera del producto en la página pública.</p>
+              </header>
+              <div style={previewLayoutStyle}>
+                <div style={previewMediaStyle}>
+                  {form.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.imageUrl} alt={form.title || form.slug} style={previewImageStyle} />
+                  ) : (
+                    <span>Imagen no configurada</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <h3 style={previewTitleStyle}>{form.title || form.slug || 'Título pendiente'}</h3>
+                  {form.summary ? <p style={previewSummaryStyle}>{form.summary}</p> : null}
+                  {activeCtas.length > 0 ? (
+                    <div style={previewButtonRowStyle}>
+                      {activeCtas.map((cta, index) => (
+                        <a
+                          key={cta.key}
+                          href={cta.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={index === 0 ? primaryButtonStyle : secondaryButtonStyle}
+                        >
+                          {cta.label}
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
+                  {form.price ? <div style={priceStyle}>{form.price}</div> : null}
+                </div>
+              </div>
+            </section>
             </div>
-          </section>
 
-          <section style={{ ...cardStyle, gap: '1.5rem' }}>
-            <header>
-              <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>Vista previa</h2>
-              <p style={helperStyle}>Así se verá la cabecera del producto en la página pública.</p>
-            </header>
-            <div style={previewLayoutStyle}>
-              <div style={previewMediaStyle}>
-                {form.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={form.imageUrl} alt={form.title || form.slug} style={previewImageStyle} />
-                ) : (
-                  <span>Imagen no configurada</span>
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <h3 style={previewTitleStyle}>{form.title || form.slug || 'Título pendiente'}</h3>
-                {form.summary ? <p style={previewSummaryStyle}>{form.summary}</p> : null}
-                {activeCtas.length > 0 ? (
-                  <div style={previewButtonRowStyle}>
-                    {activeCtas.map((cta, index) => (
-                      <a
-                        key={cta.key}
-                        href={cta.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={index === 0 ? primaryButtonStyle : secondaryButtonStyle}
-                      >
-                        {cta.label}
-                      </a>
-                    ))}
-                  </div>
-                ) : null}
-                {form.price ? <div style={priceStyle}>{form.price}</div> : null}
-              </div>
-            </div>
-          </section>
-          </div>
-
-          <section style={{ ...cardStyle, gap: '1.25rem', width: '100%' }}>
-            <header
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                flexWrap: 'wrap',
-                gap: '0.75rem'
-              }}
-            >
-              <div style={{ flex: '1 1 260px', minWidth: 260 }}>
-                <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>Long description (HTML)</h2>
-                <p style={helperStyle}>
-                  Usa el modo Visual para editar con formato o cambia a Código HTML para pegar contenido avanzado.
-                </p>
-              </div>
-              <span
+            <section style={{ ...cardStyle, gap: '1.25rem', width: '100%' }}>
+              <header
                 style={{
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  color: isDescriptionTooLong ? '#ef4444' : '#475569'
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem'
                 }}
               >
                 {descriptionMetrics.characters.toLocaleString()} / {DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres ·{' '}
@@ -970,25 +1096,16 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
               {descriptionSaveStatus === 'success' && descriptionSaveSuccess ? (
                 <p style={successStyle}>{descriptionSaveSuccess}</p>
               ) : null}
-            </div>
+            </section>
+          </div>
+        ) : (
+          <article style={{ ...cardStyle, gap: '0.5rem' }}>
+            <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a' }}>Selecciona un producto</h2>
             <p style={helperStyle}>
-              El contenido se guarda en TiDB como HTML limpio. El editor incluye tablas, listas, enlaces, imágenes y carga automática.
+              Ingresa un slug o URL y presiona “Cargar producto” para empezar a editar.
             </p>
-            {isDescriptionTooLong ? (
-              <p style={errorStyle}>
-                La descripción supera el máximo recomendado. Reduce el contenido antes de guardar.
-              </p>
-            ) : null}
-          </section>
-        </div>
-      ) : (
-        <article style={{ ...cardStyle, gap: '0.5rem' }}>
-          <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a' }}>Selecciona un producto</h2>
-          <p style={helperStyle}>
-            Ingresa un slug o URL y presiona “Cargar producto” para empezar a editar.
-          </p>
-        </article>
-      )}
+          </article>
+        )}
     </section>
   );
 }
