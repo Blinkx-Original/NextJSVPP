@@ -380,6 +380,8 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const categoryDropdownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const categoryFetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const categoryInputRef = useRef<HTMLInputElement | null>(null);
+  // State controlling the visibility of the category creation modal (placeholder only).
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
 
   const syncDescriptionFromEditor = useCallback(() => {
     const editorContent = descriptionEditorRef.current?.getContent?.();
@@ -702,6 +704,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     return null;
   }, [categorySelection, trimmedCategoryInput]);
 
+  // Provide an alias for UI use: indicates whether the current category slug is managed.
+  const hasUnmanagedCategorySelection = hasUnmanagedCategory;
+
   const handleSaveDescription = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
       setDescriptionSaveError('Carga primero un producto para editarlo.');
@@ -784,18 +789,6 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       }
     }
   }, [applyProduct, selectedSlug, syncDescriptionFromEditor]);
-
-  const categorySelectionSlug = form.categorySlug.trim();
-
-  const categorySelection = useMemo(() => {
-    if (categorySelectionSlug.length === 0) {
-      return null;
-    }
-    return categoryOptions.find((option) => option.slug === categorySelectionSlug) ?? null;
-  }, [categoryOptions, categorySelectionSlug]);
-
-  const hasUnmanagedCategorySelection =
-    categorySelectionSlug.length > 0 && categorySelection == null;
 
   const activeCtas = useMemo(() => {
     return CTA_FIELDS.map((item) => {
@@ -1014,7 +1007,6 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
                 </div>
               </div>
             </section>
-            </div>
 
             <section style={{ ...cardStyle, gap: '1.25rem', width: '100%' }}>
               <header
@@ -1026,73 +1018,76 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
                   gap: '0.75rem'
                 }}
               >
-                {descriptionMetrics.characters.toLocaleString()} / {DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres ·{' '}
-                {descriptionMetrics.words.toLocaleString()} palabras
-              </span>
-            </header>
-            <TinyMceEditor
-              ref={descriptionEditorRef}
-              value={form.description}
-              onChange={(html) => {
-                setForm((prev) => ({ ...prev, description: html }));
-              }}
-              slug={selectedSlug}
-              placeholder="Escribe la descripción detallada, inserta tablas, imágenes o enlaces…"
-              id="description"
-            />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <label style={labelStyle} htmlFor="product-category">
-                <span>Categoría</span>
-              </label>
-              <select
-                id="product-category"
-                style={inputStyle}
-                value={form.categorySlug}
-                onChange={handleCategoryChange}
-              >
-                <option value="">Sin categoría</option>
-                {categoryOptions.map((option) => (
-                  <option key={option.slug} value={option.slug}>
-                    {option.name}
-                  </option>
-                ))}
-              </select>
-              {categoryFetchStatus === 'loading' ? <p style={helperStyle}>Cargando categorías…</p> : null}
-              {categoryFetchStatus === 'error' && categoryFetchError ? (
-                <p style={errorStyle}>{categoryFetchError}</p>
-              ) : null}
-              {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
-                <p style={helperStyle}>No hay categorías publicadas todavía.</p>
-              ) : null}
-              {hasUnmanagedCategorySelection ? (
-                <p style={helperStyle}>
-                  Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
-                  {categorySelectionSlug ? ` (Slug: ${categorySelectionSlug})` : null}
-                </p>
-              ) : null}
-            </div>
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
-                onClick={() => handleSaveDescription()}
-                disabled={descriptionSaveStatus === 'loading'}
-              >
-                {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar descripción'}
-              </button>
-              <button
-                type="button"
-                style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
-                onClick={() => handleSaveDescription(true)}
-                disabled={descriptionSaveStatus === 'loading'}
-              >
-                {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar y Ver'}
-              </button>
-              {descriptionSaveError ? <p style={errorStyle}>{descriptionSaveError}</p> : null}
-              {descriptionSaveStatus === 'success' && descriptionSaveSuccess ? (
-                <p style={successStyle}>{descriptionSaveSuccess}</p>
-              ) : null}
+                <span>
+                  {descriptionMetrics.characters.toLocaleString()} / {DESCRIPTION_MAX_LENGTH.toLocaleString()} caracteres ·{' '}
+                  {descriptionMetrics.words.toLocaleString()} palabras
+                </span>
+              </header>
+              <TinyMceEditor
+                ref={descriptionEditorRef}
+                value={form.description}
+                onChange={(html) => {
+                  setForm((prev) => ({ ...prev, description: html }));
+                }}
+                slug={selectedSlug}
+                placeholder="Escribe la descripción detallada, inserta tablas, imágenes o enlaces…"
+                id="description"
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <label style={labelStyle} htmlFor="product-category">
+                  <span>Categoría</span>
+                </label>
+                <select
+                  id="product-category"
+                  style={inputStyle}
+                  value={form.categorySlug}
+                  onChange={handleCategoryChange}
+                >
+                  <option value="">Sin categoría</option>
+                  {categoryOptions.map((option) => (
+                    <option key={option.slug} value={option.slug}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+                {categoryFetchStatus === 'loading' ? <p style={helperStyle}>Cargando categorías…</p> : null}
+                {categoryFetchStatus === 'error' && categoryFetchError ? (
+                  <p style={errorStyle}>{categoryFetchError}</p>
+                ) : null}
+                {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
+                  <p style={helperStyle}>No hay categorías publicadas todavía.</p>
+                ) : null}
+                {hasUnmanagedCategorySelection ? (
+                  <p style={helperStyle}>
+                    Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
+                    {categorySelectionSlug ? ` (Slug: ${categorySelectionSlug})` : null}
+                  </p>
+                ) : null}
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                  onClick={() => handleSaveDescription()}
+                  disabled={descriptionSaveStatus === 'loading'}
+                >
+                  {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar descripción'}
+                </button>
+                <button
+                  type="button"
+                  style={descriptionSaveStatus === 'loading' ? disabledButtonStyle : buttonStyle}
+                  onClick={() => handleSaveDescription(true)}
+                  disabled={descriptionSaveStatus === 'loading'}
+                >
+                  {descriptionSaveStatus === 'loading' ? 'Guardando descripción…' : 'Guardar y Ver'}
+                </button>
+                {descriptionSaveError ? <p style={errorStyle}>{descriptionSaveError}</p> : null}
+                {descriptionSaveStatus === 'success' && descriptionSaveSuccess ? (
+                  <p style={successStyle}>{descriptionSaveSuccess}</p>
+                ) : null}
+              </div>
             </section>
+            </div>
           </div>
         ) : (
           <article style={{ ...cardStyle, gap: '0.5rem' }}>
@@ -1105,4 +1100,3 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     </section>
   );
 }
-
