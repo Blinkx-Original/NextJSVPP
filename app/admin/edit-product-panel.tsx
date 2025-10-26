@@ -44,30 +44,6 @@ interface AdminProductResponse {
 interface CategoryOption {
   slug: string;
   name: string;
-  isPublished: boolean;
-}
-
-interface NewCategoryFormState {
-  name: string;
-  slug: string;
-  shortDescription: string;
-  longDescription: string;
-  isPublished: boolean;
-}
-
-type CategoryFetchStatus = 'idle' | 'loading' | 'success' | 'error';
-
-const CATEGORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const CATEGORY_FETCH_DEBOUNCE_MS = 250;
-
-function slugifyCategoryName(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
 }
 
 interface ProductFormState {
@@ -76,7 +52,7 @@ interface ProductFormState {
   summary: string;
   description: string;
   price: string;
-  categoryInput: string;
+  categorySlug: string;
   ctaLead: string;
   ctaAffiliate: string;
   ctaStripe: string;
@@ -98,7 +74,7 @@ const emptyFormState: ProductFormState = {
   summary: '',
   description: '',
   price: '',
-  categoryInput: '',
+  categorySlug: '',
   ctaLead: '',
   ctaAffiliate: '',
   ctaStripe: '',
@@ -386,17 +362,9 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<AsyncStatus>('idle');
   const [descriptionSaveError, setDescriptionSaveError] = useState<string | null>(null);
   const [descriptionSaveSuccess, setDescriptionSaveSuccess] = useState<string | null>(null);
-  const [categorySelectionSlug, setCategorySelectionSlug] = useState<string | null>(null);
-  const [categorySelection, setCategorySelection] = useState<CategoryOption | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
-  const [categoryFetchStatus, setCategoryFetchStatus] = useState<CategoryFetchStatus>('idle');
+  const [categoryFetchStatus, setCategoryFetchStatus] = useState<AsyncStatus>('idle');
   const [categoryFetchError, setCategoryFetchError] = useState<string | null>(null);
-  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
-  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-  const [categoryForm, setCategoryForm] = useState<NewCategoryFormState>(emptyCategoryForm);
-  const [categoryModalStatus, setCategoryModalStatus] = useState<AsyncStatus>('idle');
-  const [categoryModalError, setCategoryModalError] = useState<string | null>(null);
-  const [categorySlugManuallyEdited, setCategorySlugManuallyEdited] = useState(false);
   const descriptionEditorRef = useRef<TinyMceEditorHandle | null>(null);
   const lastLoadedSlugRef = useRef<string | null>(null);
   const categoryFetchAbortRef = useRef<AbortController | null>(null);
@@ -420,36 +388,18 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   }, [initialInput]);
 
   useEffect(() => {
-    const trimmed = form.categoryInput.trim();
-    if (categoryFetchTimeoutRef.current) {
-      clearTimeout(categoryFetchTimeoutRef.current);
-      categoryFetchTimeoutRef.current = null;
-    }
-    if (categoryFetchAbortRef.current) {
-      categoryFetchAbortRef.current.abort();
-      categoryFetchAbortRef.current = null;
-    }
-
-    const controller = new AbortController();
-    categoryFetchAbortRef.current = controller;
-    setCategoryFetchStatus('loading');
-    setCategoryFetchError(null);
-
-    categoryFetchTimeoutRef.current = setTimeout(async () => {
+    let cancelled = false;
+    const loadCategories = async () => {
+      setCategoryFetchStatus('loading');
+      setCategoryFetchError(null);
       try {
-        const params = new URLSearchParams({ type: 'product', limit: '20' });
-        if (trimmed) {
-          params.set('query', trimmed);
-        }
+        const params = new URLSearchParams({ type: 'product', limit: '60' });
         const response = await fetch(`/api/admin/categories?${params.toString()}`, {
-          cache: 'no-store',
-          signal: controller.signal
+          cache: 'no-store'
         });
         const body = (await response.json()) as Array<{
           slug?: string;
           name?: string;
-          is_published?: boolean;
-          isPublished?: boolean;
         }>;
         if (!response.ok) {
           const message = Array.isArray(body)
@@ -462,71 +412,43 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
           ? body
               .map((item) => ({
                 slug: typeof item.slug === 'string' ? item.slug : '',
-                name: typeof item.name === 'string' ? item.name : '',
-                isPublished: Boolean(
-                  typeof item.isPublished !== 'undefined' ? item.isPublished : item.is_published
-                )
+                name: typeof item.name === 'string' ? item.name : ''
               }))
               .filter((item) => item.slug && item.name)
+              .sort((a, b) => a.name.localeCompare(b.name))
           : [];
 
-        setCategoryOptions(normalized);
-        setCategoryFetchStatus('success');
-
-        if (categorySelectionSlug) {
-          const match = normalized.find((item) => item.slug === categorySelectionSlug);
-          if (match) {
-            setCategorySelection(match);
-            setForm((prev) => {
-              const currentTrimmed = prev.categoryInput.trim();
-              if (currentTrimmed === categorySelectionSlug && match.name && match.name !== prev.categoryInput) {
-                return { ...prev, categoryInput: match.name };
-              }
-              return prev;
-            });
-          } else {
-            setCategorySelection((prev) => (prev && prev.slug === categorySelectionSlug ? prev : null));
-          }
-        } else {
-          setCategorySelection(null);
+        if (!cancelled) {
+          setCategoryOptions(normalized);
+          setCategoryFetchStatus('success');
         }
       } catch (error) {
-        if ((error as Error)?.name === 'AbortError') {
-          return;
+        if (!cancelled) {
+          setCategoryFetchStatus('error');
+          setCategoryFetchError((error as Error)?.message ?? 'No se pudieron cargar las categorías.');
         }
-        setCategoryFetchStatus('error');
-        setCategoryFetchError((error as Error)?.message ?? 'No se pudieron cargar las categorías.');
-      } finally {
-        if (categoryFetchAbortRef.current === controller) {
-          categoryFetchAbortRef.current = null;
-        }
-      }
-    }, CATEGORY_FETCH_DEBOUNCE_MS);
-
-    return () => {
-      if (categoryFetchTimeoutRef.current) {
-        clearTimeout(categoryFetchTimeoutRef.current);
-        categoryFetchTimeoutRef.current = null;
-      }
-      controller.abort();
-      if (categoryFetchAbortRef.current === controller) {
-        categoryFetchAbortRef.current = null;
       }
     };
-  }, [form.categoryInput, categorySelectionSlug, setForm]);
+
+    loadCategories();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
-    if (!isCategoryModalOpen || categorySlugManuallyEdited) {
+    if (!form.categorySlug) {
       return;
     }
-    setCategoryForm((prev) => {
-      const generated = slugifyCategoryName(prev.name);
-      if (generated === prev.slug) {
+    setCategoryOptions((prev) => {
+      if (prev.some((option) => option.slug === form.categorySlug)) {
         return prev;
       }
-      return { ...prev, slug: generated };
+      const next = [...prev, { slug: form.categorySlug, name: form.categorySlug }];
+      return next.sort((a, b) => a.name.localeCompare(b.name));
     });
-  }, [isCategoryModalOpen, categorySlugManuallyEdited, categoryForm.name]);
+  }, [form.categorySlug]);
 
   const updateUrl = useCallback(
     (slug: string) => {
@@ -550,7 +472,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       summary: product.short_summary ?? '',
       description: product.desc_html ?? '',
       price: product.price ?? '',
-      categoryInput: product.category ?? '',
+      categorySlug: product.category ?? '',
       ctaLead: product.cta_lead_url ?? '',
       ctaAffiliate: product.cta_affiliate_url ?? '',
       ctaStripe: product.cta_stripe_url ?? '',
@@ -633,228 +555,10 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     []
   );
 
-  const clearCategoryDropdownTimeout = useCallback(() => {
-    if (categoryDropdownTimeoutRef.current) {
-      clearTimeout(categoryDropdownTimeoutRef.current);
-      categoryDropdownTimeoutRef.current = null;
-    }
-  }, []);
-
-  const scheduleCategoryDropdownClose = useCallback(() => {
-    clearCategoryDropdownTimeout();
-    categoryDropdownTimeoutRef.current = setTimeout(() => {
-      setIsCategoryDropdownOpen(false);
-    }, 120);
-  }, [clearCategoryDropdownTimeout]);
-
-  const handleCategoryInputChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const value = event.target.value;
-      setForm((prev) => ({ ...prev, categoryInput: value }));
-      if (categorySelectionSlug) {
-        setCategorySelectionSlug(null);
-      }
-      setCategorySelection(null);
-    },
-    [categorySelectionSlug]
-  );
-
-  const handleCategoryInputFocus = useCallback(() => {
-    clearCategoryDropdownTimeout();
-    setIsCategoryDropdownOpen(true);
-  }, [clearCategoryDropdownTimeout]);
-
-  const handleCategoryInputBlur = useCallback(() => {
-    scheduleCategoryDropdownClose();
-  }, [scheduleCategoryDropdownClose]);
-
-  const handleCategoryDropdownMouseEnter = useCallback(() => {
-    clearCategoryDropdownTimeout();
-  }, [clearCategoryDropdownTimeout]);
-
-  const handleCategoryDropdownMouseLeave = useCallback(() => {
-    scheduleCategoryDropdownClose();
-  }, [scheduleCategoryDropdownClose]);
-
-  const handleCategorySelect = useCallback(
-    (option: CategoryOption) => {
-      clearCategoryDropdownTimeout();
-      setCategorySelection(option);
-      setCategorySelectionSlug(option.slug);
-      setForm((prev) => ({ ...prev, categoryInput: option.name }));
-      setIsCategoryDropdownOpen(false);
-    },
-    [clearCategoryDropdownTimeout]
-  );
-
-  const handleOpenCategoryModal = useCallback(() => {
-    const baseName = form.categoryInput.trim();
-    const initialName = baseName.length > 0 ? baseName : '';
-    const initialSlug = initialName ? slugifyCategoryName(initialName) : '';
-    setCategoryForm({
-      name: initialName,
-      slug: initialSlug,
-      shortDescription: '',
-      longDescription: '',
-      isPublished: true
-    });
-    setCategorySlugManuallyEdited(false);
-    setCategoryModalStatus('idle');
-    setCategoryModalError(null);
-    setIsCategoryModalOpen(true);
-  }, [form.categoryInput]);
-
-  const handleCloseCategoryModal = useCallback(() => {
-    setIsCategoryModalOpen(false);
-    setCategoryModalStatus('idle');
-    setCategoryModalError(null);
-  }, []);
-
-  useEffect(() => {
-    if (!isCategoryModalOpen) {
-      return;
-    }
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        handleCloseCategoryModal();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => {
-      window.removeEventListener('keydown', handler);
-    };
-  }, [isCategoryModalOpen, handleCloseCategoryModal]);
-
-  const handleCategoryNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+  const handleCategoryChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     const value = event.target.value;
-    setCategoryForm((prev) => ({ ...prev, name: value }));
+    setForm((prev) => ({ ...prev, categorySlug: value }));
   }, []);
-
-  const handleCategorySlugChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const value = event.target.value;
-    const normalized = value
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, '-')
-      .replace(/-{2,}/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 80);
-    setCategorySlugManuallyEdited(true);
-    setCategoryForm((prev) => ({ ...prev, slug: normalized }));
-  }, []);
-
-  const handleCategoryShortChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    setCategoryForm((prev) => ({ ...prev, shortDescription: event.target.value }));
-  }, []);
-
-  const handleCategoryLongChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
-    setCategoryForm((prev) => ({ ...prev, longDescription: event.target.value }));
-  }, []);
-
-  const handleCategoryPublishedChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    setCategoryForm((prev) => ({ ...prev, isPublished: event.target.checked }));
-  }, []);
-
-  const handleCreateCategory = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (categoryModalStatus === 'loading') {
-        return;
-      }
-
-      const name = categoryForm.name.trim();
-      const slug = categoryForm.slug.trim();
-      const shortDescription = categoryForm.shortDescription.trim();
-      const longDescription = categoryForm.longDescription.trim();
-
-      if (name.length < 2 || name.length > 120) {
-        setCategoryModalStatus('error');
-        setCategoryModalError('El nombre debe tener entre 2 y 120 caracteres.');
-        return;
-      }
-
-      if (!slug || slug.length > 80 || !CATEGORY_SLUG_PATTERN.test(slug)) {
-        setCategoryModalStatus('error');
-        setCategoryModalError('El slug debe usar letras minúsculas, números y guiones.');
-        return;
-      }
-
-      if (shortDescription.length > 255) {
-        setCategoryModalStatus('error');
-        setCategoryModalError('La descripción corta supera el límite de 255 caracteres.');
-        return;
-      }
-
-      if (longDescription.length > 4000) {
-        setCategoryModalStatus('error');
-        setCategoryModalError('La descripción larga supera el límite de 4000 caracteres.');
-        return;
-      }
-
-      setCategoryModalStatus('loading');
-      setCategoryModalError(null);
-
-      try {
-        const response = await fetch('/api/admin/categories', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            type: 'product',
-            name,
-            slug,
-            short_description: shortDescription || undefined,
-            long_description: longDescription || undefined,
-            is_published: categoryForm.isPublished
-          })
-        });
-
-        const rawBody = (await response.json()) as
-          | { slug?: string; name?: string; is_published?: boolean; isPublished?: boolean }
-          | { ok: false; message?: string; error_code?: string };
-
-        if (!response.ok || ('ok' in rawBody && rawBody.ok === false)) {
-          const message = 'message' in rawBody && rawBody.message ? rawBody.message : 'No se pudo crear la categoría.';
-          throw new Error(message);
-        }
-
-        const body = rawBody as {
-          slug?: string;
-          name?: string;
-          is_published?: boolean;
-          isPublished?: boolean;
-        };
-
-        const created: CategoryOption = {
-          slug: typeof body.slug === 'string' ? body.slug : slug,
-          name: typeof body.name === 'string' ? body.name : name,
-          isPublished: Boolean(
-            typeof body.isPublished !== 'undefined' ? body.isPublished : body.is_published ?? true
-          )
-        };
-
-        setCategoryModalStatus('success');
-        setCategorySelection(created);
-        setCategorySelectionSlug(created.slug);
-        setForm((prev) => ({ ...prev, categoryInput: created.name }));
-        setCategoryOptions((prev) => {
-          const filtered = prev.filter((item) => item.slug !== created.slug);
-          return [created, ...filtered].slice(0, 20);
-        });
-        setIsCategoryModalOpen(false);
-        setTimeout(() => {
-          categoryInputRef.current?.focus();
-        }, 160);
-      } catch (error) {
-        setCategoryModalStatus('error');
-        setCategoryModalError((error as Error)?.message ?? 'No se pudo crear la categoría.');
-      }
-    },
-    [categoryForm, categoryModalStatus]
-  );
-
-  const trimmedCategoryInput = useMemo(() => form.categoryInput.trim(), [form.categoryInput]);
 
   const handleSave = useCallback(async (viewAfter = false) => {
     if (!selectedSlug) {
@@ -886,7 +590,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
       previewWindow = window.open('', '_blank');
     }
 
-    const categoryValue = categorySelectionSlug ?? (trimmedCategoryInput ? trimmedCategoryInput : null);
+    const categoryValue = form.categorySlug ? form.categorySlug : null;
 
     const payload = {
       slug: selectedSlug,
@@ -957,9 +661,7 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     applyProduct,
     form,
     selectedSlug,
-    syncDescriptionFromEditor,
-    categorySelectionSlug,
-    trimmedCategoryInput
+    syncDescriptionFromEditor
   ]);
 
   const descriptionMetrics = useMemo(() => measureHtmlContent(form.description), [form.description]);
@@ -1436,93 +1138,26 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <label style={labelStyle} htmlFor="product-category">
                 <span>Categoría</span>
-                {managedCategoryLabel ? (
-                  <span style={categoryBadgeStyle}>
-                    {managedCategoryLabel}
-                    {categorySelection && !categorySelection.isPublished ? (
-                      <span style={{ fontSize: '0.75rem', color: '#b45309' }}> · No publicada</span>
-                    ) : null}
-                  </span>
-                ) : null}
               </label>
-              <div style={categoryFieldContainerStyle}>
-                <input
-                  id="product-category"
-                  ref={categoryInputRef}
-                  type="text"
-                  style={{ ...inputStyle, paddingRight: '2.5rem' }}
-                  placeholder="Busca o escribe una categoría…"
-                  value={form.categoryInput}
-                  onChange={handleCategoryInputChange}
-                  onFocus={handleCategoryInputFocus}
-                  onBlur={handleCategoryInputBlur}
-                  autoComplete="off"
-                />
-                {isCategoryDropdownOpen ? (
-                  <div
-                    style={categorySuggestionListStyle}
-                    onMouseEnter={handleCategoryDropdownMouseEnter}
-                    onMouseLeave={handleCategoryDropdownMouseLeave}
-                  >
-                    {categoryFetchStatus === 'loading' ? (
-                      <div style={categorySuggestionItemStyle}>
-                        <span style={{ fontSize: '0.85rem', color: '#475569' }}>Buscando categorías…</span>
-                      </div>
-                    ) : categoryFetchStatus === 'error' ? (
-                      <div style={categorySuggestionItemStyle}>
-                        <span style={{ fontSize: '0.85rem', color: '#ef4444' }}>
-                          {categoryFetchError ?? 'No se pudieron cargar las categorías.'}
-                        </span>
-                      </div>
-                    ) : categoryOptions.length > 0 ? (
-                      categoryOptions.map((option) => {
-                        const isActive = option.slug === categorySelectionSlug;
-                        return (
-                          <div
-                            key={option.slug}
-                            role="button"
-                            tabIndex={-1}
-                            style={isActive ? categorySuggestionActiveStyle : categorySuggestionItemStyle}
-                            onMouseDown={(event) => {
-                              event.preventDefault();
-                              handleCategorySelect(option);
-                            }}
-                          >
-                            <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>{option.name}</strong>
-                            <span style={{ fontSize: '0.8rem', color: '#475569' }}>{option.slug}</span>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div style={categorySuggestionItemStyle}>
-                        <span style={{ fontSize: '0.85rem', color: '#475569' }}>No se encontraron categorías.</span>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  flexWrap: 'wrap' as const
-                }}
+              <select
+                id="product-category"
+                style={inputStyle}
+                value={form.categorySlug}
+                onChange={handleCategoryChange}
               >
-                <button type="button" style={buttonStyle} onClick={handleOpenCategoryModal}>
-                  + Nueva categoría
-                </button>
-                {categoryFetchStatus === 'loading' && !isCategoryDropdownOpen ? (
-                  <p style={helperStyle}>Buscando categorías…</p>
-                ) : null}
-                {categoryFetchStatus === 'error' && categoryFetchError ? (
-                  <p style={errorStyle}>{categoryFetchError}</p>
-                ) : null}
-              </div>
-              {hasUnmanagedCategory ? (
-                <p style={warningStyle}>
-                  Esta categoría no está gestionada; no aparecerá en el catálogo hasta crearla y publicarla en Categories.
-                </p>
+                <option value="">Sin categoría</option>
+                {categoryOptions.map((option) => (
+                  <option key={option.slug} value={option.slug}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+              {categoryFetchStatus === 'loading' ? <p style={helperStyle}>Cargando categorías…</p> : null}
+              {categoryFetchStatus === 'error' && categoryFetchError ? (
+                <p style={errorStyle}>{categoryFetchError}</p>
+              ) : null}
+              {categoryFetchStatus === 'success' && categoryOptions.length === 0 ? (
+                <p style={helperStyle}>No hay categorías publicadas todavía.</p>
               ) : null}
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
