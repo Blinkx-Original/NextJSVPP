@@ -87,3 +87,24 @@ export function computeChunkLastModified(records: SitemapProductRecord[]): strin
   }
   return latest ?? new Date().toISOString();
 }
+
+export interface SitemapUrlEntry {
+  loc: string;
+  lastmod?: string | null;
+}
+
+export function renderUrlsetXml(entries: SitemapUrlEntry[]): string {
+  const urls = entries
+    .filter((entry) => typeof entry.loc === 'string' && entry.loc.length > 0)
+    .map((entry) => {
+      const parts = [`  <url>`, `    <loc>${entry.loc}</loc>`];
+      if (entry.lastmod) {
+        parts.push(`    <lastmod>${entry.lastmod}</lastmod>`);
+      }
+      parts.push('  </url>');
+      return parts.join('\n');
+    })
+    .join('\n');
+  const content = urls ? `\n${urls}\n` : '';
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${content}</urlset>`;
+}
