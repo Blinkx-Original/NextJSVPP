@@ -23,6 +23,13 @@ export interface CategoryExplorerProps {
   page: number;
   pageSize: number;
   activeType: CategoryFilterType;
+  categoryPickerOptions: CategoryPickerOption[];
+}
+
+export interface CategoryPickerOption {
+  type: 'product' | 'blog';
+  slug: string;
+  name: string;
 }
 
 function typeToBadge(type: 'product' | 'blog'): string {
@@ -34,15 +41,26 @@ export function CategoryExplorer({
   totalCount,
   page,
   pageSize,
-  activeType
+  activeType,
+  categoryPickerOptions
 }: CategoryExplorerProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState('');
+  const [categorySelectValue, setCategorySelectValue] = useState('');
   const [isPending, startTransition] = useTransition();
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+  const categorySelectOptions = useMemo(
+    () =>
+      categoryPickerOptions.map((option) => ({
+        value: `${option.type}:${option.slug}`,
+        label: option.name
+      })),
+    [categoryPickerOptions]
+  );
 
   const filteredCategories = useMemo(() => {
     if (!search.trim()) {
@@ -84,6 +102,24 @@ export function CategoryExplorer({
     updateQuery({ page: nextPage > 1 ? String(nextPage) : undefined });
   }
 
+  function handleCategorySelectChange(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.target.value;
+    if (!value) {
+      setCategorySelectValue('');
+      return;
+    }
+
+    setCategorySelectValue(value);
+    const [type, slug] = value.split(':');
+    const href = type === 'blog' ? `/bc/${slug}` : `/c/${slug}`;
+
+    startTransition(() => {
+      router.push(href);
+    });
+
+    setCategorySelectValue('');
+  }
+
   const resultsText = `${filteredCategories.length} of ${totalCount} categories`;
 
   return (
@@ -105,14 +141,32 @@ export function CategoryExplorer({
             <option value="blog">Blogs</option>
           </select>
         </div>
-        <input
-          type="search"
-          className={styles.searchInput}
-          placeholder="Search categories"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          aria-label="Search categories"
-        />
+        <div className={styles.searchGroup}>
+          {categorySelectOptions.length > 0 ? (
+            <select
+              id="category-jump"
+              className={`${styles.select} ${styles.categorySelect}`}
+              value={categorySelectValue}
+              onChange={handleCategorySelectChange}
+              aria-label="Jump to a category"
+            >
+              <option value="">Browse categories</option>
+              {categorySelectOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <input
+            type="search"
+            className={styles.searchInput}
+            placeholder="Search categories"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            aria-label="Search categories"
+          />
+        </div>
       </div>
 
       <p className={styles.resultsMeta}>{resultsText}</p>

@@ -18,6 +18,15 @@ const categoryRecordSchema = z.object({
   updated_at: z.string().nullable().optional()
 });
 
+const categoryPickerRecordSchema = z.object({
+  type: z
+    .string()
+    .transform((value) => value.trim().toLowerCase())
+    .pipe(z.enum(['product', 'blog'])),
+  slug: z.string(),
+  name: z.string()
+});
+
 export type CategoryRecord = z.infer<typeof categoryRecordSchema>;
 
 export interface CategorySummary {
@@ -30,6 +39,12 @@ export interface CategorySummary {
   lastUpdatedAt: string | null;
 }
 
+export interface CategoryPickerOption {
+  type: 'product' | 'blog';
+  slug: string;
+  name: string;
+}
+
 export interface CategoryQueryOptions {
   type?: 'product' | 'blog';
   limit?: number;
@@ -40,6 +55,11 @@ export interface CategoryQueryOptions {
 export interface CategoryQueryResult {
   categories: CategorySummary[];
   totalCount: number;
+}
+
+export interface CategoryPickerOptions {
+  type?: 'product' | 'blog';
+  requestId?: string;
 }
 
 function toBigInt(value: BigintLike): bigint {
@@ -130,6 +150,43 @@ export async function getPublishedCategories(
     const info = toDbErrorInfo(error);
     console.error('[categories] query error', info, requestId ? { requestId } : undefined);
     return { categories: [], totalCount: 0 };
+  }
+}
+
+export async function getPublishedCategoryPickerOptions(
+  options: CategoryPickerOptions = {}
+): Promise<CategoryPickerOption[]> {
+  const pool = getPool();
+  const where: string[] = ['is_published = 1'];
+  const params: unknown[] = [];
+
+  if (options.type) {
+    where.push('LOWER(type) = ?');
+    params.push(options.type);
+  }
+
+  const sql = `SELECT type, slug, name
+    FROM categories
+    WHERE ${where.join(' AND ')}
+    ORDER BY name ASC`;
+
+  try {
+    const [rows] = await pool.query(sql, params);
+    const parsed = z.array(categoryPickerRecordSchema).safeParse(rows);
+    if (!parsed.success) {
+      console.error('[categories] failed to parse category picker rows', parsed.error.format());
+      return [];
+    }
+
+    return parsed.data.map((item) => ({
+      type: item.type,
+      slug: item.slug,
+      name: item.name
+    }));
+  } catch (error) {
+    const info = toDbErrorInfo(error);
+    console.error('[categories] picker query error', info, options.requestId ? { requestId: options.requestId } : undefined);
+    return [];
   }
 }
 

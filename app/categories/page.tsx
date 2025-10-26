@@ -5,7 +5,9 @@ import styles from './page.module.css';
 import { CategoryExplorer, type CategoryFilterType } from './category-explorer';
 import {
   getPublishedCategories,
-  type CategorySummary
+  getPublishedCategoryPickerOptions,
+  type CategorySummary,
+  type CategoryPickerOption
 } from '@/lib/categories';
 import { createRequestId } from '@/lib/request-id';
 import { buildCategoriesHubUrl } from '@/lib/urls';
@@ -51,6 +53,14 @@ function toCategoryCards(categories: CategorySummary[]) {
   }));
 }
 
+function toCategoryPickerOptions(options: CategoryPickerOption[]) {
+  return options.map((option) => ({
+    type: option.type,
+    slug: option.slug,
+    name: option.name
+  }));
+}
+
 export async function generateMetadata(): Promise<Metadata> {
   const host = headers().get('host') ?? undefined;
   const canonical = buildCategoriesHubUrl(host);
@@ -90,13 +100,17 @@ export default async function CategoriesPage({ searchParams }: PageProps) {
   const requestId = createRequestId();
 
   const filterType = type === 'all' ? undefined : type;
-  let { categories, totalCount } = await getPublishedCategories({
-    type: filterType,
-    limit: PAGE_SIZE,
-    offset,
-    requestId
-  });
+  const [pageResult, pickerOptions] = await Promise.all([
+    getPublishedCategories({
+      type: filterType,
+      limit: PAGE_SIZE,
+      offset,
+      requestId
+    }),
+    getPublishedCategoryPickerOptions({ type: filterType, requestId })
+  ]);
 
+  let { categories, totalCount } = pageResult;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   if (pageParam > 1 && categories.length === 0 && totalCount > 0) {
@@ -124,12 +138,14 @@ export default async function CategoriesPage({ searchParams }: PageProps) {
           page={lastPage}
           pageSize={PAGE_SIZE}
           activeType={type}
+          categoryPickerOptions={toCategoryPickerOptions(pickerOptions)}
         />
       </main>
     );
   }
 
   const cards = toCategoryCards(categories);
+  const picker = toCategoryPickerOptions(pickerOptions);
 
   return (
     <main className={styles.page}>
@@ -143,6 +159,7 @@ export default async function CategoriesPage({ searchParams }: PageProps) {
         page={Math.min(pageParam, totalPages)}
         pageSize={PAGE_SIZE}
         activeType={type}
+        categoryPickerOptions={picker}
       />
     </main>
   );

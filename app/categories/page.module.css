@@ -49,6 +49,22 @@
   flex-wrap: wrap;
 }
 
+.searchGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: stretch;
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .searchGroup {
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+  }
+}
+
 .filterLabel {
   font-size: 0.95rem;
   color: #1f2937;
@@ -65,6 +81,10 @@
   color: #0f172a;
   min-width: 10rem;
   position: relative;
+}
+
+.categorySelect {
+  min-width: 14rem;
 }
 
 .searchInput {
