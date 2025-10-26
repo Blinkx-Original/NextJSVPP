@@ -446,19 +446,6 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     };
   }, []);
 
-  useEffect(() => {
-    if (!form.categorySlug) {
-      return;
-    }
-    setCategoryOptions((prev) => {
-      if (prev.some((option) => option.slug === form.categorySlug)) {
-        return prev;
-      }
-      const next = [...prev, { slug: form.categorySlug, name: form.categorySlug }];
-      return next.sort((a, b) => a.name.localeCompare(b.name));
-    });
-  }, [form.categorySlug]);
-
   const updateUrl = useCallback(
     (slug: string) => {
       const currentProduct = searchParams.get('product');
@@ -475,13 +462,15 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
   );
 
   const applyProduct = useCallback((product: AdminProduct) => {
+    const normalizedCategory = product.category?.trim() ?? '';
+
     setForm({
       slug: product.slug,
       title: product.title_h1 ?? '',
       summary: product.short_summary ?? '',
       description: product.desc_html ?? '',
       price: product.price ?? '',
-      categorySlug: product.category ?? '',
+      categorySlug: normalizedCategory,
       ctaLead: product.cta_lead_url ?? '',
       ctaAffiliate: product.cta_affiliate_url ?? '',
       ctaStripe: product.cta_stripe_url ?? '',
@@ -496,13 +485,16 @@ export default function EditProductPanel({ initialSlug, initialInput = '' }: Edi
     setSelectedSlug(product.slug);
     setSlugInput(product.slug);
     lastLoadedSlugRef.current = product.slug;
-    const normalizedCategory = product.category?.trim() ?? '';
+
     if (normalizedCategory) {
-      setCategorySelectionSlug(normalizedCategory);
-    } else {
-      setCategorySelectionSlug(null);
+      setCategoryOptions((prev) => {
+        if (prev.some((option) => option.slug === normalizedCategory)) {
+          return prev;
+        }
+        const next = [...prev, { slug: normalizedCategory, name: normalizedCategory }];
+        return next.sort((a, b) => a.name.localeCompare(b.name));
+      });
     }
-    setCategorySelection(null);
   }, []);
 
   const fetchProduct = useCallback(
