@@ -15,6 +15,15 @@ interface EditProductPanelProps {
 
 type AsyncStatus = 'idle' | 'loading' | 'success' | 'error';
 
+// Deprecated: retained to satisfy historical references during build time.
+type NewCategoryFormState = {
+  name: string;
+  slug: string;
+  shortDescription: string;
+  longDescription: string;
+  isPublished: boolean;
+};
+
 interface AdminProduct {
   slug: string;
   title_h1: string | null;
