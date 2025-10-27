@@ -397,23 +397,34 @@ interface LegacyCategoryQueryParts {
   params: string[];
 }
 
+function normalizeLegacyCategoryVariants(variants: string[]): string[] {
+  if (variants.length === 0) {
+    return [];
+  }
+
+  const normalized = new Set<string>();
+  for (const raw of variants) {
+    const value = raw.toLowerCase().trim();
+    if (value.length > 0) {
+      normalized.add(value);
+    }
+  }
+  return Array.from(normalized);
+}
+
 function buildLegacyCategoryQueryParts(
   column: LegacyCategoryColumn,
   variants: string[]
 ): LegacyCategoryQueryParts | null {
-  if (variants.length === 0) {
+  const normalizedVariants = normalizeLegacyCategoryVariants(variants);
+  if (normalizedVariants.length === 0) {
     return null;
   }
 
-  const normalized = variants.map((value) => value.toLowerCase()).filter((value) => value.length > 0);
-  if (normalized.length === 0) {
-    return null;
-  }
-
-  const placeholders = normalized.map(() => '?').join(', ');
+  const placeholders = normalizedVariants.map(() => '?').join(', ');
   return {
     where: `is_published = 1 AND LOWER(${column}) IN (${placeholders})`,
-    params: normalized
+    params: normalizedVariants
   };
 }
 
