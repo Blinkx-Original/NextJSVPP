@@ -1,8 +1,17 @@
 'use client';
 
-import React, { useCallback, useEffect, useState, useRef, type ChangeEvent, type FormEvent } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+  type ChangeEvent,
+  type FormEvent
+} from 'react';
 import TinyMceEditor from './tinymce-editor';
 import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle, textareaStyle } from './panel-styles';
+import { createAdminApiClient } from './admin-api-client';
 
 const topBarStyle: React.CSSProperties = {
   display: 'grid',
@@ -13,8 +22,8 @@ const topBarStyle: React.CSSProperties = {
 
 const contentLayoutStyle: React.CSSProperties = {
   display: 'flex',
-  gap: '1.5rem',
-  flexWrap: 'wrap'
+  flexDirection: 'column',
+  gap: '2rem'
 };
 
 const buttonRowStyle: React.CSSProperties = {
@@ -52,10 +61,9 @@ const successTextStyle: React.CSSProperties = {
 
 const editorWrapperStyle: React.CSSProperties = {
   ...cardStyle,
-  padding: '0',
+  padding: 0,
   overflow: 'hidden',
-  flex: '1 1 520px',
-  minWidth: 'min(100%, 520px)'
+  width: '100%'
 };
 
 const editorHeaderStyle: React.CSSProperties = {
@@ -65,16 +73,18 @@ const editorHeaderStyle: React.CSSProperties = {
 };
 
 const editorBodyStyle: React.CSSProperties = {
-  padding: '1rem 1.5rem'
+  padding: '1rem 1.5rem 1.5rem'
+};
+
+const sidePanelContainerStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end'
 };
 
 const sidePanelStyle: React.CSSProperties = {
   ...cardStyle,
-  position: 'sticky',
-  top: '6rem',
-  height: 'fit-content',
-  flex: '1 1 320px',
-  minWidth: 'min(100%, 320px)'
+  width: '100%',
+  maxWidth: 380
 };
 
 const statusBadgeStyle: React.CSSProperties = {
@@ -143,12 +153,48 @@ interface BlogCategoryResponse {
   categories: BlogCategoryItem[];
 }
 
+interface BlogImageUploadSuccess {
+  ok: true;
+  image_id: string;
+  delivery_url: string;
+  variant: string;
+  latency_ms?: number;
+  ray_id?: string | null;
+  size_bytes?: number;
+}
+
+interface BlogImageUploadError {
+  ok: false;
+  error_code: string;
+  message?: string;
+}
+
+type BlogImageUploadResponse = BlogImageUploadSuccess | BlogImageUploadError;
+
+interface BlogPdfUploadSuccess {
+  ok: true;
+  url: string;
+  filename?: string | null;
+}
+
+interface BlogPdfUploadError {
+  ok: false;
+  error_code: string;
+  message?: string;
+}
+
+type BlogPdfUploadResponse = BlogPdfUploadSuccess | BlogPdfUploadError;
+
 type AsyncStatus = 'idle' | 'loading' | 'success' | 'error';
 
 type ToastState = { type: 'success' | 'error'; message: string } | null;
 
 interface EditBlogPanelProps {
   initialSlug?: string | null;
+  cfImagesEnabled?: boolean;
+  cfImagesBaseUrl?: string | null;
+  authHeader?: string | null;
+  adminToken?: string | null;
 }
 
 function normalizeSlugInput(value: string): string {
@@ -196,7 +242,17 @@ function formatProductSlugs(value: string[] | null | undefined): string {
   return value.join('\n');
 }
 
-export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps) {
+export default function EditBlogPanel({
+  initialSlug = null,
+  cfImagesEnabled = false,
+  cfImagesBaseUrl = null,
+  authHeader = null,
+  adminToken = null
+}: EditBlogPanelProps) {
+  const adminApi = useMemo(
+    () => createAdminApiClient({ authHeader, adminToken }),
+    [authHeader, adminToken]
+  );
   const [slugInput, setSlugInput] = useState<string>(initialSlug ? normalizeSlugInput(initialSlug) : '');
   const [loadedSlug, setLoadedSlug] = useState<string>(initialSlug ? normalizeSlugInput(initialSlug) : '');
   const [title, setTitle] = useState<string>('');
@@ -285,7 +341,7 @@ export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps
       setLoadStatus('loading');
       setLoadError(null);
       try {
-        const response = await fetch(`/api/blog/posts/${encodeURIComponent(normalized)}`, {
+        const response = await adminApi.fetchWithAuth(`/api/blog/posts/${encodeURIComponent(normalized)}`, {
           method: 'GET',
           headers: { Accept: 'application/json' },
           cache: 'no-store'
@@ -306,14 +362,14 @@ export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps
         setLoadError((error as Error)?.message ?? 'Ocurrió un error inesperado al cargar el post.');
       }
     },
-    [applyPostData]
+    [adminApi, applyPostData]
   );
 
   const fetchCategories = useCallback(async () => {
     setCategoriesStatus('loading');
     setCategoriesError(null);
     try {
-      const response = await fetch('/api/blog/categories?type=blog', {
+      const response = await adminApi.fetchWithAuth('/api/blog/categories?type=blog', {
         headers: { Accept: 'application/json' },
         cache: 'no-store'
       });
@@ -332,7 +388,7 @@ export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps
       setCategoriesStatus('error');
       setCategoriesError((error as Error)?.message ?? 'Error al cargar categorías.');
     }
-  }, []);
+  }, [adminApi]);
 
   useEffect(() => {
     fetchCategories().catch(() => {
@@ -434,7 +490,7 @@ export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps
       setCreateCategoryError(null);
       setCreateCategorySuccess(null);
       try {
-        const response = await fetch('/api/blog/categories', {
+        const response = await adminApi.fetchWithAuth('/api/blog/categories', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({
@@ -470,7 +526,7 @@ export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps
         setCreateCategoryError((error as Error)?.message ?? 'Error al crear la categoría.');
       }
     },
-    [newCategoryName, newCategorySlug, markDirty]
+    [adminApi, newCategoryName, newCategorySlug, markDirty]
   );
 
   const handleSave = useCallback(
@@ -520,7 +576,7 @@ export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps
       try {
         const endpoint = isExistingPost ? `/api/blog/posts/${encodeURIComponent(loadedSlug || normalizedSlug)}` : '/api/blog/posts';
         const method = isExistingPost ? 'PUT' : 'POST';
-        const response = await fetch(endpoint, {
+        const response = await adminApi.fetchWithAuth(endpoint, {
           method,
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify(payload),
@@ -556,10 +612,116 @@ export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps
         pendingRequestRef.current = null;
       }
     },
-    [slugInput, title, summary, contentHtml, coverImageUrl, categorySlug, productSlugsInput, ctaLeadUrl, ctaAffiliateUrl, seoTitle, seoDescription, canonicalUrl, isPublished, publishedAtInput, isExistingPost, loadedSlug, applyPostData]
+    [
+      adminApi,
+      slugInput,
+      title,
+      summary,
+      contentHtml,
+      coverImageUrl,
+      categorySlug,
+      productSlugsInput,
+      ctaLeadUrl,
+      ctaAffiliateUrl,
+      seoTitle,
+      seoDescription,
+      canonicalUrl,
+      isPublished,
+      publishedAtInput,
+      isExistingPost,
+      loadedSlug,
+      applyPostData
+    ]
   );
 
-  const isSaveDisabled = saveStatus === 'loading';
+  const [assetUploadStatus, setAssetUploadStatus] = useState<'idle' | 'image' | 'pdf'>('idle');
+  const isUploadingImage = assetUploadStatus === 'image';
+  const isUploadingPdf = assetUploadStatus === 'pdf';
+  const isSaveDisabled = saveStatus === 'loading' || assetUploadStatus !== 'idle';
+
+  const handleEditorImageUpload = useCallback(
+    async (file: File) => {
+      if (!cfImagesEnabled) {
+        const message = 'Cloudflare Images no está habilitado para subir imágenes.';
+        setToast({ type: 'error', message });
+        return null;
+      }
+
+      setAssetUploadStatus('image');
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await adminApi.fetchWithAuth('/api/blog/assets/images/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        const body = (await response.json().catch(() => null)) as BlogImageUploadResponse | null;
+        if (!response.ok || !body || body.ok !== true) {
+          const message = (body as BlogImageUploadError)?.message || 'No se pudo subir la imagen.';
+          setToast({ type: 'error', message });
+          return null;
+        }
+
+        const success = body as BlogImageUploadSuccess;
+        const deliveryUrl =
+          success.delivery_url ||
+          (cfImagesBaseUrl
+            ? `${cfImagesBaseUrl.replace(/\/$/, '')}/${success.image_id}/${success.variant || 'public'}`
+            : null);
+        if (!deliveryUrl) {
+          const message = 'No se pudo construir la URL de la imagen subida.';
+          setToast({ type: 'error', message });
+          return null;
+        }
+        const message = `Imagen subida (${success.image_id})`;
+        setToast({ type: 'success', message });
+        return { url: deliveryUrl, alt: file.name };
+      } catch (error) {
+        const message = (error as Error)?.message ?? 'Error subiendo la imagen.';
+        setToast({ type: 'error', message });
+        return null;
+      } finally {
+        setAssetUploadStatus('idle');
+      }
+    },
+    [adminApi, cfImagesBaseUrl, cfImagesEnabled]
+  );
+
+  const handleEditorPdfUpload = useCallback(
+    async (file: File) => {
+      setAssetUploadStatus('pdf');
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await adminApi.fetchWithAuth('/api/blog/assets/pdfs/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        const body = (await response.json().catch(() => null)) as BlogPdfUploadResponse | null;
+        if (!response.ok || !body || body.ok !== true || !body.url) {
+          const message = (body as BlogPdfUploadError)?.message || 'No se pudo subir el PDF.';
+          setToast({ type: 'error', message });
+          return null;
+        }
+
+        const success = body as BlogPdfUploadSuccess;
+        const linkText = (success.filename ?? file.name ?? 'Descargar PDF').trim() || 'Descargar PDF';
+        setToast({ type: 'success', message: 'PDF subido correctamente.' });
+        return { url: success.url, text: linkText };
+      } catch (error) {
+        const message = (error as Error)?.message ?? 'Error subiendo el PDF.';
+        setToast({ type: 'error', message });
+        return null;
+      } finally {
+        setAssetUploadStatus('idle');
+      }
+    },
+    [adminApi]
+  );
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -744,11 +906,21 @@ export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps
               }}
               slug={editorSlug}
               placeholder="Escribe el contenido del blog aquí..."
+              onRequestImageUpload={handleEditorImageUpload}
+              onRequestPdfUpload={handleEditorPdfUpload}
             />
+            {assetUploadStatus !== 'idle' ? (
+              <p style={{ ...helperTextStyle, marginTop: '0.75rem' }}>
+                {assetUploadStatus === 'image'
+                  ? 'Subiendo imagen a Cloudflare…'
+                  : 'Subiendo PDF…'}
+              </p>
+            ) : null}
           </div>
         </div>
 
-        <aside style={sidePanelStyle}>
+        <div style={sidePanelContainerStyle}>
+          <aside style={sidePanelStyle}>
           <section>
             <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1rem' }}>Resumen & SEO</h3>
             <label htmlFor="blog-summary" style={{ ...labelStyle, marginTop: '1rem' }}>
@@ -927,6 +1099,7 @@ export default function EditBlogPanel({ initialSlug = null }: EditBlogPanelProps
             ) : null}
           </section>
         </aside>
+        </div>
       </div>
     </section>
   );
