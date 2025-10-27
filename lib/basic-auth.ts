@@ -149,7 +149,7 @@ function hasValidAdminAuthCookie(request: Request, expectedValue: string): boole
 
 interface AdminAuthResult {
   ok: boolean;
-  response?: NextResponse;
+  response?: NextResponse<never>;
 }
 
 function extractAdminToken(request: Request): string | null {
