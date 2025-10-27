@@ -394,17 +394,17 @@ function isUnknownColumnError(error: unknown): boolean {
 
 async function runLegacyCategoryCount(
   column: LegacyCategoryColumn,
-  matches: string[]
+  variants: string[]
 ): Promise<number | null> {
-  if (matches.length === 0) {
+  if (variants.length === 0) {
     return 0;
   }
   const pool = getPool();
-  const placeholders = matches.map(() => '?').join(', ');
+  const placeholders = variants.map(() => '?').join(', ');
   const sql = `SELECT COUNT(*) AS total
         FROM products
         WHERE is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
-  const params = matches.map((value) => value.toLowerCase());
+  const params = variants.map((value) => value.toLowerCase());
   try {
     const [rows] = await pool.query(sql, params);
     const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
@@ -423,10 +423,10 @@ async function runLegacyCategoryCount(
 
 async function runLegacyCategoryQuery(
   column: LegacyCategoryColumn,
-  matches: string[],
+  variants: string[],
   options: CategoryProductsQueryOptions
 ): Promise<CategoryProductsQueryResult | null> {
-  if (matches.length === 0) {
+  if (variants.length === 0) {
     return { products: [], totalCount: 0 };
   }
 
@@ -434,9 +434,9 @@ async function runLegacyCategoryQuery(
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
-  const placeholders = matches.map(() => '?').join(', ');
+  const placeholders = variants.map(() => '?').join(', ');
   const where = `is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
-  const params = [...matches.map((value) => value.toLowerCase()), limit, offset];
+  const params = [...variants.map((value) => value.toLowerCase()), limit, offset];
 
   let rows: unknown = [];
   let unknownColumn = false;
@@ -481,14 +481,14 @@ async function runLegacyCategoryQuery(
   }
 
   const products = parsed.data.map(normalizeCategoryProductRecord);
-  const totalCount = await runLegacyCategoryCount(column, matches);
+  const totalCount = await runLegacyCategoryCount(column, variants);
   return { products, totalCount: totalCount ?? 0 };
 }
 
 async function countLegacyCategoryProducts(category: Pick<CategorySummary, 'slug' | 'name'>): Promise<number> {
-  const matches = buildLegacyCategoryMatches(category);
+  const variants = buildLegacyCategoryMatches(category);
   for (const column of LEGACY_CATEGORY_COLUMNS) {
-    const total = await runLegacyCategoryCount(column, matches);
+    const total = await runLegacyCategoryCount(column, variants);
     if (total === null) {
       continue;
     }
@@ -503,9 +503,9 @@ async function queryLegacyCategoryProducts(
   category: Pick<CategorySummary, 'slug' | 'name'>,
   options: CategoryProductsQueryOptions
 ): Promise<CategoryProductsQueryResult> {
-  const matches = buildLegacyCategoryMatches(category);
+  const variants = buildLegacyCategoryMatches(category);
   for (const column of LEGACY_CATEGORY_COLUMNS) {
-    const result = await runLegacyCategoryQuery(column, matches, options);
+    const result = await runLegacyCategoryQuery(column, variants, options);
     if (result === null) {
       continue;
     }
