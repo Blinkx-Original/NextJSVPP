@@ -210,6 +210,26 @@ export async function getPublishedCategoryPickerOptions(
   }
 }
 
+export async function categoryExistsByType(
+  type: 'product' | 'blog',
+  slug: string
+): Promise<boolean> {
+  const pool = getPool();
+  const sql = `SELECT 1
+    FROM categories
+    WHERE LOWER(type) = ?
+      AND slug = ?
+    LIMIT 1`;
+
+  try {
+    const [rows] = await pool.query(sql, [type, slug]);
+    return Array.isArray(rows) && rows.length > 0;
+  } catch (error) {
+    console.error('[categories] exists query error', toDbErrorInfo(error));
+    return false;
+  }
+}
+
 export interface CategoryBySlugOptions {
   requestId?: string;
 }
