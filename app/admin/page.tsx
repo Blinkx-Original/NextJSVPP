@@ -6,6 +6,7 @@ import AssetsPanel from './assets-panel';
 import EditProductPanel from './edit-product-panel';
 import EditBlogPanel from './edit-blog-panel';
 import SeoPanel from './seo-panel';
+import CategoriesPanel from './categories-panel';
 import QuickProductNavigator from './quick-product-navigator';
 import { readCloudflareImagesConfig } from '@/lib/cloudflare-images';
 import { issueAdminSessionToken } from '@/lib/basic-auth';
@@ -49,7 +50,7 @@ interface AdminPageProps {
   searchParams?: Record<string, string | string[] | undefined>;
 }
 
-type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'edit-blog' | 'seo';
+type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'seo' | 'categories';
 
 function normalizeTab(input: string | string[] | undefined): AdminTab {
   if (Array.isArray(input)) {
@@ -71,6 +72,9 @@ function normalizeTab(input: string | string[] | undefined): AdminTab {
     }
     if (normalized === 'seo') {
       return 'seo';
+    }
+    if (normalized === 'categories' || normalized === 'category') {
+      return 'categories';
     }
   }
   return 'connectivity';
@@ -114,7 +118,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
     { id: 'connectivity', label: 'Connectivity', href: '/admin' },
     { id: 'publishing', label: 'Publishing', href: '/admin?tab=publishing' },
     { id: 'edit-product', label: 'Edit Product', href: '/admin?tab=edit-product' },
-    { id: 'edit-blog', label: 'Edit Blog', href: '/admin?tab=edit-blog' },
+    { id: 'categories', label: 'Categories', href: '/admin?tab=categories' },
     { id: 'seo', label: 'SEO', href: '/admin?tab=seo' },
     { id: 'assets', label: 'Assets', href: '/admin?tab=assets' }
   ];
@@ -169,8 +173,8 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
         <SeoPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
       ) : activeTab === 'edit-product' ? (
         <EditProductPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
-      ) : activeTab === 'edit-blog' ? (
-        <EditBlogPanel initialSlug={normalizedBlogSlug} />
+      ) : activeTab === 'categories' ? (
+        <CategoriesPanel />
       ) : (
         <ConnectivityPanel />
       )}
