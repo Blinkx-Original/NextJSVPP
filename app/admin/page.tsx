@@ -106,22 +106,17 @@ function coerceSearchParam(value: string | string[] | undefined): string | null 
 
 export default function AdminPage({ searchParams }: AdminPageProps) {
   const tabParamRaw = searchParams?.tab;
+  const hasTabParam = Array.isArray(tabParamRaw)
+    ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
+    : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
   const initialTab = normalizeTab(tabParamRaw);
   const initialCategoryType = deriveInitialCategoryType(tabParamRaw);
 
   const rawSlugParam = coerceSearchParam(searchParams?.slug);
-  const rawProductParam =
-    coerceSearchParam(searchParams?.product) ??
-    (initialCategoryType === 'blog' ? null : rawSlugParam);
-  const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
-  const hasTabParam = Array.isArray(tabParamRaw)
-    ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
-    : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
-  const rawSlugParam = coerceSearchParam(searchParams?.slug);
-  const rawProductParam =
-    coerceSearchParam(searchParams?.product) ?? (initialTab === 'edit-blog' ? null : rawSlugParam);
-  const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
-  const normalizedBlogSlug = rawSlugParam ? rawSlugParam.trim().toLowerCase() : null;
+  const explicitProductParam = coerceSearchParam(searchParams?.product);
+  const derivedProductParam =
+    explicitProductParam ?? (initialCategoryType === 'blog' ? null : rawSlugParam);
+  const normalizedProductSlug = normalizeProductSlugInput(derivedProductParam);
   const activeTab: AdminTab = normalizedProductSlug && !hasTabParam ? 'edit-product' : initialTab;
 
   const headerList = nextHeaders();
@@ -176,9 +171,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
         })}
       </nav>
 
-      {activeTab === 'edit-product' ? (
-        <QuickProductNavigator initialValue={rawProductParam ?? ''} />
-      ) : null}
+      <QuickProductNavigator initialValue={derivedProductParam ?? ''} />
 
       {activeTab === 'publishing' ? (
         <PublishingPanel />
@@ -190,9 +183,9 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
           adminToken={adminToken}
         />
       ) : activeTab === 'seo' ? (
-        <SeoPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
+        <SeoPanel initialSlug={normalizedProductSlug} initialInput={derivedProductParam ?? ''} />
       ) : activeTab === 'edit-product' ? (
-        <EditProductPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
+        <EditProductPanel initialSlug={normalizedProductSlug} initialInput={derivedProductParam ?? ''} />
       ) : activeTab === 'categories' ? (
         <CategoriesPanel initialType={initialCategoryType} />
       ) : (
