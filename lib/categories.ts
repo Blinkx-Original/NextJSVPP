@@ -392,19 +392,45 @@ function isUnknownColumnError(error: unknown): boolean {
   return info.code === 'ER_BAD_FIELD_ERROR' || info.errno === 1054;
 }
 
+interface LegacyCategoryQueryParts {
+  where: string;
+  params: string[];
+}
+
+function buildLegacyCategoryQueryParts(
+  column: LegacyCategoryColumn,
+  variants: string[]
+): LegacyCategoryQueryParts | null {
+  if (variants.length === 0) {
+    return null;
+  }
+
+  const normalized = variants.map((value) => value.toLowerCase()).filter((value) => value.length > 0);
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  const placeholders = normalized.map(() => '?').join(', ');
+  return {
+    where: `is_published = 1 AND LOWER(${column}) IN (${placeholders})`,
+    params: normalized
+  };
+}
+
 async function runLegacyCategoryCount(
   column: LegacyCategoryColumn,
-  matches: string[]
+  variants: string[]
 ): Promise<number | null> {
-  if (matches.length === 0) {
+  const query = buildLegacyCategoryQueryParts(column, variants);
+  if (!query) {
     return 0;
   }
+
   const pool = getPool();
-  const placeholders = matches.map(() => '?').join(', ');
   const sql = `SELECT COUNT(*) AS total
         FROM products
-        WHERE is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
-  const params = matches.map((value) => value.toLowerCase());
+        WHERE ${query.where}`;
+  const params = query.params;
   try {
     const [rows] = await pool.query(sql, params);
     const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
@@ -423,10 +449,11 @@ async function runLegacyCategoryCount(
 
 async function runLegacyCategoryQuery(
   column: LegacyCategoryColumn,
-  matches: string[],
+  variants: string[],
   options: CategoryProductsQueryOptions
 ): Promise<CategoryProductsQueryResult | null> {
-  if (matches.length === 0) {
+  const query = buildLegacyCategoryQueryParts(column, variants);
+  if (!query) {
     return { products: [], totalCount: 0 };
   }
 
@@ -434,48 +461,59 @@ async function runLegacyCategoryQuery(
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
-  const placeholders = matches.map(() => '?').join(', ');
-  const where = `is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
-  const params = [...matches.map((value) => value.toLowerCase()), limit, offset];
+  const params = [...query.params, limit, offset];
+
+  let rows: unknown = [];
+  let unknownColumn = false;
+  let fallbackResult: CategoryProductsQueryResult | null = null;
 
   try {
-    const [rows] = await pool.query(
+    const [rawRows] = await pool.query(
       `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
         FROM products
-        WHERE ${where}
+        WHERE ${query.where}
         ORDER BY title_h1 ASC
         LIMIT ? OFFSET ?`,
       params
     );
-    const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
-    if (!parsed.success) {
-      console.error('[categories] failed to parse legacy product rows', parsed.error.format(), requestId ? { requestId } : undefined);
-      return { products: [], totalCount: 0 };
-    }
-  } catch (error) {
-    const info = toDbErrorInfo(error);
-    console.error('[categories] legacy category products error', info, requestId ? { requestId } : undefined);
-    return { products: [], totalCount: 0 };
-  }
-}
-
-    const products = parsed.data.map(normalizeCategoryProductRecord);
-    const totalCount = await runLegacyCategoryCount(column, matches);
-    return { products, totalCount: totalCount ?? 0 };
+    rows = rawRows;
   } catch (error) {
     if (isUnknownColumnError(error)) {
-      return null;
+      unknownColumn = true;
+    } else {
+      const info = toDbErrorInfo(error);
+      console.error('[categories] legacy category products error', info, requestId ? { requestId } : undefined);
+      fallbackResult = { products: [], totalCount: 0 };
     }
-    const info = toDbErrorInfo(error);
-    console.error('[categories] legacy category products error', info, requestId ? { requestId } : undefined);
+  }
+
+  if (unknownColumn) {
+    return null;
+  }
+
+  if (fallbackResult) {
+    return fallbackResult;
+  }
+
+  const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
+  if (!parsed.success) {
+    console.error(
+      '[categories] failed to parse legacy product rows',
+      parsed.error.format(),
+      requestId ? { requestId } : undefined
+    );
     return { products: [], totalCount: 0 };
   }
+
+  const products = parsed.data.map(normalizeCategoryProductRecord);
+  const totalCount = await runLegacyCategoryCount(column, variants);
+  return { products, totalCount: totalCount ?? 0 };
 }
 
 async function countLegacyCategoryProducts(category: Pick<CategorySummary, 'slug' | 'name'>): Promise<number> {
-  const matches = buildLegacyCategoryMatches(category);
+  const variants = buildLegacyCategoryMatches(category);
   for (const column of LEGACY_CATEGORY_COLUMNS) {
-    const total = await runLegacyCategoryCount(column, matches);
+    const total = await runLegacyCategoryCount(column, variants);
     if (total === null) {
       continue;
     }
@@ -490,9 +528,9 @@ async function queryLegacyCategoryProducts(
   category: Pick<CategorySummary, 'slug' | 'name'>,
   options: CategoryProductsQueryOptions
 ): Promise<CategoryProductsQueryResult> {
-  const matches = buildLegacyCategoryMatches(category);
+  const variants = buildLegacyCategoryMatches(category);
   for (const column of LEGACY_CATEGORY_COLUMNS) {
-    const result = await runLegacyCategoryQuery(column, matches, options);
+    const result = await runLegacyCategoryQuery(column, variants, options);
     if (result === null) {
       continue;
     }
@@ -511,8 +549,9 @@ export async function getPublishedProductsForCategory(
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
-
-  const sql = `SELECT p.id, p.slug, p.title_h1, p.short_summary, p.price, p.images_json, p.last_tidb_update_at, p.updated_at\n    FROM category_products cp\n    INNER JOIN products p ON p.id = cp.product_id\n    WHERE cp.category_id = ? AND p.is_published = 1\n    ORDER BY p.title_h1 ASC\n    LIMIT ? OFFSET ?`;
+  const placeholders = matches.map(() => '?').join(', ');
+  const where = `is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
+  const params = [...matches.map((value) => value.toLowerCase()), limit, offset];
 
   try {
     const [rows] = await pool.query(sql, [category.id.toString(), limit, offset]);
