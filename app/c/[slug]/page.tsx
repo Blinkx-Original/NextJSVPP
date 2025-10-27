@@ -99,7 +99,7 @@ export default async function ProductCategoryPage({ params, searchParams }: Page
 
   const offset = (pageParam - 1) * PAGE_SIZE;
   let { products, totalCount } = await getPublishedProductsForCategory(
-    { id: category.id, slug: category.slug },
+    { id: category.id, slug: category.slug, name: category.name },
     {
       limit: PAGE_SIZE,
       offset,
@@ -115,7 +115,7 @@ export default async function ProductCategoryPage({ params, searchParams }: Page
     currentPage = totalPages;
     const lastOffset = (totalPages - 1) * PAGE_SIZE;
     ({ products } = await getPublishedProductsForCategory(
-      { id: category.id, slug: category.slug },
+      { id: category.id, slug: category.slug, name: category.name },
       {
         limit: PAGE_SIZE,
         offset: lastOffset,
