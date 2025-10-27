@@ -4,6 +4,7 @@ import ConnectivityPanel from './connectivity-panel';
 import PublishingPanel from './publishing-panel';
 import AssetsPanel from './assets-panel';
 import EditProductPanel from './edit-product-panel';
+import EditBlogPanel from './edit-blog-panel';
 import SeoPanel from './seo-panel';
 import QuickProductNavigator from './quick-product-navigator';
 import { readCloudflareImagesConfig } from '@/lib/cloudflare-images';
@@ -48,7 +49,7 @@ interface AdminPageProps {
   searchParams?: Record<string, string | string[] | undefined>;
 }
 
-type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'seo';
+type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'edit-blog' | 'seo';
 
 function normalizeTab(input: string | string[] | undefined): AdminTab {
   if (Array.isArray(input)) {
@@ -64,6 +65,9 @@ function normalizeTab(input: string | string[] | undefined): AdminTab {
     }
     if (normalized === 'edit-product' || normalized === 'edit' || normalized === 'product') {
       return 'edit-product';
+    }
+    if (normalized === 'edit-blog' || normalized === 'blog' || normalized === 'post') {
+      return 'edit-blog';
     }
     if (normalized === 'seo') {
       return 'seo';
@@ -84,15 +88,16 @@ function coerceSearchParam(value: string | string[] | undefined): string | null 
 }
 
 export default function AdminPage({ searchParams }: AdminPageProps) {
-  const rawProductParam =
-    coerceSearchParam(searchParams?.product) ?? coerceSearchParam(searchParams?.slug);
-  const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
-
   const tabParamRaw = searchParams?.tab;
   const initialTab = normalizeTab(tabParamRaw);
   const hasTabParam = Array.isArray(tabParamRaw)
     ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
     : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
+  const rawSlugParam = coerceSearchParam(searchParams?.slug);
+  const rawProductParam =
+    coerceSearchParam(searchParams?.product) ?? (initialTab === 'edit-blog' ? null : rawSlugParam);
+  const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
+  const normalizedBlogSlug = rawSlugParam ? rawSlugParam.trim().toLowerCase() : null;
   const activeTab: AdminTab = normalizedProductSlug && !hasTabParam ? 'edit-product' : initialTab;
 
   const headerList = nextHeaders();
@@ -109,6 +114,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
     { id: 'connectivity', label: 'Connectivity', href: '/admin' },
     { id: 'publishing', label: 'Publishing', href: '/admin?tab=publishing' },
     { id: 'edit-product', label: 'Edit Product', href: '/admin?tab=edit-product' },
+    { id: 'edit-blog', label: 'Edit Blog', href: '/admin?tab=edit-blog' },
     { id: 'seo', label: 'SEO', href: '/admin?tab=seo' },
     { id: 'assets', label: 'Assets', href: '/admin?tab=assets' }
   ];
@@ -146,7 +152,9 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
         })}
       </nav>
 
-      <QuickProductNavigator initialValue={rawProductParam ?? ''} />
+      {activeTab === 'edit-product' ? (
+        <QuickProductNavigator initialValue={rawProductParam ?? ''} />
+      ) : null}
 
       {activeTab === 'publishing' ? (
         <PublishingPanel />
@@ -161,6 +169,8 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
         <SeoPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
       ) : activeTab === 'edit-product' ? (
         <EditProductPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
+      ) : activeTab === 'edit-blog' ? (
+        <EditBlogPanel initialSlug={normalizedBlogSlug} />
       ) : (
         <ConnectivityPanel />
       )}
