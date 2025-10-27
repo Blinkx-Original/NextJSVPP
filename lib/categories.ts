@@ -392,19 +392,45 @@ function isUnknownColumnError(error: unknown): boolean {
   return info.code === 'ER_BAD_FIELD_ERROR' || info.errno === 1054;
 }
 
+interface LegacyCategoryQueryParts {
+  where: string;
+  params: string[];
+}
+
+function buildLegacyCategoryQueryParts(
+  column: LegacyCategoryColumn,
+  variants: string[]
+): LegacyCategoryQueryParts | null {
+  if (variants.length === 0) {
+    return null;
+  }
+
+  const normalized = variants.map((value) => value.toLowerCase()).filter((value) => value.length > 0);
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  const placeholders = normalized.map(() => '?').join(', ');
+  return {
+    where: `is_published = 1 AND LOWER(${column}) IN (${placeholders})`,
+    params: normalized
+  };
+}
+
 async function runLegacyCategoryCount(
   column: LegacyCategoryColumn,
   variants: string[]
 ): Promise<number | null> {
-  if (variants.length === 0) {
+  const query = buildLegacyCategoryQueryParts(column, variants);
+  if (!query) {
     return 0;
   }
+
   const pool = getPool();
-  const placeholders = variants.map(() => '?').join(', ');
   const sql = `SELECT COUNT(*) AS total
         FROM products
-        WHERE is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
-  const params = variants.map((value) => value.toLowerCase());
+        WHERE ${query.where}`;
+  const params = query.params;
   try {
     const [rows] = await pool.query(sql, params);
     const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
@@ -426,7 +452,8 @@ async function runLegacyCategoryQuery(
   variants: string[],
   options: CategoryProductsQueryOptions
 ): Promise<CategoryProductsQueryResult | null> {
-  if (variants.length === 0) {
+  const query = buildLegacyCategoryQueryParts(column, variants);
+  if (!query) {
     return { products: [], totalCount: 0 };
   }
 
@@ -434,9 +461,7 @@ async function runLegacyCategoryQuery(
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
-  const placeholders = variants.map(() => '?').join(', ');
-  const where = `is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
-  const params = [...variants.map((value) => value.toLowerCase()), limit, offset];
+  const params = [...query.params, limit, offset];
 
   let rows: unknown = [];
   let unknownColumn = false;
@@ -446,7 +471,7 @@ async function runLegacyCategoryQuery(
     const [rawRows] = await pool.query(
       `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
         FROM products
-        WHERE ${where}
+        WHERE ${query.where}
         ORDER BY title_h1 ASC
         LIMIT ? OFFSET ?`,
       params
