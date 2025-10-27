@@ -112,7 +112,8 @@ function normalizePublished(value: unknown): boolean {
 export async function GET(request: NextRequest): Promise<NextResponse<BlogCategoryResponse | BlogCategoryErrorResponse>> {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
-    return auth.response ?? buildErrorResponse('unauthorized', { status: 401 });
+    return (auth.response as NextResponse<BlogCategoryErrorResponse>) ??
+      buildErrorResponse('unauthorized', { status: 401 });
   }
 
   if (!safeGetEnv()) {
@@ -158,7 +159,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<BlogCatego
 export async function POST(request: NextRequest): Promise<NextResponse<BlogCategoryItem | BlogCategoryErrorResponse>> {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
-    return auth.response ?? buildErrorResponse('unauthorized', { status: 401 });
+    return (auth.response as NextResponse<BlogCategoryErrorResponse>) ??
+      buildErrorResponse('unauthorized', { status: 401 });
   }
 
   if (!safeGetEnv()) {

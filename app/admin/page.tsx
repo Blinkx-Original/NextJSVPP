@@ -4,6 +4,7 @@ import ConnectivityPanel from './connectivity-panel';
 import PublishingPanel from './publishing-panel';
 import AssetsPanel from './assets-panel';
 import EditProductPanel from './edit-product-panel';
+import EditBlogPanel from './edit-blog-panel';
 import SeoPanel from './seo-panel';
 import CategoriesPanel from './categories-panel';
 import QuickProductNavigator from './quick-product-navigator';
@@ -116,6 +117,11 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
   const hasTabParam = Array.isArray(tabParamRaw)
     ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
     : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
+  const rawSlugParam = coerceSearchParam(searchParams?.slug);
+  const rawProductParam =
+    coerceSearchParam(searchParams?.product) ?? (initialTab === 'edit-blog' ? null : rawSlugParam);
+  const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
+  const normalizedBlogSlug = rawSlugParam ? rawSlugParam.trim().toLowerCase() : null;
   const activeTab: AdminTab = normalizedProductSlug && !hasTabParam ? 'edit-product' : initialTab;
 
   const headerList = nextHeaders();
@@ -170,7 +176,9 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
         })}
       </nav>
 
-      <QuickProductNavigator initialValue={rawProductParam ?? ''} />
+      {activeTab === 'edit-product' ? (
+        <QuickProductNavigator initialValue={rawProductParam ?? ''} />
+      ) : null}
 
       {activeTab === 'publishing' ? (
         <PublishingPanel />
