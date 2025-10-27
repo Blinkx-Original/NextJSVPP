@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS posts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  slug VARCHAR(160) NOT NULL,
+  title_h1 VARCHAR(200) NOT NULL,
+  short_summary VARCHAR(160) NULL,
+  content_html LONGTEXT NULL,
+  cover_image_url TEXT NULL,
+  category_slug VARCHAR(120) NULL,
+  product_slugs_json JSON NULL,
+  cta_lead_url TEXT NULL,
+  cta_affiliate_url TEXT NULL,
+  seo_title VARCHAR(60) NULL,
+  seo_description VARCHAR(160) NULL,
+  canonical_url TEXT NULL,
+  is_published TINYINT(1) NOT NULL DEFAULT 0,
+  published_at DATETIME(6) NULL,
+  last_tidb_update_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_posts_slug (slug),
+  KEY idx_posts_published (is_published, published_at),
+  KEY idx_posts_category (category_slug)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
