@@ -340,19 +340,47 @@ type LegacyCategoryColumn = 'category' | 'category_slug';
 
 const LEGACY_CATEGORY_COLUMNS: LegacyCategoryColumn[] = ['category', 'category_slug'];
 
+function addLegacyCategoryVariant(values: Set<string>, raw: string | null | undefined) {
+  if (!raw) {
+    return;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+  values.add(trimmed);
+}
+
+function toSlugLike(value: string): string | null {
+  const normalized = value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .toLowerCase();
+  if (normalized.length === 0) {
+    return null;
+  }
+  return normalized.replace(/\s+/g, '-');
+}
+
 function buildLegacyCategoryMatches(category: Pick<CategorySummary, 'slug' | 'name'>): string[] {
   const values = new Set<string>();
   const slug = category.slug?.trim();
   if (slug) {
-    values.add(slug);
-    const slugWithSpaces = slug.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
-    if (slugWithSpaces.length > 0) {
-      values.add(slugWithSpaces);
-    }
+    addLegacyCategoryVariant(values, slug);
+    addLegacyCategoryVariant(values, slug.replace(/[-_]+/g, ' ').replace(/\s+/g, ' '));
+    addLegacyCategoryVariant(values, slug.replace(/[-\s]+/g, '_').replace(/_+/g, '_'));
   }
   const name = category.name?.trim();
   if (name) {
-    values.add(name);
+    addLegacyCategoryVariant(values, name);
+    const slugLike = toSlugLike(name);
+    if (slugLike) {
+      addLegacyCategoryVariant(values, slugLike);
+      addLegacyCategoryVariant(values, slugLike.replace(/-/g, ' '));
+      addLegacyCategoryVariant(values, slugLike.replace(/-/g, '_'));
+    }
   }
   return Array.from(values)
     .map((value) => value.trim())
@@ -424,6 +452,12 @@ async function runLegacyCategoryQuery(
       console.error('[categories] failed to parse legacy product rows', parsed.error.format(), requestId ? { requestId } : undefined);
       return { products: [], totalCount: 0 };
     }
+  } catch (error) {
+    const info = toDbErrorInfo(error);
+    console.error('[categories] legacy category products error', info, requestId ? { requestId } : undefined);
+    return { products: [], totalCount: 0 };
+  }
+}
 
     const products = parsed.data.map(normalizeCategoryProductRecord);
     const totalCount = await runLegacyCategoryCount(column, matches);
@@ -471,39 +505,6 @@ async function queryLegacyCategoryProducts(
 
 export async function getPublishedProductsForCategory(
   category: Pick<CategorySummary, 'id' | 'slug' | 'name'>,
-  options: CategoryProductsQueryOptions = {}
-): Promise<CategoryProductsQueryResult> {
-  const pool = getPool();
-  const limit = options.limit ?? 10;
-  const offset = options.offset ?? 0;
-  const requestId = options.requestId;
-
-  const sql = `SELECT p.id, p.slug, p.title_h1, p.short_summary, p.price, p.images_json, p.last_tidb_update_at, p.updated_at\n    FROM category_products cp\n    INNER JOIN products p ON p.id = cp.product_id\n    WHERE cp.category_id = ? AND p.is_published = 1\n    ORDER BY p.title_h1 ASC\n    LIMIT ? OFFSET ?`;
-
-  try {
-    const [rows] = await pool.query(sql, [category.id.toString(), limit, offset]);
-    const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
-    if (parsed.success) {
-      const products = parsed.data.map(normalizeCategoryProductRecord);
-      let totalCount = await countCategoryProducts(category.id);
-      if (products.length > 0 && totalCount === 0) {
-        totalCount = products.length;
-      }
-      if (products.length > 0 || totalCount > 0) {
-        return { products, totalCount };
-      }
-    } else {
-      console.error('[categories] failed to parse product rows', parsed.error.format(), requestId ? { requestId } : undefined);
-    }
-  } catch (error) {
-    const info = toDbErrorInfo(error);
-    console.error('[categories] legacy category products error', info, requestId ? { requestId } : undefined);
-    return { products: [], totalCount: 0 };
-  }
-}
-
-export async function getPublishedProductsForCategory(
-  category: Pick<CategorySummary, 'id' | 'slug'>,
   options: CategoryProductsQueryOptions = {}
 ): Promise<CategoryProductsQueryResult> {
   const pool = getPool();
