@@ -336,8 +336,62 @@ async function countCategoryProducts(categoryId: bigint): Promise<number> {
   }
 }
 
+async function countLegacyCategoryProducts(slug: string): Promise<number> {
+  const pool = getPool();
+  try {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS total
+        FROM products
+        WHERE is_published = 1 AND category = ?`,
+      [slug]
+    );
+    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
+    const value = row && typeof row.total !== 'undefined' ? row.total : 0;
+    const total = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+    return Number.isFinite(total) && total > 0 ? total : 0;
+  } catch (error) {
+    const info = toDbErrorInfo(error);
+    console.error('[categories] legacy count products error', info);
+    return 0;
+  }
+}
+
+async function queryLegacyCategoryProducts(
+  slug: string,
+  options: CategoryProductsQueryOptions
+): Promise<CategoryProductsQueryResult> {
+  const pool = getPool();
+  const limit = options.limit ?? 10;
+  const offset = options.offset ?? 0;
+  const requestId = options.requestId;
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
+        FROM products
+        WHERE is_published = 1 AND category = ?
+        ORDER BY title_h1 ASC
+        LIMIT ? OFFSET ?`,
+      [slug, limit, offset]
+    );
+    const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
+    if (!parsed.success) {
+      console.error('[categories] failed to parse legacy product rows', parsed.error.format(), requestId ? { requestId } : undefined);
+      return { products: [], totalCount: 0 };
+    }
+
+    const products = parsed.data.map(normalizeCategoryProductRecord);
+    const totalCount = await countLegacyCategoryProducts(slug);
+    return { products, totalCount };
+  } catch (error) {
+    const info = toDbErrorInfo(error);
+    console.error('[categories] legacy category products error', info, requestId ? { requestId } : undefined);
+    return { products: [], totalCount: 0 };
+  }
+}
+
 export async function getPublishedProductsForCategory(
-  categoryId: bigint,
+  category: Pick<CategorySummary, 'id' | 'slug'>,
   options: CategoryProductsQueryOptions = {}
 ): Promise<CategoryProductsQueryResult> {
   const pool = getPool();
@@ -348,22 +402,30 @@ export async function getPublishedProductsForCategory(
   const sql = `SELECT p.id, p.slug, p.title_h1, p.short_summary, p.price, p.images_json, p.last_tidb_update_at, p.updated_at\n    FROM category_products cp\n    INNER JOIN products p ON p.id = cp.product_id\n    WHERE cp.category_id = ? AND p.is_published = 1\n    ORDER BY p.title_h1 ASC\n    LIMIT ? OFFSET ?`;
 
   try {
-    const [rows] = await pool.query(sql, [categoryId.toString(), limit, offset]);
+    const [rows] = await pool.query(sql, [category.id.toString(), limit, offset]);
     const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
-    if (!parsed.success) {
-      console.error('[categories] failed to parse product rows', parsed.error.format());
-      return { products: [], totalCount: 0 };
+    if (parsed.success) {
+      const products = parsed.data.map(normalizeCategoryProductRecord);
+      let totalCount = await countCategoryProducts(category.id);
+      if (products.length > 0 && totalCount === 0) {
+        totalCount = products.length;
+      }
+      if (products.length > 0 || totalCount > 0) {
+        return { products, totalCount };
+      }
+    } else {
+      console.error('[categories] failed to parse product rows', parsed.error.format(), requestId ? { requestId } : undefined);
     }
-
-    const products = parsed.data.map(normalizeCategoryProductRecord);
-    const totalCount = await countCategoryProducts(categoryId);
-
-    return { products, totalCount };
   } catch (error) {
     const info = toDbErrorInfo(error);
     console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
+  }
+
+  if (!category.slug) {
     return { products: [], totalCount: 0 };
   }
+
+  return queryLegacyCategoryProducts(category.slug, options);
 }
 
 export interface CategorySitemapEntry {
