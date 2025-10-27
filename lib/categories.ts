@@ -560,8 +560,9 @@ export async function getPublishedProductsForCategory(
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
-
-  const sql = `SELECT p.id, p.slug, p.title_h1, p.short_summary, p.price, p.images_json, p.last_tidb_update_at, p.updated_at\n    FROM category_products cp\n    INNER JOIN products p ON p.id = cp.product_id\n    WHERE cp.category_id = ? AND p.is_published = 1\n    ORDER BY p.title_h1 ASC\n    LIMIT ? OFFSET ?`;
+  const placeholders = matches.map(() => '?').join(', ');
+  const where = `is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
+  const params = [...matches.map((value) => value.toLowerCase()), limit, offset];
 
   try {
     const [rows] = await pool.query(sql, [category.id.toString(), limit, offset]);

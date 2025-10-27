@@ -13,6 +13,68 @@ a {
   color: inherit;
 }
 
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.05);
+}
+
+.site-header__inner {
+  margin: 0 auto;
+  max-width: 1200px;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.site-header__logo {
+  display: inline-flex;
+  align-items: center;
+}
+
+.site-header__menu {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 14px;
+  color: #475569;
+}
+
+.site-header__menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 9999px;
+  background-color: rgba(241, 245, 249, 0.8);
+  text-decoration: none;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.site-header__menu-item:hover,
+.site-header__menu-item:focus-visible {
+  background-color: rgba(226, 232, 240, 0.9);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);
+}
+
+.site-header__menu-icon {
+  font-size: 16px;
+}
+
+.site-header__menu-label {
+  font-weight: 600;
+}
+
+.site-header__menu-value {
+  font-variant-numeric: tabular-nums;
+}
+
 main {
   background-color: #ffffff;
   min-height: 100vh;
