@@ -4,19 +4,21 @@ import { getPool, toDbErrorInfo } from './db';
 const bigintLike = z.union([z.bigint(), z.number(), z.string()]);
 type BigintLike = z.infer<typeof bigintLike>;
 
+const CATEGORY_TYPE_SYNONYMS: Record<'product' | 'blog', string[]> = {
+  product: ['product', 'products', 'product_category'],
+  blog: ['blog', 'blogs', 'blog_category']
+};
+
 function normalizeCategoryType(value: string): 'product' | 'blog' {
   const normalized = value.trim().toLowerCase();
-  switch (normalized) {
-    case 'blog':
-    case 'blogs':
-    case 'blog_category':
-      return 'blog';
-    case 'product':
-    case 'products':
-    case 'product_category':
-    default:
-      return 'product';
+  if (CATEGORY_TYPE_SYNONYMS.blog.includes(normalized)) {
+    return 'blog';
   }
+  return 'product';
+}
+
+export function getCategoryTypeSynonyms(type: 'product' | 'blog'): string[] {
+  return CATEGORY_TYPE_SYNONYMS[type];
 }
 
 const categoryRecordSchema = z.object({
@@ -118,8 +120,9 @@ async function countPublishedCategories(
   const where: string[] = ['is_published = 1'];
   const params: unknown[] = [];
   if (filters.type) {
-    where.push('LOWER(type) = ?');
-    params.push(filters.type);
+    const synonyms = getCategoryTypeSynonyms(filters.type);
+    where.push(`LOWER(type) IN (${synonyms.map(() => '?').join(', ')})`);
+    params.push(...synonyms);
   }
   const sql = `SELECT COUNT(*) AS total FROM categories WHERE ${where.join(' AND ')}`;
   const [rows] = await pool.query(sql, params);
@@ -140,8 +143,9 @@ export async function getPublishedCategories(
   const where: string[] = ['is_published = 1'];
   const params: unknown[] = [];
   if (options.type) {
-    where.push('LOWER(type) = ?');
-    params.push(options.type);
+    const synonyms = getCategoryTypeSynonyms(options.type);
+    where.push(`LOWER(type) IN (${synonyms.map(() => '?').join(', ')})`);
+    params.push(...synonyms);
   }
 
   const sql = `SELECT id, type, slug, name, short_description, hero_image_url, last_tidb_update_at, updated_at\n    FROM categories\n    WHERE ${where.join(' AND ')}\n    ORDER BY type ASC, name ASC\n    LIMIT ? OFFSET ?`;
@@ -176,8 +180,9 @@ export async function getPublishedCategoryPickerOptions(
   const params: unknown[] = [];
 
   if (options.type) {
-    where.push('LOWER(type) = ?');
-    params.push(options.type);
+    const synonyms = getCategoryTypeSynonyms(options.type);
+    where.push(`LOWER(type) IN (${synonyms.map(() => '?').join(', ')})`);
+    params.push(...synonyms);
   }
 
   const sql = `SELECT type, slug, name

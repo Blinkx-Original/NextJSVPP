@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, toDbErrorInfo } from '@/lib/db';
+import { getCategoryTypeSynonyms } from '@/lib/categories';
 import { safeGetEnv } from '@/lib/env';
 
 export const runtime = 'nodejs';
@@ -58,7 +59,8 @@ function buildErrorResponse(
 }
 
 function normalizeType(input: string | null): CategoryType {
-  if (input && input.toLowerCase() === 'blog') {
+  const value = input ? input.trim().toLowerCase() : '';
+  if (value && getCategoryTypeSynonyms('blog').includes(value)) {
     return 'blog';
   }
   return 'product';
@@ -160,9 +162,11 @@ export async function GET(request: NextRequest): Promise<NextResponse<CategoryOp
   const limit = clampLimit(url.searchParams.get('limit'));
   const term = sanitizeSearchTerm(url.searchParams.get('query'));
 
-  const params: unknown[] = [type];
-  let sql =
-    'SELECT slug, name, is_published FROM categories WHERE type = ? AND is_published = 1';
+  const typeSynonyms = getCategoryTypeSynonyms(type);
+  const params: unknown[] = [...typeSynonyms];
+  let sql = `SELECT slug, name, is_published FROM categories WHERE LOWER(type) IN (${typeSynonyms
+    .map(() => '?')
+    .join(', ')}) AND is_published = 1`;
 
   if (term) {
     params.push(`%${term}%`, `%${term}%`);
@@ -237,9 +241,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<CategoryO
 
   const connection = await getPool().getConnection();
   try {
+    const typeSynonyms = getCategoryTypeSynonyms(type);
+    const placeholders = typeSynonyms.map(() => '?').join(', ');
     const [dupeRows] = await connection.query<RowDataPacket[]>(
-      'SELECT id FROM categories WHERE type = ? AND slug = ? LIMIT 1',
-      [type, slug]
+      `SELECT id FROM categories WHERE slug = ? AND LOWER(type) IN (${placeholders}) LIMIT 1`,
+      [slug, ...typeSynonyms]
     );
 
     if (Array.isArray(dupeRows) && dupeRows.length > 0) {
