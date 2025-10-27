@@ -51,6 +51,7 @@ interface AdminPageProps {
 }
 
 type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'edit-blog' | 'seo';
+type CategoryPanelType = 'product' | 'blog';
 
 function normalizeTab(input: string | string[] | undefined): AdminTab {
   if (Array.isArray(input)) {
@@ -82,9 +83,12 @@ function deriveInitialCategoryType(input: string | string[] | undefined): Catego
     return deriveInitialCategoryType(input[0]);
   }
   if (typeof input === 'string') {
-    const normalized = input.toLowerCase();
-    if (BLOG_CATEGORY_ALIASES.has(normalized)) {
+    const normalized = input.trim().toLowerCase();
+    if (normalized === 'blog') {
       return 'blog';
+    }
+    if (normalized === 'product') {
+      return 'product';
     }
   }
   return 'product';
