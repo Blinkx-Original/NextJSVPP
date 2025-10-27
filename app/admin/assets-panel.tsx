@@ -4,6 +4,7 @@
 import type { ChangeEvent, CSSProperties, DragEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle } from './panel-styles';
+import { createAdminApiClient } from './admin-api-client';
 
 interface AssetsPanelProps {
   cfImagesEnabled: boolean;
@@ -523,64 +524,14 @@ export default function AssetsPanel({
     [productQuery]
   );
 
-  const authHeaderValue = authHeader ?? null;
-  const adminTokenValue = adminToken ?? null;
-
-  const applyAuthHeaders = useCallback(
-    (additional?: HeadersInit): Headers => {
-      const headers = new Headers();
-
-      if (additional) {
-        const additionalHeaders = new Headers(additional);
-        additionalHeaders.forEach((value, key) => {
-          headers.set(key, value);
-        });
-      }
-
-      if (authHeaderValue) {
-        headers.set('Authorization', authHeaderValue);
-      }
-
-      if (adminTokenValue) {
-        headers.set('X-Admin-Token', adminTokenValue);
-      }
-
-      return headers;
-    },
-    [adminTokenValue, authHeaderValue]
+  const adminApi = useMemo(
+    () => createAdminApiClient({ authHeader, adminToken }),
+    [authHeader, adminToken]
   );
 
   const fetchWithAuth = useCallback(
-    (input: RequestInfo | URL, init?: RequestInit) => {
-      let finalInput: RequestInfo | URL = input;
-
-      if (adminTokenValue) {
-        try {
-          const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-          let url: URL | null = null;
-          if (typeof input === 'string') {
-            url = base ? new URL(input, base) : new URL(input, 'http://localhost');
-          } else if (input instanceof URL) {
-            url = new URL(input.toString());
-          }
-          if (url) {
-            url.searchParams.set('adminToken', adminTokenValue);
-            finalInput = url.toString();
-          }
-        } catch {
-          // ignore URL parsing issues
-        }
-      }
-
-      const headers = applyAuthHeaders(init?.headers);
-      return fetch(finalInput, {
-        ...init,
-        headers,
-        credentials: 'include',
-        mode: 'same-origin'
-      });
-    },
-    [adminTokenValue, applyAuthHeaders]
+    (input: RequestInfo | URL, init?: RequestInit) => adminApi.fetchWithAuth(input, init),
+    [adminApi]
   );
 
   const searchAbortRef = useRef<AbortController | null>(null);
@@ -854,25 +805,11 @@ export default function AssetsPanel({
       formData.append('variant', uploadVariant || 'public');
 
       const xhr = new XMLHttpRequest();
-      let uploadUrl = '/api/assets/images/upload';
-      if (adminTokenValue) {
-        try {
-          const url = new URL(uploadUrl, window.location.origin);
-          url.searchParams.set('adminToken', adminTokenValue);
-          uploadUrl = url.toString();
-        } catch {
-          // ignore
-        }
-      }
+      const uploadUrl = adminApi.withAdminToken('/api/assets/images/upload');
       xhr.open('POST', uploadUrl);
       xhr.responseType = 'json';
       xhr.withCredentials = true;
-      if (authHeaderValue) {
-        xhr.setRequestHeader('Authorization', authHeaderValue);
-      }
-      if (adminTokenValue) {
-        xhr.setRequestHeader('X-Admin-Token', adminTokenValue);
-      }
+      adminApi.attachAuthHeadersToXhr(xhr);
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -936,8 +873,7 @@ export default function AssetsPanel({
     },
     [
       appendActivity,
-      adminTokenValue,
-      authHeaderValue,
+      adminApi,
       cfImagesEnabled,
       refreshImages,
       selectedProduct,

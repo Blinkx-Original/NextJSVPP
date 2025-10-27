@@ -4,6 +4,7 @@ import ConnectivityPanel from './connectivity-panel';
 import PublishingPanel from './publishing-panel';
 import AssetsPanel from './assets-panel';
 import EditProductPanel from './edit-product-panel';
+import EditBlogPanel from './edit-blog-panel';
 import SeoPanel from './seo-panel';
 import QuickProductNavigator from './quick-product-navigator';
 import { readCloudflareImagesConfig } from '@/lib/cloudflare-images';
@@ -48,7 +49,8 @@ interface AdminPageProps {
   searchParams?: Record<string, string | string[] | undefined>;
 }
 
-type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'seo';
+type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'edit-blog' | 'seo';
+type CategoryPanelType = 'product' | 'blog';
 
 function normalizeTab(input: string | string[] | undefined): AdminTab {
   if (Array.isArray(input)) {
@@ -65,11 +67,30 @@ function normalizeTab(input: string | string[] | undefined): AdminTab {
     if (normalized === 'edit-product' || normalized === 'edit' || normalized === 'product') {
       return 'edit-product';
     }
+    if (normalized === 'edit-blog' || normalized === 'blog' || normalized === 'post') {
+      return 'edit-blog';
+    }
     if (normalized === 'seo') {
       return 'seo';
     }
   }
   return 'connectivity';
+}
+
+function deriveInitialCategoryType(input: string | string[] | undefined): CategoryPanelType {
+  if (Array.isArray(input)) {
+    return deriveInitialCategoryType(input[0]);
+  }
+  if (typeof input === 'string') {
+    const normalized = input.trim().toLowerCase();
+    if (normalized === 'blog') {
+      return 'blog';
+    }
+    if (normalized === 'product') {
+      return 'product';
+    }
+  }
+  return 'product';
 }
 
 function coerceSearchParam(value: string | string[] | undefined): string | null {
@@ -84,15 +105,17 @@ function coerceSearchParam(value: string | string[] | undefined): string | null 
 }
 
 export default function AdminPage({ searchParams }: AdminPageProps) {
-  const rawProductParam =
-    coerceSearchParam(searchParams?.product) ?? coerceSearchParam(searchParams?.slug);
-  const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
-
   const tabParamRaw = searchParams?.tab;
   const initialTab = normalizeTab(tabParamRaw);
   const hasTabParam = Array.isArray(tabParamRaw)
     ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
     : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
+  const rawSlugParam = coerceSearchParam(searchParams?.slug);
+  const rawProductParamFromQuery = coerceSearchParam(searchParams?.product);
+  const resolvedProductParam =
+    rawProductParamFromQuery ?? (initialTab === 'edit-blog' ? null : rawSlugParam);
+  const normalizedProductSlug = normalizeProductSlugInput(resolvedProductParam);
+  const normalizedBlogSlug = rawSlugParam ? rawSlugParam.trim().toLowerCase() : null;
   const activeTab: AdminTab = normalizedProductSlug && !hasTabParam ? 'edit-product' : initialTab;
 
   const headerList = nextHeaders();
@@ -109,6 +132,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
     { id: 'connectivity', label: 'Connectivity', href: '/admin' },
     { id: 'publishing', label: 'Publishing', href: '/admin?tab=publishing' },
     { id: 'edit-product', label: 'Edit Product', href: '/admin?tab=edit-product' },
+    { id: 'edit-blog', label: 'Edit Blog', href: '/admin?tab=edit-blog' },
     { id: 'seo', label: 'SEO', href: '/admin?tab=seo' },
     { id: 'assets', label: 'Assets', href: '/admin?tab=assets' }
   ];
@@ -146,7 +170,9 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
         })}
       </nav>
 
-      <QuickProductNavigator initialValue={rawProductParam ?? ''} />
+      {activeTab === 'edit-product' ? (
+        <QuickProductNavigator initialValue={resolvedProductParam ?? ''} />
+      ) : null}
 
       {activeTab === 'publishing' ? (
         <PublishingPanel />
@@ -158,9 +184,17 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
           adminToken={adminToken}
         />
       ) : activeTab === 'seo' ? (
-        <SeoPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
+        <SeoPanel initialSlug={normalizedProductSlug} initialInput={resolvedProductParam ?? ''} />
       ) : activeTab === 'edit-product' ? (
-        <EditProductPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
+        <EditProductPanel initialSlug={normalizedProductSlug} initialInput={resolvedProductParam ?? ''} />
+      ) : activeTab === 'edit-blog' ? (
+        <EditBlogPanel
+          initialSlug={normalizedBlogSlug}
+          cfImagesEnabled={cfImagesEnabled}
+          cfImagesBaseUrl={cfImagesBaseUrl}
+          authHeader={authHeader}
+          adminToken={adminToken}
+        />
       ) : (
         <ConnectivityPanel />
       )}
