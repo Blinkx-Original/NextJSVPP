@@ -4,11 +4,26 @@ import { getPool, toDbErrorInfo } from './db';
 const bigintLike = z.union([z.bigint(), z.number(), z.string()]);
 type BigintLike = z.infer<typeof bigintLike>;
 
+function normalizeCategoryType(value: string): 'product' | 'blog' {
+  const normalized = value.trim().toLowerCase();
+  switch (normalized) {
+    case 'blog':
+    case 'blogs':
+    case 'blog_category':
+      return 'blog';
+    case 'product':
+    case 'products':
+    case 'product_category':
+    default:
+      return 'product';
+  }
+}
+
 const categoryRecordSchema = z.object({
   id: bigintLike,
   type: z
     .string()
-    .transform((value) => value.trim().toLowerCase())
+    .transform((value) => normalizeCategoryType(value))
     .pipe(z.enum(['product', 'blog'])),
   slug: z.string(),
   name: z.string(),
@@ -21,7 +36,7 @@ const categoryRecordSchema = z.object({
 const categoryPickerRecordSchema = z.object({
   type: z
     .string()
-    .transform((value) => value.trim().toLowerCase())
+    .transform((value) => normalizeCategoryType(value))
     .pipe(z.enum(['product', 'blog'])),
   slug: z.string(),
   name: z.string()
