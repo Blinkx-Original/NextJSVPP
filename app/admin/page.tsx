@@ -6,6 +6,7 @@ import AssetsPanel from './assets-panel';
 import EditProductPanel from './edit-product-panel';
 import EditBlogPanel from './edit-blog-panel';
 import SeoPanel from './seo-panel';
+import CategoriesPanel from './categories-panel';
 import QuickProductNavigator from './quick-product-navigator';
 import { readCloudflareImagesConfig } from '@/lib/cloudflare-images';
 import { issueAdminSessionToken } from '@/lib/basic-auth';
@@ -106,7 +107,6 @@ function coerceSearchParam(value: string | string[] | undefined): string | null 
 
 export default function AdminPage({ searchParams }: AdminPageProps) {
   const tabParamRaw = searchParams?.tab;
-  const initialTab = normalizeTab(tabParamRaw);
   const hasTabParam = Array.isArray(tabParamRaw)
     ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
     : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
@@ -183,7 +183,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
           adminToken={adminToken}
         />
       ) : activeTab === 'seo' ? (
-        <SeoPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
+        <SeoPanel initialSlug={normalizedProductSlug} initialInput={derivedProductParam ?? ''} />
       ) : activeTab === 'edit-product' ? (
         <EditProductPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
       ) : activeTab === 'edit-blog' ? (

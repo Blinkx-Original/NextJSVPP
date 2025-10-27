@@ -4,6 +4,7 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/prom
 import { getPool, toDbErrorInfo } from '@/lib/db';
 import { safeGetEnv } from '@/lib/env';
 import { clearProductCache, getProductRecordBySlug, type RawProductRecord } from '@/lib/products';
+import { getCategoryTypeSynonyms } from '@/lib/categories';
 import { normalizeProductSlugInput } from '@/lib/product-slug';
 import { DESCRIPTION_MAX_LENGTH, sanitizeProductHtml } from '@/lib/sanitize-html';
 
@@ -248,9 +249,11 @@ async function findProductCategoryId(
   connection: PoolConnection,
   slug: string
 ): Promise<string | null> {
+  const synonyms = getCategoryTypeSynonyms('product');
+  const placeholders = synonyms.map(() => '?').join(', ');
   const [rows] = await connection.query<RowDataPacket[]>(
-    `SELECT id FROM categories WHERE slug = ? AND type = 'product' LIMIT 1`,
-    [slug]
+    `SELECT id FROM categories WHERE slug = ? AND LOWER(type) IN (${placeholders}) LIMIT 1`,
+    [slug, ...synonyms]
   );
   if (!Array.isArray(rows) || rows.length === 0) {
     return null;
