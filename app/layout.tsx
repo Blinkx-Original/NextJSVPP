@@ -2,6 +2,8 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { ReactNode } from 'react';
 
+import { SiteHeader } from '@/components/site-header';
+
 const siteName = process.env.NEXT_PUBLIC_SITE_NAME ?? 'Virtual Product Pages';
 
 export const metadata: Metadata = {
@@ -23,6 +25,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="es">
       <body>
+        <SiteHeader />
         <main>{children}</main>
       </body>
     </html>
