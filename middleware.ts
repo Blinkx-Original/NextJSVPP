@@ -10,7 +10,11 @@ import {
 const BASIC_AUTH_PREFIX = 'Basic ';
 
 function isProtectedRoute(url: URL) {
-  return url.pathname.startsWith('/admin') || url.pathname.startsWith('/api/assets/images');
+  return (
+    url.pathname.startsWith('/admin') ||
+    url.pathname.startsWith('/api/assets/images') ||
+    url.pathname.startsWith('/api/blog')
+  );
 }
 
 export function middleware(request: NextRequest) {
@@ -75,5 +79,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/assets/images/:path*']
+  matcher: ['/admin/:path*', '/api/assets/images/:path*', '/api/blog/:path*']
 };
