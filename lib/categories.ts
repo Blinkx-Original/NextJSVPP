@@ -336,8 +336,188 @@ async function countCategoryProducts(categoryId: bigint): Promise<number> {
   }
 }
 
+type LegacyCategoryColumn = 'category' | 'category_slug';
+
+const LEGACY_CATEGORY_COLUMNS: LegacyCategoryColumn[] = ['category', 'category_slug'];
+
+function addLegacyCategoryVariant(values: Set<string>, raw: string | null | undefined) {
+  if (!raw) {
+    return;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+  values.add(trimmed);
+}
+
+function toSlugLike(value: string): string | null {
+  const normalized = value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .toLowerCase();
+  if (normalized.length === 0) {
+    return null;
+  }
+  return normalized.replace(/\s+/g, '-');
+}
+
+function buildLegacyCategoryMatches(category: Pick<CategorySummary, 'slug' | 'name'>): string[] {
+  const values = new Set<string>();
+  const slug = category.slug?.trim();
+  if (slug) {
+    addLegacyCategoryVariant(values, slug);
+    addLegacyCategoryVariant(values, slug.replace(/[-_]+/g, ' ').replace(/\s+/g, ' '));
+    addLegacyCategoryVariant(values, slug.replace(/[-\s]+/g, '_').replace(/_+/g, '_'));
+  }
+  const name = category.name?.trim();
+  if (name) {
+    addLegacyCategoryVariant(values, name);
+    const slugLike = toSlugLike(name);
+    if (slugLike) {
+      addLegacyCategoryVariant(values, slugLike);
+      addLegacyCategoryVariant(values, slugLike.replace(/-/g, ' '));
+      addLegacyCategoryVariant(values, slugLike.replace(/-/g, '_'));
+    }
+  }
+  return Array.from(values)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
+function isUnknownColumnError(error: unknown): boolean {
+  const info = toDbErrorInfo(error);
+  return info.code === 'ER_BAD_FIELD_ERROR' || info.errno === 1054;
+}
+
+async function runLegacyCategoryCount(
+  column: LegacyCategoryColumn,
+  variants: string[]
+): Promise<number | null> {
+  if (variants.length === 0) {
+    return 0;
+  }
+  const pool = getPool();
+  const placeholders = variants.map(() => '?').join(', ');
+  const sql = `SELECT COUNT(*) AS total
+        FROM products
+        WHERE is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
+  const params = variants.map((value) => value.toLowerCase());
+  try {
+    const [rows] = await pool.query(sql, params);
+    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
+    const value = row && typeof row.total !== 'undefined' ? row.total : 0;
+    const total = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+    return Number.isFinite(total) && total > 0 ? total : 0;
+  } catch (error) {
+    if (isUnknownColumnError(error)) {
+      return null;
+    }
+    const info = toDbErrorInfo(error);
+    console.error('[categories] legacy count products error', info, { column });
+    return 0;
+  }
+}
+
+async function runLegacyCategoryQuery(
+  column: LegacyCategoryColumn,
+  variants: string[],
+  options: CategoryProductsQueryOptions
+): Promise<CategoryProductsQueryResult | null> {
+  if (variants.length === 0) {
+    return { products: [], totalCount: 0 };
+  }
+
+  const pool = getPool();
+  const limit = options.limit ?? 10;
+  const offset = options.offset ?? 0;
+  const requestId = options.requestId;
+  const placeholders = variants.map(() => '?').join(', ');
+  const where = `is_published = 1 AND LOWER(${column}) IN (${placeholders})`;
+  const params = [...variants.map((value) => value.toLowerCase()), limit, offset];
+
+  let rows: unknown = [];
+  let unknownColumn = false;
+  let fallbackResult: CategoryProductsQueryResult | null = null;
+
+  try {
+    const [rawRows] = await pool.query(
+      `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
+        FROM products
+        WHERE ${where}
+        ORDER BY title_h1 ASC
+        LIMIT ? OFFSET ?`,
+      params
+    );
+    rows = rawRows;
+  } catch (error) {
+    if (isUnknownColumnError(error)) {
+      unknownColumn = true;
+    } else {
+      const info = toDbErrorInfo(error);
+      console.error('[categories] legacy category products error', info, requestId ? { requestId } : undefined);
+      fallbackResult = { products: [], totalCount: 0 };
+    }
+  }
+
+  if (unknownColumn) {
+    return null;
+  }
+
+  if (fallbackResult) {
+    return fallbackResult;
+  }
+
+  const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
+  if (!parsed.success) {
+    console.error(
+      '[categories] failed to parse legacy product rows',
+      parsed.error.format(),
+      requestId ? { requestId } : undefined
+    );
+    return { products: [], totalCount: 0 };
+  }
+
+  const products = parsed.data.map(normalizeCategoryProductRecord);
+  const totalCount = await runLegacyCategoryCount(column, variants);
+  return { products, totalCount: totalCount ?? 0 };
+}
+
+async function countLegacyCategoryProducts(category: Pick<CategorySummary, 'slug' | 'name'>): Promise<number> {
+  const variants = buildLegacyCategoryMatches(category);
+  for (const column of LEGACY_CATEGORY_COLUMNS) {
+    const total = await runLegacyCategoryCount(column, variants);
+    if (total === null) {
+      continue;
+    }
+    if (total > 0) {
+      return total;
+    }
+  }
+  return 0;
+}
+
+async function queryLegacyCategoryProducts(
+  category: Pick<CategorySummary, 'slug' | 'name'>,
+  options: CategoryProductsQueryOptions
+): Promise<CategoryProductsQueryResult> {
+  const variants = buildLegacyCategoryMatches(category);
+  for (const column of LEGACY_CATEGORY_COLUMNS) {
+    const result = await runLegacyCategoryQuery(column, variants, options);
+    if (result === null) {
+      continue;
+    }
+    if (result.products.length > 0 || result.totalCount > 0) {
+      return result;
+    }
+  }
+  return { products: [], totalCount: 0 };
+}
+
 export async function getPublishedProductsForCategory(
-  categoryId: bigint,
+  category: Pick<CategorySummary, 'id' | 'slug' | 'name'>,
   options: CategoryProductsQueryOptions = {}
 ): Promise<CategoryProductsQueryResult> {
   const pool = getPool();
@@ -348,22 +528,30 @@ export async function getPublishedProductsForCategory(
   const sql = `SELECT p.id, p.slug, p.title_h1, p.short_summary, p.price, p.images_json, p.last_tidb_update_at, p.updated_at\n    FROM category_products cp\n    INNER JOIN products p ON p.id = cp.product_id\n    WHERE cp.category_id = ? AND p.is_published = 1\n    ORDER BY p.title_h1 ASC\n    LIMIT ? OFFSET ?`;
 
   try {
-    const [rows] = await pool.query(sql, [categoryId.toString(), limit, offset]);
+    const [rows] = await pool.query(sql, [category.id.toString(), limit, offset]);
     const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
-    if (!parsed.success) {
-      console.error('[categories] failed to parse product rows', parsed.error.format());
-      return { products: [], totalCount: 0 };
+    if (parsed.success) {
+      const products = parsed.data.map(normalizeCategoryProductRecord);
+      let totalCount = await countCategoryProducts(category.id);
+      if (products.length > 0 && totalCount === 0) {
+        totalCount = products.length;
+      }
+      if (products.length > 0 || totalCount > 0) {
+        return { products, totalCount };
+      }
+    } else {
+      console.error('[categories] failed to parse product rows', parsed.error.format(), requestId ? { requestId } : undefined);
     }
-
-    const products = parsed.data.map(normalizeCategoryProductRecord);
-    const totalCount = await countCategoryProducts(categoryId);
-
-    return { products, totalCount };
   } catch (error) {
     const info = toDbErrorInfo(error);
     console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
+  }
+
+  if (!category.slug) {
     return { products: [], totalCount: 0 };
   }
+
+  return queryLegacyCategoryProducts(category, options);
 }
 
 export interface CategorySitemapEntry {
