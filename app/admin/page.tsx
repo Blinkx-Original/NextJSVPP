@@ -53,36 +53,29 @@ interface AdminPageProps {
 type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'seo' | 'categories';
 type CategoryPanelType = 'product' | 'blog';
 
+const TAB_ALIASES: Record<string, AdminTab> = {
+  publishing: 'publishing',
+  assets: 'assets',
+  'edit-product': 'edit-product',
+  edit: 'edit-product',
+  product: 'edit-product',
+  seo: 'seo',
+  categories: 'categories',
+  category: 'categories',
+  'edit-blog': 'categories',
+  blog: 'categories',
+  post: 'categories'
+};
+
+const BLOG_CATEGORY_ALIASES = new Set<string>(['edit-blog', 'blog', 'post']);
+
 function normalizeTab(input: string | string[] | undefined): AdminTab {
   if (Array.isArray(input)) {
     return normalizeTab(input[0]);
   }
   if (typeof input === 'string') {
     const normalized = input.toLowerCase();
-    if (normalized === 'publishing') {
-      return 'publishing';
-    }
-    if (normalized === 'assets') {
-      return 'assets';
-    }
-    if (normalized === 'edit-product' || normalized === 'edit' || normalized === 'product') {
-      return 'edit-product';
-    }
-    if (normalized === 'edit-blog' || normalized === 'blog' || normalized === 'post') {
-      return 'edit-blog';
-    }
-    if (normalized === 'seo') {
-      return 'seo';
-    }
-    if (
-      normalized === 'categories' ||
-      normalized === 'category' ||
-      normalized === 'edit-blog' ||
-      normalized === 'blog' ||
-      normalized === 'post'
-    ) {
-      return 'categories';
-    }
+    return TAB_ALIASES[normalized] ?? 'connectivity';
   }
   return 'connectivity';
 }
@@ -93,7 +86,7 @@ function deriveInitialCategoryType(input: string | string[] | undefined): Catego
   }
   if (typeof input === 'string') {
     const normalized = input.toLowerCase();
-    if (normalized === 'edit-blog' || normalized === 'blog' || normalized === 'post') {
+    if (BLOG_CATEGORY_ALIASES.has(normalized)) {
       return 'blog';
     }
   }
