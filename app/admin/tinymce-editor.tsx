@@ -53,6 +53,8 @@ export interface TinyMceEditorProps {
   disabled?: boolean;
   placeholder?: string;
   id?: string;
+  onRequestImageUpload?: (file: File) => Promise<{ url: string; alt?: string } | null>;
+  onRequestPdfUpload?: (file: File) => Promise<{ url: string; text?: string } | null>;
 }
 
 type EditorMode = 'visual' | 'html';
@@ -70,8 +72,60 @@ function sanitizeForId(value: string | null | undefined): string {
   return cleaned.length > 0 ? cleaned : 'default';
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value).replace(/"/g, '&quot;');
+}
+
+function selectFile(accept: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(null);
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.style.display = 'none';
+
+    const handleChange = () => {
+      const file = input.files && input.files.length > 0 ? input.files[0] ?? null : null;
+      resolve(file ?? null);
+      cleanup();
+    };
+
+    const cleanup = () => {
+      input.removeEventListener('change', handleChange);
+      if (input.parentNode) {
+        input.parentNode.removeChild(input);
+      }
+    };
+
+    input.addEventListener('change', handleChange);
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+function isValidHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test((value ?? '').trim());
+}
+
 const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(function TinyMceEditor(
-  { value, onChange, slug, disabled = false, placeholder, id }: TinyMceEditorProps,
+  {
+    value,
+    onChange,
+    slug,
+    disabled = false,
+    placeholder,
+    id,
+    onRequestImageUpload,
+    onRequestPdfUpload
+  }: TinyMceEditorProps,
   ref
 ) {
   const editorRef = useRef<any | null>(null);
@@ -93,10 +147,20 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
   const hostId = useMemo(() => `tinymce-host-${hostBaseId}`, [hostBaseId]);
   const containerId = useMemo(() => `tinymce-container-${hostBaseId}`, [hostBaseId]);
   const hostIdRef = useRef(hostId);
+  const onRequestImageUploadRef = useRef(onRequestImageUpload);
+  const onRequestPdfUploadRef = useRef(onRequestPdfUpload);
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  useEffect(() => {
+    onRequestImageUploadRef.current = onRequestImageUpload;
+  }, [onRequestImageUpload]);
+
+  useEffect(() => {
+    onRequestPdfUploadRef.current = onRequestPdfUpload;
+  }, [onRequestPdfUpload]);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -246,34 +310,95 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
       }
 
       try {
+        const requestImageFromUser = async () => {
+          const uploadHandler = onRequestImageUploadRef.current;
+          if (uploadHandler) {
+            const file = await selectFile('image/*');
+            if (!file) {
+              return null;
+            }
+            try {
+              const result = await uploadHandler(file);
+              if (!result || !result.url) {
+                return null;
+              }
+              const trimmedUrl = result.url.trim();
+              if (!isValidHttpUrl(trimmedUrl)) {
+                window.alert('La URL de la imagen debe comenzar con http:// o https://');
+                return null;
+              }
+              let altText = result.alt?.trim() ?? '';
+              if (!altText) {
+                const prompted = window.prompt('Texto ALT de la imagen', file.name || '');
+                altText = prompted?.trim() ?? '';
+              }
+              return { url: trimmedUrl, alt: altText };
+            } catch (error) {
+              window.alert((error as Error)?.message ?? 'Error subiendo la imagen.');
+              return null;
+            }
+          }
+          const url = window.prompt('URL de la imagen (https://...)');
+          if (!url) {
+            return null;
+          }
+          const trimmed = url.trim();
+          if (!isValidHttpUrl(trimmed)) {
+            window.alert('La URL debe comenzar con http:// o https://');
+            return null;
+          }
+          const alt = window.prompt('Texto ALT de la imagen');
+          return { url: trimmed, alt: (alt ?? '').trim() };
+        };
+
+        const requestPdfFromUser = async () => {
+          const uploadHandler = onRequestPdfUploadRef.current;
+          if (uploadHandler) {
+            const file = await selectFile('application/pdf');
+            if (!file) {
+              return null;
+            }
+            try {
+              const result = await uploadHandler(file);
+              if (!result || !result.url) {
+                return null;
+              }
+              const trimmedUrl = result.url.trim();
+              if (!isValidHttpUrl(trimmedUrl)) {
+                window.alert('La URL del PDF debe comenzar con http:// o https://');
+                return null;
+              }
+              const linkText = (result.text ?? file.name ?? 'Descargar PDF').trim() || 'Descargar PDF';
+              return { url: trimmedUrl, text: linkText };
+            } catch (error) {
+              window.alert((error as Error)?.message ?? 'Error subiendo el PDF.');
+              return null;
+            }
+          }
+          const url = window.prompt('URL del PDF (https://...)');
+          if (!url) {
+            return null;
+          }
+          const trimmed = url.trim();
+          if (!isValidHttpUrl(trimmed)) {
+            window.alert('La URL debe comenzar con http:// o https://');
+            return null;
+          }
+          const label = window.prompt('Texto del enlace del PDF', 'Descargar PDF');
+          const linkText = (label ?? 'Descargar PDF').trim() || 'Descargar PDF';
+          return { url: trimmed, text: linkText };
+        };
+
         const createdEditors = await tinymce.init({
           target: hostElement,
           height: 600,
           min_height: 560,
           width: '100%',
-          menubar: 'file edit view insert format tools table help',
-          plugins: [
-            'advlist',
-            'anchor',
-            'autolink',
-            'charmap',
-            'code',
-            'codesample',
-            'fullscreen',
-            'hr',
-            'image',
-            'link',
-            'lists',
-            'paste',
-            'preview',
-            'searchreplace',
-            'table',
-            'visualblocks',
-            'wordcount'
-          ].join(' '),
+          menubar: 'file edit insert view format table tools help',
+          plugins: ['anchor', 'code', 'image', 'link', 'lists', 'media', 'paste', 'table'].join(' '),
           toolbar:
-            'undo redo | blocks | bold italic underline strikethrough | alignleft aligncenter alignright alignjustify | bullist numlist checklist outdent indent | link unlink | blockquote hr table | removeformat | codesample | fullscreen preview | customInsertPdf',
-          block_formats: 'Paragraph=p;Heading 1=h1;Heading 2=h2;Heading 3=h3;Heading 4=h4',
+            'undo redo | blocks | bold italic | bullist numlist | link | table | customInsertImage customInsertPdf | code',
+          block_formats: 'Paragraph=p;Heading 2=h2;Heading 3=h3;Heading 4=h4',
           default_link_target: '_blank',
           link_rel_list: [
             { title: 'Ninguno', value: '' },
@@ -351,24 +476,36 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
                 editorRef.current = null;
               }
             });
+            editor.ui.registry.addButton('customInsertImage', {
+              icon: 'image',
+              tooltip: 'Insertar imagen',
+              onAction: () => {
+                void (async () => {
+                  const image = await requestImageFromUser();
+                  if (!image) {
+                    return;
+                  }
+                  const safeUrl = escapeAttribute(image.url);
+                  const altAttr = image.alt ? ` alt="${escapeAttribute(image.alt)}"` : '';
+                  editor.insertContent(`<p><img src="${safeUrl}"${altAttr} /></p>`);
+                })();
+              }
+            });
             editor.ui.registry.addButton('customInsertPdf', {
               icon: 'new-document',
               tooltip: 'Insertar PDF',
               onAction: () => {
-            const url = window.prompt('URL del PDF (https://...)');
-            if (!url) {
-              return;
-            }
-                const trimmed = url.trim();
-                if (!/^https?:\/\//i.test(trimmed)) {
-                  alert('La URL debe comenzar con http:// o https://');
-                  return;
-                }
-                const label = window.prompt('Texto del enlace del PDF', 'Descargar PDF');
-                const linkText = (label ?? 'Descargar PDF').trim() || 'Descargar PDF';
-                editor.insertContent(
-                  `<p><a href="${trimmed}" target="_blank" rel="noopener">${linkText}</a></p>`
-                );
+                void (async () => {
+                  const pdf = await requestPdfFromUser();
+                  if (!pdf) {
+                    return;
+                  }
+                  const safeUrl = escapeAttribute(pdf.url);
+                  const safeText = escapeHtml(pdf.text);
+                  editor.insertContent(
+                    `<p><a href="${safeUrl}" target="_blank" rel="noopener">${safeText}</a></p>`
+                  );
+                })();
               }
             });
           },
@@ -378,17 +515,13 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
             meta: { filetype?: string }
           ) => {
             if (meta.filetype === 'image') {
-              const url = window.prompt('URL de la imagen (https://...)');
-              if (!url) {
-                return;
-              }
-              const trimmed = url.trim();
-              if (!/^https?:\/\//i.test(trimmed)) {
-                alert('La URL debe comenzar con http:// o https://');
-                return;
-              }
-              const alt = window.prompt('Texto ALT de la imagen');
-              callback(trimmed, { alt: (alt ?? '').trim() });
+              void (async () => {
+                const image = await requestImageFromUser();
+                if (!image) {
+                  return;
+                }
+                callback(image.url, { alt: image.alt ?? '' });
+              })();
             }
           }
         });
@@ -414,7 +547,7 @@ const TinyMceEditor = forwardRef<TinyMceEditorHandle, TinyMceEditorProps>(functi
         editorRef.current = null;
       }
     };
-  }, [autosavePrefix, disabled, hostId, placeholder, scriptLoaded]);
+  }, [autosavePrefix, disabled, hostId, placeholder, scriptLoaded, onRequestImageUpload, onRequestPdfUpload]);
 
   useEffect(() => {
     const editor = editorRef.current;
