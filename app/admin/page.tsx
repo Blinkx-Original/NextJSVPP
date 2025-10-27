@@ -4,6 +4,7 @@ import ConnectivityPanel from './connectivity-panel';
 import PublishingPanel from './publishing-panel';
 import AssetsPanel from './assets-panel';
 import EditProductPanel from './edit-product-panel';
+import EditBlogPanel from './edit-blog-panel';
 import SeoPanel from './seo-panel';
 import CategoriesPanel from './categories-panel';
 import QuickProductNavigator from './quick-product-navigator';
