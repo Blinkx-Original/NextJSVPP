@@ -452,6 +452,12 @@ async function runLegacyCategoryQuery(
       console.error('[categories] failed to parse legacy product rows', parsed.error.format(), requestId ? { requestId } : undefined);
       return { products: [], totalCount: 0 };
     }
+  } catch (error) {
+    const info = toDbErrorInfo(error);
+    console.error('[categories] legacy category products error', info, requestId ? { requestId } : undefined);
+    return { products: [], totalCount: 0 };
+  }
+}
 
     const products = parsed.data.map(normalizeCategoryProductRecord);
     const totalCount = await runLegacyCategoryCount(column, matches);

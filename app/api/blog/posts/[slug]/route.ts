@@ -85,7 +85,8 @@ export async function GET(
 ): Promise<NextResponse<BlogPostResponse | ErrorResponse>> {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
-    return auth.response ?? buildErrorResponse('unauthorized', { status: 401 });
+    return (auth.response as NextResponse<ErrorResponse>) ??
+      buildErrorResponse('unauthorized', { status: 401 });
   }
 
   if (!safeGetEnv()) {
@@ -111,7 +112,8 @@ export async function PUT(
 ): Promise<NextResponse<BlogPostResponse | ErrorResponse>> {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
-    return auth.response ?? buildErrorResponse('unauthorized', { status: 401 });
+    return (auth.response as NextResponse<ErrorResponse>) ??
+      buildErrorResponse('unauthorized', { status: 401 });
   }
 
   if (!safeGetEnv()) {

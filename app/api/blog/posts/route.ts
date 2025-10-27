@@ -100,7 +100,8 @@ function sanitizeQuery(value: string | null): string | undefined {
 export async function GET(request: NextRequest): Promise<NextResponse<BlogPostsListResponse | ErrorResponse>> {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
-    return auth.response ?? buildErrorResponse('unauthorized', { status: 401 });
+    return (auth.response as NextResponse<ErrorResponse>) ??
+      buildErrorResponse('unauthorized', { status: 401 });
   }
 
   if (!safeGetEnv()) {
@@ -167,7 +168,8 @@ function mapNormalizationError(error: unknown): { code: ErrorCode; message: stri
 export async function POST(request: NextRequest): Promise<NextResponse<BlogPostCreateResponse | ErrorResponse>> {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
-    return auth.response ?? buildErrorResponse('unauthorized', { status: 401 });
+    return (auth.response as NextResponse<ErrorResponse>) ??
+      buildErrorResponse('unauthorized', { status: 401 });
   }
 
   if (!safeGetEnv()) {
