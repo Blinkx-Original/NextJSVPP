@@ -108,6 +108,12 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
   const tabParamRaw = searchParams?.tab;
   const initialTab = normalizeTab(tabParamRaw);
   const initialCategoryType = deriveInitialCategoryType(tabParamRaw);
+
+  const rawSlugParam = coerceSearchParam(searchParams?.slug);
+  const rawProductParam =
+    coerceSearchParam(searchParams?.product) ??
+    (initialCategoryType === 'blog' ? null : rawSlugParam);
+  const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
   const hasTabParam = Array.isArray(tabParamRaw)
     ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
     : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
