@@ -98,11 +98,14 @@ export default async function ProductCategoryPage({ params, searchParams }: Page
   }
 
   const offset = (pageParam - 1) * PAGE_SIZE;
-  let { products, totalCount } = await getPublishedProductsForCategory(category.id, {
-    limit: PAGE_SIZE,
-    offset,
-    requestId
-  });
+  let { products, totalCount } = await getPublishedProductsForCategory(
+    { id: category.id, slug: category.slug },
+    {
+      limit: PAGE_SIZE,
+      offset,
+      requestId
+    }
+  );
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
@@ -111,11 +114,14 @@ export default async function ProductCategoryPage({ params, searchParams }: Page
   if (pageParam > totalPages && totalCount > 0) {
     currentPage = totalPages;
     const lastOffset = (totalPages - 1) * PAGE_SIZE;
-    ({ products } = await getPublishedProductsForCategory(category.id, {
-      limit: PAGE_SIZE,
-      offset: lastOffset,
-      requestId
-    }));
+    ({ products } = await getPublishedProductsForCategory(
+      { id: category.id, slug: category.slug },
+      {
+        limit: PAGE_SIZE,
+        offset: lastOffset,
+        requestId
+      }
+    ));
   }
 
   const cards = toProductCards(products);
