@@ -19,6 +19,10 @@ interface AdminCategory {
 
 type CategoryType = 'product' | 'blog';
 
+interface CategoriesPanelProps {
+  initialType?: CategoryType;
+}
+
 type FormMode = 'create' | 'edit';
 
 type DeleteMode = 'block' | 'reassign' | 'detach';
@@ -298,8 +302,8 @@ async function jsonFetch<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
   return (await res.json()) as T;
 }
 
-export default function CategoriesPanel(): JSX.Element {
-  const [activeType, setActiveType] = useState<CategoryType>('product');
+export default function CategoriesPanel({ initialType = 'product' }: CategoriesPanelProps): JSX.Element {
+  const [activeType, setActiveType] = useState<CategoryType>(initialType);
   const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -307,6 +311,12 @@ export default function CategoriesPanel(): JSX.Element {
   const [formState, setFormState] = useState<FormState | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
+
+  useEffect(() => {
+    setActiveType(initialType);
+    setFormState(null);
+    setFeedback(null);
+  }, [initialType]);
 
   const loadCategories = useCallback(async (type: CategoryType) => {
     setLoading(true);

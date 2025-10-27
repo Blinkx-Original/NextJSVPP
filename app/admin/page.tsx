@@ -51,6 +51,7 @@ interface AdminPageProps {
 }
 
 type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'seo' | 'categories';
+type CategoryPanelType = 'product' | 'blog';
 
 function normalizeTab(input: string | string[] | undefined): AdminTab {
   if (Array.isArray(input)) {
@@ -73,11 +74,30 @@ function normalizeTab(input: string | string[] | undefined): AdminTab {
     if (normalized === 'seo') {
       return 'seo';
     }
-    if (normalized === 'categories' || normalized === 'category') {
+    if (
+      normalized === 'categories' ||
+      normalized === 'category' ||
+      normalized === 'edit-blog' ||
+      normalized === 'blog' ||
+      normalized === 'post'
+    ) {
       return 'categories';
     }
   }
   return 'connectivity';
+}
+
+function deriveInitialCategoryType(input: string | string[] | undefined): CategoryPanelType {
+  if (Array.isArray(input)) {
+    return deriveInitialCategoryType(input[0]);
+  }
+  if (typeof input === 'string') {
+    const normalized = input.toLowerCase();
+    if (normalized === 'edit-blog' || normalized === 'blog' || normalized === 'post') {
+      return 'blog';
+    }
+  }
+  return 'product';
 }
 
 function coerceSearchParam(value: string | string[] | undefined): string | null {
@@ -94,6 +114,7 @@ function coerceSearchParam(value: string | string[] | undefined): string | null 
 export default function AdminPage({ searchParams }: AdminPageProps) {
   const tabParamRaw = searchParams?.tab;
   const initialTab = normalizeTab(tabParamRaw);
+  const initialCategoryType = deriveInitialCategoryType(tabParamRaw);
   const hasTabParam = Array.isArray(tabParamRaw)
     ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
     : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
@@ -174,7 +195,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
       ) : activeTab === 'edit-product' ? (
         <EditProductPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
       ) : activeTab === 'categories' ? (
-        <CategoriesPanel />
+        <CategoriesPanel initialType={initialCategoryType} />
       ) : (
         <ConnectivityPanel />
       )}
