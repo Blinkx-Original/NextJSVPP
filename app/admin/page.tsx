@@ -5,6 +5,7 @@ import PublishingPanel from './publishing-panel';
 import AssetsPanel from './assets-panel';
 import EditProductPanel from './edit-product-panel';
 import SeoPanel from './seo-panel';
+import CategoriesPanel from './categories-panel';
 import QuickProductNavigator from './quick-product-navigator';
 import { readCloudflareImagesConfig } from '@/lib/cloudflare-images';
 import { issueAdminSessionToken } from '@/lib/basic-auth';
@@ -48,7 +49,24 @@ interface AdminPageProps {
   searchParams?: Record<string, string | string[] | undefined>;
 }
 
-type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'seo';
+type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'seo' | 'categories';
+type CategoryPanelType = 'product' | 'blog';
+
+const TAB_ALIASES: Record<string, AdminTab> = {
+  publishing: 'publishing',
+  assets: 'assets',
+  'edit-product': 'edit-product',
+  edit: 'edit-product',
+  product: 'edit-product',
+  seo: 'seo',
+  categories: 'categories',
+  category: 'categories',
+  'edit-blog': 'categories',
+  blog: 'categories',
+  post: 'categories'
+};
+
+const BLOG_CATEGORY_ALIASES = new Set<string>(['edit-blog', 'blog', 'post']);
 
 function normalizeTab(input: string | string[] | undefined): AdminTab {
   if (Array.isArray(input)) {
@@ -56,20 +74,22 @@ function normalizeTab(input: string | string[] | undefined): AdminTab {
   }
   if (typeof input === 'string') {
     const normalized = input.toLowerCase();
-    if (normalized === 'publishing') {
-      return 'publishing';
-    }
-    if (normalized === 'assets') {
-      return 'assets';
-    }
-    if (normalized === 'edit-product' || normalized === 'edit' || normalized === 'product') {
-      return 'edit-product';
-    }
-    if (normalized === 'seo') {
-      return 'seo';
-    }
+    return TAB_ALIASES[normalized] ?? 'connectivity';
   }
   return 'connectivity';
+}
+
+function deriveInitialCategoryType(input: string | string[] | undefined): CategoryPanelType {
+  if (Array.isArray(input)) {
+    return deriveInitialCategoryType(input[0]);
+  }
+  if (typeof input === 'string') {
+    const normalized = input.toLowerCase();
+    if (BLOG_CATEGORY_ALIASES.has(normalized)) {
+      return 'blog';
+    }
+  }
+  return 'product';
 }
 
 function coerceSearchParam(value: string | string[] | undefined): string | null {
@@ -84,15 +104,18 @@ function coerceSearchParam(value: string | string[] | undefined): string | null 
 }
 
 export default function AdminPage({ searchParams }: AdminPageProps) {
-  const rawProductParam =
-    coerceSearchParam(searchParams?.product) ?? coerceSearchParam(searchParams?.slug);
-  const normalizedProductSlug = normalizeProductSlugInput(rawProductParam);
-
   const tabParamRaw = searchParams?.tab;
-  const initialTab = normalizeTab(tabParamRaw);
   const hasTabParam = Array.isArray(tabParamRaw)
     ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
     : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
+  const initialTab = normalizeTab(tabParamRaw);
+  const initialCategoryType = deriveInitialCategoryType(tabParamRaw);
+
+  const rawSlugParam = coerceSearchParam(searchParams?.slug);
+  const explicitProductParam = coerceSearchParam(searchParams?.product);
+  const derivedProductParam =
+    explicitProductParam ?? (initialCategoryType === 'blog' ? null : rawSlugParam);
+  const normalizedProductSlug = normalizeProductSlugInput(derivedProductParam);
   const activeTab: AdminTab = normalizedProductSlug && !hasTabParam ? 'edit-product' : initialTab;
 
   const headerList = nextHeaders();
@@ -109,6 +132,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
     { id: 'connectivity', label: 'Connectivity', href: '/admin' },
     { id: 'publishing', label: 'Publishing', href: '/admin?tab=publishing' },
     { id: 'edit-product', label: 'Edit Product', href: '/admin?tab=edit-product' },
+    { id: 'categories', label: 'Categories', href: '/admin?tab=categories' },
     { id: 'seo', label: 'SEO', href: '/admin?tab=seo' },
     { id: 'assets', label: 'Assets', href: '/admin?tab=assets' }
   ];
@@ -146,7 +170,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
         })}
       </nav>
 
-      <QuickProductNavigator initialValue={rawProductParam ?? ''} />
+      <QuickProductNavigator initialValue={derivedProductParam ?? ''} />
 
       {activeTab === 'publishing' ? (
         <PublishingPanel />
@@ -158,9 +182,11 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
           adminToken={adminToken}
         />
       ) : activeTab === 'seo' ? (
-        <SeoPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
+        <SeoPanel initialSlug={normalizedProductSlug} initialInput={derivedProductParam ?? ''} />
       ) : activeTab === 'edit-product' ? (
-        <EditProductPanel initialSlug={normalizedProductSlug} initialInput={rawProductParam ?? ''} />
+        <EditProductPanel initialSlug={normalizedProductSlug} initialInput={derivedProductParam ?? ''} />
+      ) : activeTab === 'categories' ? (
+        <CategoriesPanel initialType={initialCategoryType} />
       ) : (
         <ConnectivityPanel />
       )}
