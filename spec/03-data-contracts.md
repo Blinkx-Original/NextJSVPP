@@ -32,6 +32,30 @@ UNIQUE(group_name, key_name)
 
 > Alternativa: una sola fila JSON por grupo. Este contrato mantiene simplicidad de lectura/escritura.
 
+## Tabla de publicaciones: `posts`
+```
+id BIGINT PRIMARY KEY,
+slug VARCHAR UNIQUE NOT NULL,
+title_h1 TEXT NOT NULL,
+short_summary VARCHAR(160),
+content_html LONGTEXT,
+cover_image_url TEXT,
+category_slug VARCHAR,
+product_slugs_json JSON,
+cta_lead_url TEXT,
+cta_affiliate_url TEXT,
+seo_title VARCHAR(60),
+seo_description VARCHAR(160),
+canonical_url TEXT,
+is_published TINYINT(1) DEFAULT 0,
+published_at DATETIME,
+last_tidb_update_at TIMESTAMP
+```
+
+## Tabla de categorías: `categories`
+- `type` → `ENUM('product','blog')` con `DEFAULT 'product'`.
+- Índice compuesto `UNIQUE(type, slug)` para evitar colisiones entre productos y blog.
+
 ### Read Contract
 - Productos por `slug`; 404 si no existe o no publicado.
 - `images_json` parseable; tolerar vacío/incorrecto.
@@ -39,3 +63,4 @@ UNIQUE(group_name, key_name)
 ### Write Contract (fase 2)
 - Guardado de producto actualiza `last_tidb_update_at`, hace **Algolia upsert** y **revalidate**.
 - Configuraciones Cloudflare se guardan en `app_settings` y se enmascaran en UI.
+- Posts utilizan `is_published` + `published_at` para definir visibilidad pública.
