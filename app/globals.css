@@ -402,6 +402,15 @@ a {
     gap: 16px;
   }
 
+  .site-header__search {
+    justify-content: flex-start;
+  }
+
+  .site-header__search-inner {
+    width: clamp(0px, calc(100% - 72px), 100%);
+    max-width: none;
+  }
+
   .site-header__search-submit {
     width: 40px;
     height: 40px;
