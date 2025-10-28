@@ -32,7 +32,15 @@ export function SiteHeader() {
       <div className="site-header__inner">
         <div className="site-header__top">
           <Link href="/" className="site-header__logo" aria-label="Home">
-            <Image src={HEADER_LOGO_SRC} alt="blinkx" width={410} height={64} priority />
+            <Image
+              src={HEADER_LOGO_SRC}
+              alt="blinkx"
+              width={240}
+              height={52}
+              priority
+              className="site-header__logo-image"
+              sizes="(max-width: 640px) 160px, 220px"
+            />
           </Link>
           <nav className="site-header__menu" aria-label="Contact information">
             <a className="site-header__menu-item" href={`tel:${SUPPORT_PHONE.replace(/[^0-9+]/g, '')}`}>
