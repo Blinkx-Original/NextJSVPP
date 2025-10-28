@@ -66,6 +66,54 @@ function parseDeleteMode(value: string | null): DeleteMode {
   return 'block';
 }
 
+function normalizeSlugMatch(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+async function countPublishedProductsForSlug(
+  connection: PoolConnection,
+  slug: string
+): Promise<number> {
+  const normalized = normalizeSlugMatch(slug);
+  if (!normalized) {
+    return 0;
+  }
+
+  const runQuery = async (useFallback: boolean): Promise<number> => {
+    const whereClause = useFallback
+      ? "LOWER(NULLIF(category, '')) = ?"
+      : `LOWER(COALESCE(NULLIF(category, ''), NULLIF(category_slug, ''))) = ?`;
+    const [rows] = await connection.query<RowDataPacket[]>(
+      `SELECT COUNT(*) AS total
+        FROM products
+        WHERE is_published = 1 AND ${whereClause}`,
+      [normalized]
+    );
+    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    const value = row ? row.total : 0;
+    const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
+    return Number.isFinite(total) && total > 0 ? total : 0;
+  };
+
+  try {
+    return await runQuery(false);
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    return await runQuery(true);
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error;
+    }
+  }
+
+  return 0;
+}
+
 async function countCategoryRelations(
   connection: PoolConnection,
   type: CategoryType,
@@ -73,17 +121,7 @@ async function countCategoryRelations(
   slug: string
 ): Promise<number> {
   if (type === 'product') {
-    const [rows] = await connection.query<RowDataPacket[]>(
-      `SELECT COUNT(*) AS total
-        FROM category_products cp
-        INNER JOIN products p ON p.id = cp.product_id
-        WHERE cp.category_id = ? AND p.is_published = 1`,
-      [categoryId]
-    );
-    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-    const value = row ? row.total : 0;
-    const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
-    return Number.isFinite(total) && total > 0 ? total : 0;
+    return countPublishedProductsForSlug(connection, slug);
   }
 
   const [rows] = await connection.query<RowDataPacket[]>(
@@ -108,10 +146,13 @@ async function updateProductFallbacks(
   slug: string,
   newName: string | null
 ): Promise<void> {
+  const normalizedSlug = normalizeSlugMatch(slug);
+  if (!normalizedSlug) {
+    return;
+  }
+
   try {
-    if (newName) {
-      await connection.query(`UPDATE products SET category = ? WHERE category_slug = ?`, [newName, slug]);
-    }
+    await connection.query(`UPDATE products SET category_slug = ? WHERE LOWER(category_slug) = ?`, [slug, normalizedSlug]);
   } catch (error) {
     if (!isUnknownColumnError(error)) {
       throw error;
@@ -119,19 +160,40 @@ async function updateProductFallbacks(
   }
 
   try {
-    if (!newName) {
-      await connection.query(`UPDATE products SET category = NULL WHERE category_slug = ?`, [slug]);
-    }
+    await connection.query(`UPDATE products SET category = ? WHERE category_slug = ?`, [slug, slug]);
   } catch (error) {
     if (!isUnknownColumnError(error)) {
       throw error;
+    }
+  }
+
+  try {
+    await connection.query(`UPDATE products SET category = ? WHERE LOWER(category) = ?`, [slug, normalizedSlug]);
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error;
+    }
+  }
+
+  if (newName) {
+    const trimmedName = newName.trim();
+    if (trimmedName) {
+      try {
+        await connection.query(`UPDATE products SET category = ? WHERE category = ?`, [slug, trimmedName]);
+      } catch (error) {
+        if (!isUnknownColumnError(error)) {
+          throw error;
+        }
+      }
     }
   }
 }
 
 async function detachProductFallbacks(connection: PoolConnection, slug: string, name: string): Promise<void> {
+  const normalizedSlug = normalizeSlugMatch(slug);
+
   try {
-    await connection.query(`UPDATE products SET category_slug = NULL WHERE category_slug = ?`, [slug]);
+    await connection.query(`UPDATE products SET category_slug = NULL WHERE LOWER(category_slug) = ?`, [normalizedSlug]);
   } catch (error) {
     if (!isUnknownColumnError(error)) {
       throw error;
@@ -139,10 +201,29 @@ async function detachProductFallbacks(connection: PoolConnection, slug: string, 
   }
 
   try {
-    await connection.query(`UPDATE products SET category = NULL WHERE category = ?`, [name]);
+    await connection.query(`UPDATE products SET category = NULL WHERE category_slug = ?`, [slug]);
   } catch (error) {
     if (!isUnknownColumnError(error)) {
       throw error;
+    }
+  }
+
+  try {
+    await connection.query(`UPDATE products SET category = NULL WHERE LOWER(category) = ?`, [normalizedSlug]);
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error;
+    }
+  }
+
+  const trimmedName = name.trim();
+  if (trimmedName) {
+    try {
+      await connection.query(`UPDATE products SET category = NULL WHERE category = ?`, [trimmedName]);
+    } catch (error) {
+      if (!isUnknownColumnError(error)) {
+        throw error;
+      }
     }
   }
 }
@@ -154,8 +235,14 @@ async function reassignProductFallbacks(
   targetSlug: string,
   targetName: string
 ): Promise<void> {
+  const normalizedSlug = normalizeSlugMatch(slug);
+  const normalizedTarget = normalizeSlugMatch(targetSlug);
+  if (!normalizedTarget) {
+    return;
+  }
+
   try {
-    await connection.query(`UPDATE products SET category_slug = ? WHERE category_slug = ?`, [targetSlug, slug]);
+    await connection.query(`UPDATE products SET category_slug = ? WHERE LOWER(category_slug) = ?`, [targetSlug, normalizedSlug]);
   } catch (error) {
     if (!isUnknownColumnError(error)) {
       throw error;
@@ -163,10 +250,40 @@ async function reassignProductFallbacks(
   }
 
   try {
-    await connection.query(`UPDATE products SET category = ? WHERE category = ?`, [targetName, name]);
+    await connection.query(`UPDATE products SET category = ? WHERE category_slug = ?`, [targetSlug, slug]);
   } catch (error) {
     if (!isUnknownColumnError(error)) {
       throw error;
+    }
+  }
+
+  try {
+    await connection.query(`UPDATE products SET category = ? WHERE LOWER(category) = ?`, [targetSlug, normalizedSlug]);
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error;
+    }
+  }
+
+  const trimmedName = name.trim();
+  if (trimmedName) {
+    try {
+      await connection.query(`UPDATE products SET category = ? WHERE category = ?`, [targetSlug, trimmedName]);
+    } catch (error) {
+      if (!isUnknownColumnError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  const normalizedTargetName = targetName.trim();
+  if (normalizedTargetName) {
+    try {
+      await connection.query(`UPDATE products SET category = ? WHERE category = ?`, [targetSlug, normalizedTargetName]);
+    } catch (error) {
+      if (!isUnknownColumnError(error)) {
+        throw error;
+      }
     }
   }
 }
@@ -372,7 +489,6 @@ export async function PUT(
 
     if (typeChanged) {
       if (currentType === 'product') {
-        await connection.query(`DELETE FROM category_products WHERE category_id = ?`, [categoryId]);
         await detachProductFallbacks(connection, slug, currentName);
       } else if (nextType === 'product') {
         await connection.query(`UPDATE posts SET category_slug = NULL WHERE category_slug = ?`, [slug]);
@@ -495,10 +611,6 @@ export async function DELETE(
       }
 
       if (type === 'product') {
-        await connection.query(
-          `UPDATE category_products SET category_id = ? WHERE category_id = ?`,
-          [target.id, categoryId]
-        );
         await reassignProductFallbacks(connection, slug, name, target.slug, target.name);
       } else {
         await connection.query(`UPDATE posts SET category_slug = ? WHERE category_slug = ?`, [target.slug, slug]);
@@ -509,14 +621,12 @@ export async function DELETE(
       }
     } else if (mode === 'detach' && relatedCount > 0) {
       if (type === 'product') {
-        await connection.query(`DELETE FROM category_products WHERE category_id = ?`, [categoryId]);
         await detachProductFallbacks(connection, slug, name);
       } else {
         await connection.query(`UPDATE posts SET category_slug = NULL WHERE category_slug = ?`, [slug]);
       }
     }
 
-    await connection.query(`DELETE FROM category_products WHERE category_id = ?`, [categoryId]);
     await connection.query(`DELETE FROM categories WHERE id = ?`, [categoryId]);
 
     await connection.commit();
