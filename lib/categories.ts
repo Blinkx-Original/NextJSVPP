@@ -318,20 +318,47 @@ function normalizeCategoryProductRecord(record: z.infer<typeof categoryProductRe
   };
 }
 
-async function countCategoryProducts(categoryId: bigint): Promise<number> {
+async function countCategoryProducts(slug: string | null | undefined): Promise<number> {
+  const normalizedSlug = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
+  if (!normalizedSlug) {
+    return 0;
+  }
+
   const pool = getPool();
-  try {
+
+  const runQuery = async (useFallback: boolean): Promise<number> => {
+    const whereClause = useFallback
+      ? "LOWER(NULLIF(category, '')) = ?"
+      : `LOWER(COALESCE(NULLIF(category, ''), NULLIF(category_slug, ''))) = ?`;
     const [rows] = await pool.query(
-      `SELECT COUNT(*) AS total\n        FROM category_products cp\n        INNER JOIN products p ON p.id = cp.product_id\n        WHERE cp.category_id = ? AND p.is_published = 1`,
-      [categoryId.toString()]
+      `SELECT COUNT(*) AS total
+        FROM products
+        WHERE is_published = 1 AND ${whereClause}`,
+      [normalizedSlug]
     );
     const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
     const value = row && typeof row.total !== 'undefined' ? row.total : 0;
     const total = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
     return Number.isFinite(total) && total > 0 ? total : 0;
+  };
+
+  try {
+    return await runQuery(false);
   } catch (error) {
     const info = toDbErrorInfo(error);
-    console.error('[categories] count products error', info);
+    if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
+      console.error('[categories] count products error', info);
+      return 0;
+    }
+  }
+
+  try {
+    return await runQuery(true);
+  } catch (error) {
+    const info = toDbErrorInfo(error);
+    if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
+      console.error('[categories] count products fallback error', info);
+    }
     return 0;
   }
 }
@@ -489,26 +516,71 @@ export async function getPublishedProductsForCategory(
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
 
-  const sql = `SELECT p.id, p.slug, p.title_h1, p.short_summary, p.price, p.images_json, p.last_tidb_update_at, p.updated_at\n    FROM category_products cp\n    INNER JOIN products p ON p.id = cp.product_id\n    WHERE cp.category_id = ? AND p.is_published = 1\n    ORDER BY p.title_h1 ASC\n    LIMIT ? OFFSET ?`;
+  const normalizedSlug = typeof category.slug === 'string' ? category.slug.trim().toLowerCase() : '';
 
-  try {
-    const [rows] = await pool.query(sql, [category.id.toString(), limit, offset]);
+  const executeQuery = async (useFallback: boolean): Promise<CategoryProductsQueryResult | null> => {
+    const whereClause = useFallback
+      ? "p.is_published = 1 AND LOWER(NULLIF(p.category, '')) = ?"
+      : `p.is_published = 1 AND LOWER(COALESCE(NULLIF(p.category, ''), NULLIF(p.category_slug, ''))) = ?`;
+
+    const [rows] = await pool.query(
+      `SELECT p.id, p.slug, p.title_h1, p.short_summary, p.price, p.images_json, p.last_tidb_update_at, p.updated_at
+        FROM products p
+        WHERE ${whereClause}
+        ORDER BY p.title_h1 ASC
+        LIMIT ? OFFSET ?`,
+      [normalizedSlug, limit, offset]
+    );
+
     const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
-    if (parsed.success) {
-      const products = parsed.data.map(normalizeCategoryProductRecord);
-      let totalCount = await countCategoryProducts(category.id);
-      if (products.length > 0 && totalCount === 0) {
-        totalCount = products.length;
-      }
-      if (products.length > 0 || totalCount > 0) {
-        return { products, totalCount };
-      }
-    } else {
-      console.error('[categories] failed to parse product rows', parsed.error.format(), requestId ? { requestId } : undefined);
+    if (!parsed.success) {
+      console.error(
+        '[categories] failed to parse product rows',
+        parsed.error.format(),
+        requestId ? { requestId } : undefined
+      );
+      return null;
     }
-  } catch (error) {
-    const info = toDbErrorInfo(error);
-    console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
+
+    const products = parsed.data.map(normalizeCategoryProductRecord);
+    let totalCount = await countCategoryProducts(category.slug);
+    if (products.length > 0 && totalCount === 0) {
+      totalCount = products.length;
+    }
+    if (products.length > 0 || totalCount > 0) {
+      return { products, totalCount };
+    }
+    return null;
+  };
+
+  if (normalizedSlug) {
+    try {
+      const result = await executeQuery(false);
+      if (result) {
+        return result;
+      }
+    } catch (error) {
+      const info = toDbErrorInfo(error);
+      if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
+        console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
+      } else {
+        try {
+          const fallbackResult = await executeQuery(true);
+          if (fallbackResult) {
+            return fallbackResult;
+          }
+        } catch (fallbackError) {
+          const fallbackInfo = toDbErrorInfo(fallbackError);
+          if (fallbackInfo.code !== 'ER_BAD_FIELD_ERROR' && fallbackInfo.code !== '42703') {
+            console.error(
+              '[categories] category products fallback error',
+              fallbackInfo,
+              requestId ? { requestId } : undefined
+            );
+          }
+        }
+      }
+    }
   }
 
   if (!category.slug) {
