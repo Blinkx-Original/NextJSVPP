@@ -166,6 +166,25 @@
     padding: 2.5rem 1.25rem 3.5rem;
   }
 
+  .productHero {
+    gap: 1.5rem;
+  }
+
+  .productMedia {
+    aspect-ratio: 16 / 11;
+    border-radius: 16px;
+  }
+
+  .productTitle {
+    font-size: clamp(1.5rem, 4vw + 1rem, 2.25rem);
+    letter-spacing: 0.025em;
+  }
+
+  .productSummary {
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+
   .productDescription {
     padding: 1.75rem;
   }
