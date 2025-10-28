@@ -163,10 +163,53 @@
 
 @media (max-width: 600px) {
   .productPage {
-    padding: 2.5rem 1.25rem 3.5rem;
+    padding: 2rem 1rem 3rem;
+    gap: 2.25rem;
+  }
+
+  .productHero {
+    gap: 1.25rem;
+  }
+
+  .productMedia {
+    aspect-ratio: 16 / 10;
+    border-radius: 14px;
+  }
+
+  .productTitle {
+    font-size: clamp(1.35rem, 3.4vw + 0.95rem, 1.9rem);
+    letter-spacing: 0.02em;
+  }
+
+  .productSummary {
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+
+  .productCtas {
+    gap: 0.65rem;
+  }
+
+  .productHero {
+    gap: 1.5rem;
+  }
+
+  .productMedia {
+    aspect-ratio: 16 / 11;
+    border-radius: 16px;
+  }
+
+  .productTitle {
+    font-size: clamp(1.5rem, 4vw + 1rem, 2.25rem);
+    letter-spacing: 0.025em;
+  }
+
+  .productSummary {
+    font-size: 0.95rem;
+    line-height: 1.6;
   }
 
   .productDescription {
-    padding: 1.75rem;
+    padding: 1.5rem;
   }
 }
