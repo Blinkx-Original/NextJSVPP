@@ -1,0 +1,108 @@
+.wrapper {
+  display: flex;
+  justify-content: center;
+  padding: 3rem 1.25rem 5rem;
+  background: transparent;
+}
+
+.card {
+  width: 100%;
+  max-width: 1100px;
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid #e6e7eb;
+  padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1.25rem, 5vw, 2.75rem);
+  box-shadow: 0 22px 60px rgba(15, 15, 20, 0.08);
+}
+
+.headline {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  font-size: clamp(1.65rem, 4vw, 2.5rem);
+  line-height: 1.18;
+  letter-spacing: -0.01em;
+  font-weight: 800;
+  color: #0b0b0f;
+  text-align: center;
+}
+
+.textSegment {
+  display: inline-block;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1.2rem;
+  border-radius: 999px;
+  text-decoration: none;
+  background: #000000;
+  color: #ffffff;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18), 0 1px 0 rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.pill:hover,
+.pill:focus-visible {
+  background: #111111;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+}
+
+.pill span {
+  display: inline-block;
+  font-size: clamp(0.95rem, 2.5vw, 1.1rem);
+}
+
+.footer {
+  margin: 1.75rem 0 0;
+  text-align: center;
+  font-size: 0.95rem;
+  color: #0b0b0f;
+}
+
+.footer a {
+  font-weight: 700;
+  color: #111111;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.footer a:hover,
+.footer a:focus-visible {
+  color: #000000;
+}
+
+@media (max-width: 900px) {
+  .headline {
+    gap: 0.65rem;
+  }
+
+  .pill {
+    padding: 0.55rem 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .wrapper {
+    padding: 2.5rem 1rem 4rem;
+  }
+
+  .card {
+    padding: 1.5rem 1.25rem;
+  }
+
+  .headline {
+    justify-content: flex-start;
+    text-align: left;
+  }
+}
