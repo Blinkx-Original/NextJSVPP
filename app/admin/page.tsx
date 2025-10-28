@@ -50,7 +50,14 @@ interface AdminPageProps {
   searchParams?: Record<string, string | string[] | undefined>;
 }
 
-type AdminTab = 'connectivity' | 'publishing' | 'assets' | 'edit-product' | 'edit-blog' | 'seo';
+type AdminTab =
+  | 'connectivity'
+  | 'publishing'
+  | 'categories'
+  | 'assets'
+  | 'edit-product'
+  | 'edit-blog'
+  | 'seo';
 type CategoryPanelType = 'product' | 'blog';
 
 function normalizeTab(input: string | string[] | undefined): AdminTab {
@@ -61,6 +68,9 @@ function normalizeTab(input: string | string[] | undefined): AdminTab {
     const normalized = input.toLowerCase();
     if (normalized === 'publishing') {
       return 'publishing';
+    }
+    if (normalized === 'categories' || normalized === 'category') {
+      return 'categories';
     }
     if (normalized === 'assets') {
       return 'assets';
@@ -111,6 +121,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
   const hasTabParam = Array.isArray(tabParamRaw)
     ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
     : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
+  const initialCategoryType = deriveInitialCategoryType(searchParams?.category_type ?? searchParams?.type);
   const rawSlugParam = coerceSearchParam(searchParams?.slug);
   const rawProductParamFromQuery = coerceSearchParam(searchParams?.product);
   const resolvedProductParam =
@@ -132,6 +143,7 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
   const tabs: Array<{ id: AdminTab; label: string; href: string }> = [
     { id: 'connectivity', label: 'Connectivity', href: '/admin' },
     { id: 'publishing', label: 'Publishing', href: '/admin?tab=publishing' },
+    { id: 'categories', label: 'Categories', href: '/admin?tab=categories' },
     { id: 'edit-product', label: 'Edit Product', href: '/admin?tab=edit-product' },
     { id: 'edit-blog', label: 'Edit Blog', href: '/admin?tab=edit-blog' },
     { id: 'seo', label: 'SEO', href: '/admin?tab=seo' },
@@ -196,6 +208,8 @@ export default function AdminPage({ searchParams }: AdminPageProps) {
           authHeader={authHeader}
           adminToken={adminToken}
         />
+      ) : activeTab === 'categories' ? (
+        <CategoriesPanel initialType={initialCategoryType} />
       ) : (
         <ConnectivityPanel />
       )}
