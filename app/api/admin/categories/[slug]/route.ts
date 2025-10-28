@@ -199,7 +199,7 @@ export async function GET(
   const queryType = normalizeType(url.searchParams.get('type'));
 
   try {
-    const category = await fetchAdminCategoryBySlug(getPool(), type, slug);
+    const category = await fetchAdminCategoryBySlug(getPool(), queryType, slug);
     if (!category) {
       return buildErrorResponse('not_found', { status: 404, message: 'Category not found' });
     }
