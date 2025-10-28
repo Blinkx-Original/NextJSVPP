@@ -107,6 +107,7 @@ function coerceSearchParam(value: string | string[] | undefined): string | null 
 
 export default function AdminPage({ searchParams }: AdminPageProps) {
   const tabParamRaw = searchParams?.tab;
+  const initialTab = normalizeTab(tabParamRaw);
   const hasTabParam = Array.isArray(tabParamRaw)
     ? tabParamRaw.length > 0 && typeof tabParamRaw[0] === 'string'
     : typeof tabParamRaw === 'string' && tabParamRaw.length > 0;
