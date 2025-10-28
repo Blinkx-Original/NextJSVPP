@@ -21,6 +21,7 @@ import {
 import { fetchAdminCategoryBySlug, type AdminCategoryRow } from '../helpers';
 
 interface UpdateCategoryPayload {
+  type?: unknown;
   name?: unknown;
   short_description?: unknown;
   long_description?: unknown;
@@ -35,6 +36,20 @@ function toIdString(value: unknown): string {
     return value.toString();
   }
   return String(value);
+}
+
+function parseCategoryTypeInput(value: unknown): CategoryType | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (getCategoryTypeSynonyms('blog').includes(normalized)) {
+    return 'blog';
+  }
+  if (getCategoryTypeSynonyms('product').includes(normalized)) {
+    return 'product';
+  }
+  return null;
 }
 
 function parseDeleteMode(value: string | null): DeleteMode {
@@ -181,10 +196,10 @@ export async function GET(
   }
 
   const url = new URL(request.url);
-  const type = normalizeType(url.searchParams.get('type'));
+  const queryType = normalizeType(url.searchParams.get('type'));
 
   try {
-    const category = await fetchAdminCategoryBySlug(getPool(), type, slug);
+    const category = await fetchAdminCategoryBySlug(getPool(), queryType, slug);
     if (!category) {
       return buildErrorResponse('not_found', { status: 404, message: 'Category not found' });
     }
@@ -225,17 +240,17 @@ export async function PUT(
   }
 
   const url = new URL(request.url);
-  const type = normalizeType(url.searchParams.get('type'));
+  const queryType = normalizeType(url.searchParams.get('type'));
   const slug = ensureCategorySlug(params.slug);
 
   const pool = getPool();
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const typeSynonyms = getCategoryTypeSynonyms(type);
+    const typeSynonyms = getCategoryTypeSynonyms(queryType);
     const placeholders = typeSynonyms.map(() => '?').join(', ');
     const [rows] = await connection.query<RowDataPacket[]>(
-      `SELECT id, name, short_description, long_description, hero_image_url, is_published
+      `SELECT id, type, name, short_description, long_description, hero_image_url, is_published
         FROM categories
         WHERE slug = ? AND LOWER(type) IN (${placeholders})
         LIMIT 1 FOR UPDATE`,
@@ -254,6 +269,10 @@ export async function PUT(
     const currentLong = typeof record.long_description === 'string' ? record.long_description : null;
     const currentHero = typeof record.hero_image_url === 'string' ? record.hero_image_url : null;
     const currentPublished = Boolean(record.is_published);
+    const currentType =
+      typeof record.type === 'string' ? parseCategoryTypeInput(record.type) ?? queryType : queryType;
+    let nextType = currentType;
+    let typeChanged = false;
 
     let name = currentName;
     let shortDescription = currentShort;
@@ -293,9 +312,22 @@ export async function PUT(
       isPublished = normalizedPublished;
     }
 
-    if (!nameChanged && !shortChanged && !longChanged && !heroChanged && !publishedChanged) {
+    if (Object.prototype.hasOwnProperty.call(payload, 'type')) {
+      const parsedType = parseCategoryTypeInput(payload.type);
+      if (!parsedType) {
+        await connection.rollback();
+        return buildErrorResponse('invalid_payload', {
+          status: 400,
+          message: 'Invalid category type'
+        });
+      }
+      typeChanged = parsedType !== currentType;
+      nextType = parsedType;
+    }
+
+    if (!nameChanged && !shortChanged && !longChanged && !heroChanged && !publishedChanged && !typeChanged) {
       await connection.rollback();
-      const existing = await fetchAdminCategoryBySlug(pool, type, slug);
+      const existing = await fetchAdminCategoryBySlug(pool, currentType, slug);
       if (!existing) {
         return buildErrorResponse('not_found', { status: 404, message: 'Category not found' });
       }
@@ -325,6 +357,10 @@ export async function PUT(
       updates.push('is_published = ?');
       params.push(isPublished ? 1 : 0);
     }
+    if (typeChanged) {
+      updates.push('type = ?');
+      params.push(nextType);
+    }
 
     updates.push('updated_at = NOW(6)');
     updates.push('last_tidb_update_at = NOW(6)');
@@ -334,19 +370,28 @@ export async function PUT(
       [...params, categoryId]
     );
 
-    if (type === 'product' && nameChanged) {
+    if (typeChanged) {
+      if (currentType === 'product') {
+        await connection.query(`DELETE FROM category_products WHERE category_id = ?`, [categoryId]);
+        await detachProductFallbacks(connection, slug, currentName);
+      } else if (nextType === 'product') {
+        await connection.query(`UPDATE posts SET category_slug = NULL WHERE category_slug = ?`, [slug]);
+        const fallbackName = nameChanged ? name : currentName;
+        await updateProductFallbacks(connection, slug, fallbackName);
+      }
+    } else if (currentType === 'product' && nameChanged) {
       await updateProductFallbacks(connection, slug, name);
     }
 
     await connection.commit();
 
-    const updated = await fetchAdminCategoryBySlug(pool, type, slug);
+    const updated = await fetchAdminCategoryBySlug(pool, nextType, slug);
     if (!updated) {
       return buildErrorResponse('not_found', { status: 404, message: 'Category not found after update' });
     }
 
     revalidatePath('/categories');
-    if (type === 'product') {
+    if (currentType === 'product' || nextType === 'product') {
       revalidatePath(`/c/${slug}`);
     }
 
@@ -354,6 +399,13 @@ export async function PUT(
   } catch (error) {
     await connection.rollback();
     const info = toDbErrorInfo(error);
+    if ((info.code === 'ER_DUP_ENTRY' || info.code === '23505') && info.message) {
+      return buildErrorResponse('duplicate_slug', {
+        status: 409,
+        message: 'Slug already exists for this category type',
+        details: info
+      });
+    }
     return buildErrorResponse('sql_error', { status: 500, message: info.message, details: info });
   } finally {
     connection.release();
