@@ -1,10 +1,10 @@
 import footerLinksData from '@/content/footer/links.json';
 
-interface FooterLinkRecord {
+export type FooterLink = {
   title: string;
   href: string;
   external?: boolean;
-}
+};
 
 interface FooterLinkEntry {
   link: FooterLink;
