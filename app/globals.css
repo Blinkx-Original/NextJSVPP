@@ -14,21 +14,6 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
-}
-
-img,
-svg,
-video,
-canvas {
-  max-width: 100%;
-  height: auto;
-}
-
-.bx-break {
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  hyphens: auto;
 }
 
 .sr-only {
