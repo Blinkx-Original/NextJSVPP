@@ -769,6 +769,9 @@ export async function updateBlogPost(
     }
 
     console.error('[blog-posts] update error', info);
+    if ((error as Error)?.message === 'load_failed') {
+      return { ok: false, error: { code: 'sql_error', message: 'Unable to load updated post' } };
+    }
     return { ok: false, error: { code: 'sql_error', message: info.message, info } };
   }
 }

@@ -15,7 +15,8 @@
     "mysql2": "3.9.3",
     "zod": "3.22.4",
     "@algolia/client-search": "4.23.3",
-    "he": "1.2.0"
+    "he": "1.2.0",
+    "react-arborist": "3.4.0"
   },
   "devDependencies": {
     "@types/node": "20.12.7",

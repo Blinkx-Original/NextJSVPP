@@ -8,7 +8,7 @@ type SqlClient = Pool | PoolConnection;
 
 type CategoryType = 'product' | 'blog';
 
-export type ProductCategoryColumn = 'category' | 'category_slug';
+export type ProductCategoryColumn = 'category' | 'category_slug' | 'categories';
 
 export type BlogCategoryColumn = 'category_slug' | 'category';
 
@@ -21,7 +21,7 @@ async function detectProductCategoryColumns(client: SqlClient): Promise<ProductC
   }
 
   const columns: ProductCategoryColumn[] = [];
-  const candidates: ProductCategoryColumn[] = ['category', 'category_slug'];
+  const candidates: ProductCategoryColumn[] = ['category', 'category_slug', 'categories'];
 
   for (const column of candidates) {
     try {
@@ -402,6 +402,47 @@ function normalizeProductRecord(record: z.infer<typeof categoryProductRecordSche
   };
 }
 
+// Build a robust match fragment for category columns, including JSON arrays or CSV text in `categories`.
+function buildCategoryMatchFragments(
+  columns: ProductCategoryColumn[],
+  normalizedSlug: string
+): { where: string; params: unknown[] } {
+  const pieces: string[] = [];
+  const params: unknown[] = [];
+
+  for (const column of columns) {
+    if (column === 'category' || column === 'category_slug') {
+      pieces.push('LOWER(TRIM(??)) = ?');
+      params.push(column, normalizedSlug);
+    } else if (column === 'categories') {
+      // Support both JSON arrays and CSV-like text lists.
+      pieces.push(`(
+        (JSON_VALID(??) AND JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?)))
+        OR
+        (NOT JSON_VALID(??) AND (
+            FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', '')) > 0
+            OR
+            CONCAT(',', LOWER(REPLACE(TRIM(??), ' ', '')), ',') LIKE ?
+        ))
+      )`);
+      // order of params for the above expression:
+      // JSON_VALID(??)
+      params.push(column);
+      // JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))
+      params.push(column, normalizedSlug);
+      // NOT JSON_VALID(??)
+      params.push(column);
+      // FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', ''))
+      params.push(normalizedSlug, column);
+      // CONCAT(... LIKE ?)
+      params.push(column, `%,${normalizedSlug},%`);
+    }
+  }
+
+  const where = pieces.length > 0 ? pieces.join(' OR ') : '0';
+  return { where, params };
+}
+
 async function countProductsForCategory(
   slug: string,
   columns: ProductCategoryColumn[]
@@ -412,17 +453,13 @@ async function countProductsForCategory(
   }
 
   const pool = getPool();
-  const columnChecks = columns.map(() => 'LOWER(TRIM(??)) = ?').join(' OR ');
-  const params: unknown[] = [];
-  for (const column of columns) {
-    params.push(column, normalized);
-  }
+  const { where, params } = buildCategoryMatchFragments(columns, normalized);
 
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS total
         FROM products
-        WHERE is_published = 1 AND (${columnChecks})`,
+        WHERE is_published = 1 AND (${where})`,
       params
     );
     const total = Array.isArray(rows) && rows.length > 0 ? rows[0]?.total : 0;
@@ -449,17 +486,13 @@ export async function getPublishedProductsForCategory(
     return { products: [], totalCount: 0 };
   }
 
-  const whereClauses = columns.map(() => 'LOWER(TRIM(??)) = ?').join(' OR ');
-  const params: unknown[] = [];
-  for (const column of columns) {
-    params.push(column, normalizedSlug);
-  }
+  const { where, params } = buildCategoryMatchFragments(columns, normalizedSlug);
 
   try {
     const [rows] = await pool.query(
       `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
         FROM products
-        WHERE is_published = 1 AND (${whereClauses})
+        WHERE is_published = 1 AND (${where})
         ORDER BY title_h1 ASC
         LIMIT ? OFFSET ?`,
       [...params, limit, offset]
