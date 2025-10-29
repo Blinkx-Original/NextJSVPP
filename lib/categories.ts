@@ -318,12 +318,19 @@ function normalizeCategoryProductRecord(record: z.infer<typeof categoryProductRe
   };
 }
 
-async function countCategoryProducts(categoryId: bigint): Promise<number> {
+async function countCategoryProducts(slug: string | null | undefined): Promise<number> {
+  const normalized = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
+  if (!normalized) {
+    return 0;
+  }
+
   const pool = getPool();
   try {
     const [rows] = await pool.query(
-      `SELECT COUNT(*) AS total\n        FROM category_products cp\n        INNER JOIN products p ON p.id = cp.product_id\n        WHERE cp.category_id = ? AND p.is_published = 1`,
-      [categoryId.toString()]
+      `SELECT COUNT(*) AS total
+        FROM products
+        WHERE is_published = 1 AND LOWER(category) = ?`,
+      [normalized]
     );
     const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
     const value = row && typeof row.total !== 'undefined' ? row.total : 0;
@@ -405,8 +412,8 @@ function buildLegacyCategoryWhereClause(variants: string[]): { where: string; pa
   }
 
   const placeholders = normalized.map(() => '?').join(', ');
-  const where = `is_published = 1 AND (LOWER(category) IN (${placeholders}) OR LOWER(category_slug) IN (${placeholders}))`;
-  const params = [...normalized, ...normalized];
+  const where = `is_published = 1 AND LOWER(category) IN (${placeholders})`;
+  const params = [...normalized];
   return { where, params };
 }
 
@@ -488,27 +495,39 @@ export async function getPublishedProductsForCategory(
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
+  const normalizedSlug = typeof category.slug === 'string' ? category.slug.trim().toLowerCase() : '';
 
-  const sql = `SELECT p.id, p.slug, p.title_h1, p.short_summary, p.price, p.images_json, p.last_tidb_update_at, p.updated_at\n    FROM category_products cp\n    INNER JOIN products p ON p.id = cp.product_id\n    WHERE cp.category_id = ? AND p.is_published = 1\n    ORDER BY p.title_h1 ASC\n    LIMIT ? OFFSET ?`;
-
-  try {
-    const [rows] = await pool.query(sql, [category.id.toString(), limit, offset]);
-    const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
-    if (parsed.success) {
-      const products = parsed.data.map(normalizeCategoryProductRecord);
-      let totalCount = await countCategoryProducts(category.id);
-      if (products.length > 0 && totalCount === 0) {
-        totalCount = products.length;
+  if (normalizedSlug) {
+    try {
+      const [rows] = await pool.query(
+        `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
+          FROM products
+          WHERE is_published = 1 AND LOWER(category) = ?
+          ORDER BY title_h1 ASC
+          LIMIT ? OFFSET ?`,
+        [normalizedSlug, limit, offset]
+      );
+      const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
+      if (parsed.success) {
+        const products = parsed.data.map(normalizeCategoryProductRecord);
+        let totalCount = await countCategoryProducts(category.slug ?? null);
+        if (products.length > 0 && totalCount === 0) {
+          totalCount = products.length;
+        }
+        if (products.length > 0 || totalCount > 0) {
+          return { products, totalCount };
+        }
+      } else {
+        console.error(
+          '[categories] failed to parse product rows',
+          parsed.error.format(),
+          requestId ? { requestId } : undefined
+        );
       }
-      if (products.length > 0 || totalCount > 0) {
-        return { products, totalCount };
-      }
-    } else {
-      console.error('[categories] failed to parse product rows', parsed.error.format(), requestId ? { requestId } : undefined);
+    } catch (error) {
+      const info = toDbErrorInfo(error);
+      console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
     }
-  } catch (error) {
-    const info = toDbErrorInfo(error);
-    console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
   }
 
   if (!category.slug) {

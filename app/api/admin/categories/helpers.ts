@@ -20,12 +20,11 @@ function buildStatsJoin(type: CategoryType): { joinSql: string; selectCount: str
   if (type === 'product') {
     return {
       joinSql: `LEFT JOIN (
-        SELECT cp.category_id AS category_id, COUNT(*) AS total
-        FROM category_products cp
-        INNER JOIN products p ON p.id = cp.product_id
-        WHERE p.is_published = 1
-        GROUP BY cp.category_id
-      ) stats ON stats.category_id = c.id`,
+        SELECT category AS slug, COUNT(*) AS total
+        FROM products
+        WHERE is_published = 1 AND category IS NOT NULL AND category <> ''
+        GROUP BY category
+      ) stats ON stats.slug = c.slug`,
       selectCount: 'COALESCE(stats.total, 0) AS products_count'
     };
   }

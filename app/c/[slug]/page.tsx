@@ -137,7 +137,7 @@ export default async function ProductCategoryPage({ params, searchParams }: Page
       </section>
 
       {cards.length === 0 ? (
-        <div className={styles.emptyState}>No products have been published for this category yet.</div>
+        <div className={styles.emptyState}>No products found in this category.</div>
       ) : (
         <div className={styles.grid}>
           {cards.map((product) => (
