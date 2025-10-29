@@ -17,7 +17,7 @@
   width: 100%;
   border-radius: 20px;
   overflow: hidden;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  background: #ffffff;
 }
 
 .vpp-product-media-image {
@@ -26,19 +26,13 @@
   height: auto;
   aspect-ratio: 16 / 9;
   object-fit: cover;
-  background: #0f172a;
+  background: #ffffff;
 }
 
 .vpp-product-media-placeholder {
   width: 100%;
   aspect-ratio: 16 / 9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 1rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  background: #ffffff;
 }
 
 .vpp-product-details {
