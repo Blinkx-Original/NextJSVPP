@@ -5,6 +5,7 @@ import { getPool, toDbErrorInfo } from '@/lib/db';
 import { safeGetEnv } from '@/lib/env';
 import { clearProductCache, getProductRecordBySlug, type RawProductRecord } from '@/lib/products';
 import { getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
+import { slugifyCategoryName } from '@/lib/category-slug';
 import { normalizeProductSlugInput } from '@/lib/product-slug';
 import { DESCRIPTION_MAX_LENGTH, sanitizeProductHtml } from '@/lib/sanitize-html';
 
@@ -582,6 +583,23 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
       categoryValue = normalizeOptionalString(existingRow.category, CATEGORY_MAX_LENGTH);
     } else {
       categoryValue = null;
+    }
+
+    if (categoryValue) {
+      const normalizedCategory = categoryValue.trim().toLowerCase();
+      if (CATEGORY_SLUG_REGEX.test(normalizedCategory)) {
+        categoryValue = normalizedCategory;
+      } else {
+        const slugified = slugifyCategoryName(categoryValue);
+        const cleaned = slugified.trim().toLowerCase();
+        categoryValue = CATEGORY_SLUG_REGEX.test(cleaned)
+          ? cleaned
+          : normalizedCategory.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      }
+
+      if (!categoryValue) {
+        categoryValue = null;
+      }
     }
   } catch (error) {
     const field = (error as Error)?.message ?? 'invalid_payload';

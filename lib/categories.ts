@@ -68,6 +68,10 @@ export async function getProductCategoryColumns(
   return detectProductCategoryColumns(pool);
 }
 
+function buildNormalizedColumnExpression(column: string): string {
+  return `LOWER(TRIM(COALESCE(\`${column}\`, '')))`;
+}
+
 export function buildProductCategoryMatchClause(
   columns: ProductCategoryColumnInfo[],
   variants: string[]
@@ -87,7 +91,8 @@ export function buildProductCategoryMatchClause(
 
   for (const column of columns) {
     if (column.mode === 'single') {
-      const equality = normalized.map(() => `LOWER(\`${column.name}\`) = ?`).join(' OR ');
+      const expression = buildNormalizedColumnExpression(column.name);
+      const equality = normalized.map(() => `${expression} = ?`).join(' OR ');
       if (equality.length > 0) {
         columnClauses.push(`(${equality})`);
         params.push(...normalized);
@@ -104,7 +109,8 @@ export function buildProductCategoryMatchClause(
       continue;
     }
 
-    const equality = normalized.map(() => `LOWER(TRIM(\`${column.name}\`)) = ?`).join(' OR ');
+    const expression = buildNormalizedColumnExpression(column.name);
+    const equality = normalized.map(() => `${expression} = ?`).join(' OR ');
     const jsonContains = normalized.map(() => `JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`).join(' OR ');
     const parts: string[] = [];
     if (equality.length > 0) {
