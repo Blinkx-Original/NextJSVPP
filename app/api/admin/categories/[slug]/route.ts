@@ -66,12 +66,24 @@ function parseDeleteMode(value: string | null): DeleteMode {
   return 'block';
 }
 
-async function countCategoryRelations(
+function normalizeSlugMatch(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+async function countPublishedProductsForSlug(
   connection: PoolConnection,
   type: CategoryType,
   slug: string
 ): Promise<number> {
-  if (type === 'product') {
+  const normalized = normalizeSlugMatch(slug);
+  if (!normalized) {
+    return 0;
+  }
+
+  const runQuery = async (useFallback: boolean): Promise<number> => {
+    const whereClause = useFallback
+      ? "LOWER(NULLIF(category, '')) = ?"
+      : `LOWER(COALESCE(NULLIF(category, ''), NULLIF(category_slug, ''))) = ?`;
     const [rows] = await connection.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS total
         FROM products
@@ -82,6 +94,35 @@ async function countCategoryRelations(
     const value = row ? row.total : 0;
     const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
     return Number.isFinite(total) && total > 0 ? total : 0;
+  };
+
+  try {
+    return await runQuery(false);
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    return await runQuery(true);
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error;
+    }
+  }
+
+  return 0;
+}
+
+async function countCategoryRelations(
+  connection: PoolConnection,
+  type: CategoryType,
+  categoryId: string,
+  slug: string
+): Promise<number> {
+  if (type === 'product') {
+    return countPublishedProductsForSlug(connection, slug);
   }
 
   const [rows] = await connection.query<RowDataPacket[]>(
