@@ -486,7 +486,9 @@ async function countCategoryProducts(
     return total > 0 ? total : 0;
   } catch (error) {
     const info = toDbErrorInfo(error);
-    console.error('[categories] count products error', info);
+    if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
+      console.error('[categories] count products fallback error', info);
+    }
     return 0;
   }
 }
