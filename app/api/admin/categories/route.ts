@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { getPool, toDbErrorInfo } from '@/lib/db';
-import { getCategoryTypeSynonyms } from '@/lib/categories';
+import { getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
 import { safeGetEnv } from '@/lib/env';
 import { requireAdminAuth } from '@/lib/basic-auth';
 import { CATEGORY_SLUG_MAX_LENGTH, coerceCategorySlug, slugifyCategoryName } from '@/lib/category-slug';
 import {
   buildStatsClause,
   fetchAdminCategoryById,
+  getBlogCategoryColumn,
   mapAdminCategoryRow,
   type AdminCategoryRow
 } from './helpers';
@@ -112,6 +113,8 @@ export async function GET(
   const term = sanitizeSearchTerm(url.searchParams.get('q') ?? url.searchParams.get('query'));
 
   const pool = getPool();
+  const blogColumn = type === 'blog' ? await getBlogCategoryColumn(pool) : null;
+  const productColumns = type === 'product' ? await getProductCategoryColumns(pool) : [];
   const typeSynonyms = getCategoryTypeSynonyms(type);
   const placeholders = typeSynonyms.map(() => '?').join(', ');
   const where: string[] = [`LOWER(c.type) IN (${placeholders})`];
@@ -122,7 +125,7 @@ export async function GET(
     where.push('(c.name LIKE ? OR c.slug LIKE ?)');
   }
 
-  const { joinSql, selectCount } = buildStatsClause(type);
+  const { joinSql, selectCount } = buildStatsClause(type, { blogColumn, productColumns });
 
   const listSql = `SELECT c.id, c.type, c.slug, c.name, c.short_description, c.long_description,
       c.hero_image_url, c.is_published, c.updated_at, ${selectCount}

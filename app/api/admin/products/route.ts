@@ -4,7 +4,8 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/prom
 import { getPool, toDbErrorInfo } from '@/lib/db';
 import { safeGetEnv } from '@/lib/env';
 import { clearProductCache, getProductRecordBySlug, type RawProductRecord } from '@/lib/products';
-import { getCategoryTypeSynonyms } from '@/lib/categories';
+import { getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
+import { slugifyCategoryName } from '@/lib/category-slug';
 import { normalizeProductSlugInput } from '@/lib/product-slug';
 import { DESCRIPTION_MAX_LENGTH, sanitizeProductHtml } from '@/lib/sanitize-html';
 
@@ -245,73 +246,6 @@ function toIdString(value: unknown): string | null {
   return null;
 }
 
-async function findProductCategoryId(
-  connection: PoolConnection,
-  slug: string
-): Promise<string | null> {
-  const synonyms = getCategoryTypeSynonyms('product');
-  const placeholders = synonyms.map(() => '?').join(', ');
-  const [rows] = await connection.query<RowDataPacket[]>(
-    `SELECT id FROM categories WHERE slug = ? AND LOWER(type) IN (${placeholders}) LIMIT 1`,
-    [slug, ...synonyms]
-  );
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return null;
-  }
-  const record = rows[0] as Record<string, unknown>;
-  return toIdString(record.id);
-}
-
-async function clearProductCategoryLinks(
-  connection: PoolConnection,
-  productId: string
-): Promise<void> {
-  await connection.query(`DELETE FROM category_products WHERE product_id = ?`, [productId]);
-}
-
-async function syncProductCategoryLink(
-  connection: PoolConnection,
-  productIdValue: unknown,
-  categorySlugValue: string | null
-): Promise<void> {
-  const productId = toIdString(productIdValue);
-  if (!productId) {
-    return;
-  }
-
-  const slug = typeof categorySlugValue === 'string' ? categorySlugValue.trim() : '';
-
-  if (!slug) {
-    await clearProductCategoryLinks(connection, productId);
-    return;
-  }
-
-  if (!CATEGORY_SLUG_REGEX.test(slug)) {
-    console.warn('[admin][products] skipping category sync due to invalid slug', { productId, slug });
-    await clearProductCategoryLinks(connection, productId);
-    return;
-  }
-
-  const categoryId = await findProductCategoryId(connection, slug);
-
-  await clearProductCategoryLinks(connection, productId);
-
-  if (!categoryId) {
-    console.warn('[admin][products] category slug not found when syncing product category', {
-      productId,
-      slug
-    });
-    return;
-  }
-
-  await connection.query(
-    `INSERT INTO category_products (category_id, product_id)
-      VALUES (?, ?)
-      ON DUPLICATE KEY UPDATE category_id = VALUES(category_id)`,
-    [categoryId, productId]
-  );
-}
-
 function normalizeOptionalLabel(value: unknown, maxLength: number): string {
   if (typeof value !== 'string') {
     return '';
@@ -324,6 +258,30 @@ function normalizeOptionalLabel(value: unknown, maxLength: number): string {
     return trimmed.slice(0, maxLength);
   }
   return trimmed;
+}
+
+async function syncProductCategoryColumns(
+  connection: PoolConnection,
+  slug: string,
+  categoryValue: string | null
+): Promise<void> {
+  const columns = await getProductCategoryColumns(connection);
+  if (!Array.isArray(columns) || columns.length === 0) {
+    return;
+  }
+
+  const normalizedCategory = typeof categoryValue === 'string' ? categoryValue.trim().toLowerCase() : null;
+
+  for (const column of columns) {
+    if (column === 'category') {
+      continue;
+    }
+    if (normalizedCategory) {
+      await connection.query(`UPDATE products SET \`${column}\` = ? WHERE slug = ?`, [normalizedCategory, slug]);
+    } else {
+      await connection.query(`UPDATE products SET \`${column}\` = NULL WHERE slug = ?`, [slug]);
+    }
+  }
 }
 
 function normalizeRequiredString(
@@ -611,6 +569,23 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
     } else {
       categoryValue = null;
     }
+
+    if (categoryValue) {
+      const normalizedCategory = categoryValue.trim().toLowerCase();
+      if (CATEGORY_SLUG_REGEX.test(normalizedCategory)) {
+        categoryValue = normalizedCategory;
+      } else {
+        const slugified = slugifyCategoryName(categoryValue);
+        const cleaned = slugified.trim().toLowerCase();
+        categoryValue = CATEGORY_SLUG_REGEX.test(cleaned)
+          ? cleaned
+          : normalizedCategory.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      }
+
+      if (!categoryValue) {
+        categoryValue = null;
+      }
+    }
   } catch (error) {
     const field = (error as Error)?.message ?? 'invalid_payload';
     let message = `Invalid value for ${field}`;
@@ -668,15 +643,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
       ]
     );
 
-    try {
-      await syncProductCategoryLink(connection, existingRow.id, categoryValue);
-    } catch (error) {
-      const info = toDbErrorInfo(error);
-      console.error('[admin][products] failed to sync category relation', info, {
-        productId: toIdString(existingRow.id),
-        category: categoryValue ?? null
-      });
-    }
+    await syncProductCategoryColumns(connection, normalizedSlug, categoryValue);
 
     clearProductCache(normalizedSlug);
     revalidatePath(`/p/${normalizedSlug}`);
