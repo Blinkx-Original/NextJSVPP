@@ -1,3 +1,4 @@
+import type { SitemapBlogPostRecord } from './blog-posts';
 import type { SitemapProductRecord } from './products';
 
 export const SITEMAP_PAGE_SIZE = 45000;
@@ -9,6 +10,19 @@ function makeProductUrl(siteUrl: string, slug: string): string | null {
   }
   try {
     const url = new URL(`/p/${trimmed}`, siteUrl);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function makeBlogUrl(siteUrl: string, slug: string): string | null {
+  const trimmed = typeof slug === 'string' ? slug.trim() : '';
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const url = new URL(`/b/${trimmed}`, siteUrl);
     return url.toString();
   } catch {
     return null;
@@ -64,6 +78,29 @@ export function renderSitemapXml(
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${content}</urlset>`;
 }
 
+export function renderBlogSitemapXml(
+  siteUrl: string,
+  records: SitemapBlogPostRecord[],
+  options?: RenderSitemapXmlOptions
+): string {
+  const requestIdLabel = options?.requestId ? ` [${options.requestId}]` : '';
+  const urls = records
+    .map((record) => {
+      const loc = makeBlogUrl(siteUrl, record.slug);
+      if (!loc) {
+        const idLabel = record.id ? ` id=${record.id.toString()}` : '';
+        console.warn(`[sitemap][blog][skip]${idLabel} reason=invalid-slug${requestIdLabel}`);
+        return null;
+      }
+      const lastmod = resolveBlogLastModified(record);
+      return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`;
+    })
+    .filter((value): value is string => value !== null)
+    .join('\n');
+  const content = urls ? `\n${urls}\n` : '';
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${content}</urlset>`;
+}
+
 export interface SitemapIndexEntry {
   loc: string;
   lastmod: string;
@@ -81,6 +118,28 @@ export function computeChunkLastModified(records: SitemapProductRecord[]): strin
   let latest: string | null = null;
   for (const record of records) {
     const iso = resolveLastModified(record);
+    if (!latest || iso > latest) {
+      latest = iso;
+    }
+  }
+  return latest ?? new Date().toISOString();
+}
+
+export function resolveBlogLastModified(record: SitemapBlogPostRecord): string {
+  const candidates = [record.last_tidb_update_at, record.published_at];
+  for (const candidate of candidates) {
+    const iso = toIsoDate(typeof candidate === 'string' ? candidate : null);
+    if (iso) {
+      return iso;
+    }
+  }
+  return new Date().toISOString();
+}
+
+export function computeBlogChunkLastModified(records: SitemapBlogPostRecord[]): string {
+  let latest: string | null = null;
+  for (const record of records) {
+    const iso = resolveBlogLastModified(record);
     if (!latest || iso > latest) {
       latest = iso;
     }
