@@ -273,28 +273,13 @@ async function syncProductCategoryColumns(
   const normalizedCategory = typeof categoryValue === 'string' ? categoryValue.trim().toLowerCase() : null;
 
   for (const column of columns) {
-    if (column.name === 'category') {
-      continue;
-    }
-    if (column.mode === 'single') {
-      await connection.query(`UPDATE products SET \`${column.name}\` = ? WHERE slug = ?`, [normalizedCategory, slug]);
-      continue;
-    }
-    if (column.mode === 'json') {
-      if (normalizedCategory) {
-        await connection.query(
-          `UPDATE products SET \`${column.name}\` = JSON_ARRAY(?) WHERE slug = ?`,
-          [normalizedCategory, slug]
-        );
-      } else {
-        await connection.query(`UPDATE products SET \`${column.name}\` = NULL WHERE slug = ?`, [slug]);
-      }
+    if (column === 'category') {
       continue;
     }
     if (normalizedCategory) {
-      await connection.query(`UPDATE products SET \`${column.name}\` = ? WHERE slug = ?`, [normalizedCategory, slug]);
+      await connection.query(`UPDATE products SET \`${column}\` = ? WHERE slug = ?`, [normalizedCategory, slug]);
     } else {
-      await connection.query(`UPDATE products SET \`${column.name}\` = NULL WHERE slug = ?`, [slug]);
+      await connection.query(`UPDATE products SET \`${column}\` = NULL WHERE slug = ?`, [slug]);
     }
   }
 }

@@ -1,8 +1,8 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import {
-  buildProductCategoryMatchClause,
   getCategoryTypeSynonyms,
-  getProductCategoryColumns
+  getProductCategoryColumns,
+  type ProductCategoryColumn
 } from '@/lib/categories';
 import { toDbErrorInfo } from '@/lib/db';
 
@@ -57,18 +57,41 @@ export interface AdminCategoryRow {
   updated_at: string | null;
 }
 
+function buildProductStatsJoin(columns: ProductCategoryColumn[]): string {
+  if (columns.length === 0) {
+    return '';
+  }
+
+  const subqueries = columns.map(
+    (column) => `SELECT LOWER(TRIM(\`${column}\`)) AS slug, COUNT(*) AS total
+        FROM products
+        WHERE is_published = 1
+          AND \`${column}\` IS NOT NULL
+          AND TRIM(\`${column}\`) <> ''
+        GROUP BY LOWER(TRIM(\`${column}\`))`
+  );
+
+  return `LEFT JOIN (
+    SELECT slug, SUM(total) AS total
+    FROM (
+      ${subqueries.join('\n      UNION ALL\n      ')}
+    ) product_category_stats
+    WHERE slug IS NOT NULL AND slug <> ''
+    GROUP BY slug
+  ) stats ON stats.slug = LOWER(c.slug)`;
+}
+
 function buildStatsJoin(
   type: CategoryType,
-  options: { blogColumn?: BlogCategoryColumn | null } = {}
+  options: { blogColumn?: BlogCategoryColumn | null; productColumns?: ProductCategoryColumn[] } = {}
 ): { joinSql: string; selectCount: string } {
   if (type === 'product') {
+    const joinSql = buildProductStatsJoin(options.productColumns ?? []);
+    if (!joinSql) {
+      return { joinSql: '', selectCount: '0 AS products_count' };
+    }
     return {
-      joinSql: `LEFT JOIN (
-        SELECT category AS slug, COUNT(*) AS total
-        FROM products
-        WHERE is_published = 1 AND category IS NOT NULL AND category <> ''
-        GROUP BY category
-      ) stats ON stats.slug = c.slug`,
+      joinSql,
       selectCount: 'COALESCE(stats.total, 0) AS products_count'
     };
   }
@@ -84,11 +107,11 @@ function buildStatsJoin(
 
   return {
     joinSql: `LEFT JOIN (
-      SELECT \`${column}\` AS slug, COUNT(*) AS total
+      SELECT LOWER(TRIM(\`${column}\`)) AS slug, COUNT(*) AS total
       FROM posts
-      WHERE is_published = 1 AND \`${column}\` IS NOT NULL AND \`${column}\` <> ''
-      GROUP BY \`${column}\`
-    ) stats ON stats.slug = c.slug`,
+      WHERE is_published = 1 AND \`${column}\` IS NOT NULL AND TRIM(\`${column}\`) <> ''
+      GROUP BY LOWER(TRIM(\`${column}\`))
+    ) stats ON stats.slug = LOWER(c.slug)`,
     selectCount: 'COALESCE(stats.total, 0) AS products_count'
   };
 }
@@ -120,7 +143,8 @@ export async function fetchAdminCategoryById(
   const typeSynonyms = getCategoryTypeSynonyms(type);
   const placeholders = typeSynonyms.map(() => '?').join(', ');
   const blogColumn = type === 'blog' ? await getBlogCategoryColumn(pool) : null;
-  const { joinSql, selectCount } = buildStatsJoin(type, { blogColumn });
+  const productColumns = type === 'product' ? await getProductCategoryColumns(pool) : [];
+  const { joinSql, selectCount } = buildStatsJoin(type, { blogColumn, productColumns });
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT c.id, c.type, c.slug, c.name, c.short_description, c.long_description, c.hero_image_url,
@@ -141,7 +165,7 @@ export async function fetchAdminCategoryById(
 
 export function buildStatsClause(
   type: CategoryType,
-  options: { blogColumn?: BlogCategoryColumn | null } = {}
+  options: { blogColumn?: BlogCategoryColumn | null; productColumns?: ProductCategoryColumn[] } = {}
 ): { joinSql: string; selectCount: string } {
   return buildStatsJoin(type, options);
 }
@@ -154,7 +178,8 @@ export async function fetchAdminCategoryBySlug(
   const typeSynonyms = getCategoryTypeSynonyms(type);
   const placeholders = typeSynonyms.map(() => '?').join(', ');
   const blogColumn = type === 'blog' ? await getBlogCategoryColumn(pool) : null;
-  const { joinSql, selectCount } = buildStatsJoin(type, { blogColumn });
+  const productColumns = type === 'product' ? await getProductCategoryColumns(pool) : [];
+  const { joinSql, selectCount } = buildStatsJoin(type, { blogColumn, productColumns });
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT c.id, c.type, c.slug, c.name, c.short_description, c.long_description, c.hero_image_url,
@@ -181,16 +206,23 @@ export async function countCategoryRelations(
 ): Promise<number> {
   if (type === 'product') {
     const columns = await getProductCategoryColumns(connection);
-    const match = buildProductCategoryMatchClause(columns, [slug]);
-    if (!match) {
+    if (columns.length === 0) {
       return 0;
     }
+
+    const normalized = slug.trim().toLowerCase();
+    if (!normalized) {
+      return 0;
+    }
+
+    const conditions = columns.map((column) => `LOWER(TRIM(\`${column}\`)) = ?`).join(' OR ');
+    const params = columns.map(() => normalized);
 
     const [rows] = await connection.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS total
         FROM products
-        WHERE is_published = 1 AND ${match.clause}`,
-      match.params
+        WHERE is_published = 1 AND (${conditions})`,
+      params
     );
     const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
     const value = row ? row.total : 0;
@@ -204,11 +236,16 @@ export async function countCategoryRelations(
     return 0;
   }
 
+  const normalized = slug.trim().toLowerCase();
+  if (!normalized) {
+    return 0;
+  }
+
   const [rows] = await connection.query<RowDataPacket[]>(
     `SELECT COUNT(*) AS total
       FROM posts
-      WHERE \`${blogColumn}\` = ? AND is_published = 1`,
-    [slug]
+      WHERE is_published = 1 AND LOWER(TRIM(\`${blogColumn}\`)) = ?`,
+    [normalized]
   );
   const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
   const value = row ? row.total : 0;

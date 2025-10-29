@@ -69,70 +69,20 @@ async function updateProductCategoryAssignments(
   }
 
   const normalizedFrom = fromSlug.trim().toLowerCase();
+  if (!normalizedFrom) {
+    return;
+  }
   const normalizedTo = typeof toSlug === 'string' ? toSlug.trim().toLowerCase() : null;
 
   for (const column of columns) {
-    if (column.mode === 'single') {
-      if (normalizedTo) {
-        await connection.query(
-          `UPDATE products SET \`${column.name}\` = ? WHERE \`${column.name}\` = ?`,
-          [normalizedTo, normalizedFrom]
-        );
-      } else {
-        await connection.query(
-          `UPDATE products SET \`${column.name}\` = NULL WHERE \`${column.name}\` = ?`,
-          [normalizedFrom]
-        );
-      }
-      continue;
-    }
-
-    if (column.mode === 'json') {
-      if (normalizedTo) {
-        await connection.query(
-          `UPDATE products
-            SET \`${column.name}\` = JSON_ARRAY(?)
-          WHERE JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`,
-          [normalizedTo, normalizedFrom]
-        );
-        await connection.query(
-          `UPDATE products
-            SET \`${column.name}\` = JSON_ARRAY(?)
-          WHERE JSON_VALID(\`${column.name}\`) = 0 AND LOWER(TRIM(\`${column.name}\`)) = ?`,
-          [normalizedTo, normalizedFrom]
-        );
-      } else {
-        await connection.query(
-          `UPDATE products
-            SET \`${column.name}\` = NULL
-          WHERE (JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?)))
-            OR LOWER(TRIM(\`${column.name}\`)) = ?`,
-          [normalizedFrom, normalizedFrom]
-        );
-      }
-      continue;
-    }
-
     if (normalizedTo) {
       await connection.query(
-        `UPDATE products SET \`${column.name}\` = ? WHERE LOWER(TRIM(\`${column.name}\`)) = ?`,
-        [normalizedTo, normalizedFrom]
-      );
-      await connection.query(
-        `UPDATE products
-          SET \`${column.name}\` = ?
-        WHERE JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`,
+        `UPDATE products SET \`${column}\` = ? WHERE LOWER(TRIM(\`${column}\`)) = ?`,
         [normalizedTo, normalizedFrom]
       );
     } else {
       await connection.query(
-        `UPDATE products SET \`${column.name}\` = NULL WHERE LOWER(TRIM(\`${column.name}\`)) = ?`,
-        [normalizedFrom]
-      );
-      await connection.query(
-        `UPDATE products
-          SET \`${column.name}\` = NULL
-        WHERE JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`,
+        `UPDATE products SET \`${column}\` = NULL WHERE LOWER(TRIM(\`${column}\`)) = ?`,
         [normalizedFrom]
       );
     }
