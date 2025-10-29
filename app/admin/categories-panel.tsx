@@ -506,7 +506,7 @@ export default function CategoriesPanel({ initialType }: CategoriesPanelProps): 
         return;
       }
     }
-    const [firstId] = idSet;
+    const firstId = idSet.values().next().value ?? null;
     setSelectedNodeId(firstId);
   }, [treeData, selectedNodeId, filterType]);
 
