@@ -1,166 +1,222 @@
-/* eslint-disable react/no-unknown-property */
 'use client';
 
-import { useMemo, useState, useTransition, type ChangeEvent } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import Image from 'next/image';
+import Link from 'next/link';
+import { useMemo, useState, useTransition } from 'react';
+import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
 import styles from './page.module.css';
 
-export type CategoryFilterType = 'all' | 'product' | 'blog';
-
-export interface CategoryCard {
+export type ExplorerCategory = {
   id: string;
-  type: 'product' | 'blog';
   slug: string;
   name: string;
+  type: 'product' | 'blog';
   shortDescription: string | null;
   heroImageUrl: string | null;
-}
+};
 
-export interface CategoryExplorerProps {
-  categories: CategoryCard[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-  activeType: CategoryFilterType;
-  categoryPickerOptions: CategoryPickerOption[];
-}
-
-export interface CategoryPickerOption {
-  type: 'product' | 'blog';
+export type ExplorerProductCard = {
+  id: string;
   slug: string;
-  name: string;
+  title: string;
+  shortSummary: string | null;
+  price: string | null;
+  primaryImage: string | null;
+  lastUpdatedAt: string | null;
+};
+
+interface CategoryExplorerProps {
+  productCategories: ExplorerCategory[];
+  blogCategories: ExplorerCategory[];
+  initialCategory: ExplorerCategory | null;
+  initialProducts: ExplorerProductCard[];
+  initialTotalCount: number;
+  productsPreviewLimit: number;
 }
 
-function typeToBadge(type: 'product' | 'blog'): string {
-  return type === 'product' ? 'Product' : 'Blog';
+type TreeNodeData =
+  | { kind: 'group'; label: string }
+  | { kind: 'category'; category: ExplorerCategory };
+
+type FetchState =
+  | { status: 'idle'; products: ExplorerProductCard[]; totalCount: number }
+  | { status: 'loading'; products: ExplorerProductCard[]; totalCount: number }
+  | { status: 'error'; products: ExplorerProductCard[]; totalCount: number; message: string };
+
+function buildTreeData(
+  productCategories: ExplorerCategory[],
+  blogCategories: ExplorerCategory[],
+  search: string
+): { data: Array<TreeItem<TreeNodeData>>; hasResults: boolean } {
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchesSearch = (category: ExplorerCategory) => {
+    if (!normalizedSearch) {
+      return true;
+    }
+    const haystack = `${category.name} ${category.slug}`.toLowerCase();
+    return haystack.includes(normalizedSearch);
+  };
+
+  const productNodes = productCategories.filter(matchesSearch).map((category) => ({
+    id: `product:${category.slug}`,
+    data: { kind: 'category', category } satisfies TreeNodeData
+  }));
+
+  const blogNodes = blogCategories.filter(matchesSearch).map((category) => ({
+    id: `blog:${category.slug}`,
+    data: { kind: 'category', category } satisfies TreeNodeData
+  }));
+
+  const data: Array<TreeItem<TreeNodeData>> = [];
+
+  if (productNodes.length > 0) {
+    data.push({
+      id: 'group:products',
+      data: { kind: 'group', label: 'Product Categories' },
+      children: productNodes
+    });
+  }
+
+  if (blogNodes.length > 0) {
+    data.push({
+      id: 'group:blogs',
+      data: { kind: 'group', label: 'Blog Categories' },
+      children: blogNodes
+    });
+  }
+
+  const hasResults = productNodes.length > 0 || blogNodes.length > 0;
+  return { data, hasResults };
+}
+
+function renderTreeNode({ node, style }: NodeRendererProps<TreeNodeData>) {
+  const { data } = node;
+  if (data.kind === 'group') {
+    return (
+      <div className={styles.treeGroup} style={style} role="presentation">
+        {data.label}
+      </div>
+    );
+  }
+
+  const className = node.isSelected
+    ? `${styles.treeNode} ${styles.treeNodeSelected}`
+    : styles.treeNode;
+
+  return (
+    <div className={className} style={style}>
+      <span className={styles.treeNodeName}>{data.category.name}</span>
+      <span className={styles.treeNodeMeta}>{data.category.type === 'product' ? 'Products' : 'Blog'}</span>
+    </div>
+  );
+}
+
+async function fetchCategoryProducts(slug: string, limit: number) {
+  const response = await fetch(`/api/categories/${slug}/products?limit=${limit}`, {
+    cache: 'no-store'
+  });
+
+  if (!response.ok) {
+    throw new Error('request_failed');
+  }
+
+  const payload = await response.json();
+
+  if (!payload.ok) {
+    throw new Error(payload.message || 'request_failed');
+  }
+
+  return payload as {
+    ok: true;
+    category: { slug: string; name: string; type: 'product' | 'blog' };
+    totalCount: number;
+    products: ExplorerProductCard[];
+  };
 }
 
 export function CategoryExplorer({
-  categories,
-  totalCount,
-  page,
-  pageSize,
-  activeType,
-  categoryPickerOptions
+  productCategories,
+  blogCategories,
+  initialCategory,
+  initialProducts,
+  initialTotalCount,
+  productsPreviewLimit
 }: CategoryExplorerProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [search, setSearch] = useState('');
-  const [categorySelectValue, setCategorySelectValue] = useState('');
+  const [selection, setSelection] = useState(() =>
+    initialCategory ? [`${initialCategory.type}:${initialCategory.slug}`] : []
+  );
+  const [selectedCategory, setSelectedCategory] = useState<ExplorerCategory | null>(initialCategory);
+  const [fetchState, setFetchState] = useState<FetchState>({
+    status: 'idle',
+    products: initialProducts,
+    totalCount: initialTotalCount
+  });
   const [isPending, startTransition] = useTransition();
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const categoriesByNodeId = useMemo(() => {
+    const map = new Map<string, ExplorerCategory>();
+    for (const category of productCategories) {
+      map.set(`product:${category.slug}`, category);
+    }
+    for (const category of blogCategories) {
+      map.set(`blog:${category.slug}`, category);
+    }
+    return map;
+  }, [productCategories, blogCategories]);
 
-  const categorySelectOptions = useMemo(
-    () =>
-      categoryPickerOptions.map((option) => ({
-        value: `${option.type}:${option.slug}`,
-        label: option.name
-      })),
-    [categoryPickerOptions]
+  const { data: treeData, hasResults } = useMemo(
+    () => buildTreeData(productCategories, blogCategories, search),
+    [productCategories, blogCategories, search]
   );
 
-  const filteredCategories = useMemo(() => {
-    if (!search.trim()) {
-      return categories;
-    }
-    const value = search.trim().toLowerCase();
-    return categories.filter((category) => {
-      const haystack = [category.name, category.shortDescription || '']
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(value);
-    });
-  }, [categories, search]);
-
-  function updateQuery(next: Record<string, string | undefined>) {
-    const params = new URLSearchParams(searchParams.toString());
-    Object.entries(next).forEach(([key, value]) => {
-      if (!value) {
-        params.delete(key);
-      } else {
-        params.set(key, value);
-      }
-    });
-    const query = params.toString();
-    startTransition(() => {
-      router.push(query ? `${pathname}?${query}` : pathname);
-    });
-  }
-
-  function handleTypeChange(event: ChangeEvent<HTMLSelectElement>) {
-    const value = event.target.value as CategoryFilterType;
-    updateQuery({ type: value === 'all' ? undefined : value, page: '1' });
-  }
-
-  function handlePageChange(nextPage: number) {
-    if (nextPage === page) {
+  function handleSelect(ids: Array<string | number>) {
+    const id = ids[0];
+    if (!id || typeof id !== 'string') {
       return;
     }
-    updateQuery({ page: nextPage > 1 ? String(nextPage) : undefined });
-  }
-
-  function handleCategorySelectChange(event: ChangeEvent<HTMLSelectElement>) {
-    const value = event.target.value;
-    if (!value) {
-      setCategorySelectValue('');
+    const category = categoriesByNodeId.get(id);
+    if (!category) {
       return;
     }
 
-    setCategorySelectValue(value);
-    const [type, slug] = value.split(':');
-    // For blog categories we still navigate to the existing `/bc` route.
-    // For product categories we now route to `/categories/[slug]` so users remain within the categories hub.
-    const href = type === 'blog' ? `/bc/${slug}` : `/categories/${slug}`;
+    if (selectedCategory?.slug === category.slug && fetchState.status !== 'error') {
+      return;
+    }
+
+    setSelection([id]);
+    setSelectedCategory(category);
+
+    if (category.type !== 'product') {
+      setFetchState({ status: 'idle', products: [], totalCount: 0 });
+      return;
+    }
 
     startTransition(() => {
-      router.push(href);
+      setFetchState((previous) => ({ ...previous, status: 'loading' }));
+      fetchCategoryProducts(category.slug, productsPreviewLimit)
+        .then((payload) => {
+          setFetchState({ status: 'idle', products: payload.products, totalCount: payload.totalCount });
+        })
+        .catch(() => {
+          setFetchState({ status: 'error', products: [], totalCount: 0, message: 'Unable to load products right now.' });
+        });
     });
-
-    setCategorySelectValue('');
   }
 
-  const resultsText = `${filteredCategories.length} of ${totalCount} categories`;
+  const activeProducts = fetchState.products;
+  const activeTotal = fetchState.totalCount;
+  const isLoading = fetchState.status === 'loading' || isPending;
+  const hasActiveProducts = activeProducts.length > 0;
 
   return (
-    <div>
-      <div className={styles.controls}>
-        <div className={styles.filterGroup}>
-          <label className={styles.filterLabel} htmlFor="category-type">
-            Category Type
-          </label>
-          <select
-            id="category-type"
-            className={styles.select}
-            value={activeType}
-            onChange={handleTypeChange}
-            aria-label="Filter categories by type"
-          >
-            <option value="all">All</option>
-            <option value="product">Products</option>
-            <option value="blog">Blogs</option>
-          </select>
-        </div>
-        <div className={styles.searchGroup}>
-          {categorySelectOptions.length > 0 ? (
-            <select
-              id="category-jump"
-              className={`${styles.select} ${styles.categorySelect}`}
-              value={categorySelectValue}
-              onChange={handleCategorySelectChange}
-              aria-label="Jump to a category"
-            >
-              <option value="">Browse categories</option>
-              {categorySelectOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          ) : null}
+    <section className={styles.explorer}>
+      <div className={styles.sidebar}>
+        <div className={styles.sidebarHeader}>
+          <h2 className={styles.sidebarTitle}>Browse the catalog</h2>
+          <p className={styles.sidebarSubtitle}>
+            Filter categories or jump into a specific collection.
+          </p>
           <input
             type="search"
             className={styles.searchInput}
@@ -170,75 +226,113 @@ export function CategoryExplorer({
             aria-label="Search categories"
           />
         </div>
+        <div className={styles.treeWrapper}>
+          {hasResults ? (
+            <Tree data={treeData} renderNode={renderTreeNode} selection={selection} onSelect={handleSelect} />
+          ) : (
+            <div className={styles.emptyTreeState}>No categories match your search.</div>
+          )}
+        </div>
       </div>
 
-      <p className={styles.resultsMeta}>{resultsText}</p>
+      <div className={styles.detailsPanel}>
+        {selectedCategory ? (
+          <div className={styles.detailsContent}>
+            <header className={styles.detailsHeader}>
+              <div>
+                <span className={styles.categoryTypeBadge}>
+                  {selectedCategory.type === 'product' ? 'Product Category' : 'Blog Category'}
+                </span>
+                <h2 className={styles.categoryName}>{selectedCategory.name}</h2>
+                {selectedCategory.shortDescription ? (
+                  <p className={styles.categoryDescription}>{selectedCategory.shortDescription}</p>
+                ) : null}
+              </div>
+              <div className={styles.detailsActions}>
+                {selectedCategory.type === 'product' ? (
+                  <Link className={styles.primaryButton} href={`/categories/${selectedCategory.slug}`} prefetch>
+                    View full category
+                  </Link>
+                ) : (
+                  <Link className={styles.primaryButton} href={`/bc/${selectedCategory.slug}`} prefetch>
+                    Explore blog posts
+                  </Link>
+                )}
+              </div>
+            </header>
 
-      {filteredCategories.length === 0 ? (
-        <div className={styles.emptyState}>No categories match your search.</div>
-      ) : (
-        <div className={styles.grid}>
-          {filteredCategories.map((category) => {
-            const href =
-              category.type === 'product'
-                ? `/categories/${category.slug}`
-                : `/bc/${category.slug}`;
-            return (
-              <article key={category.id} className={styles.card}>
-                <div className={styles.cardImageWrapper}>
-                  {category.heroImageUrl ? (
-                    <Image
-                      src={category.heroImageUrl}
-                      alt={category.name}
-                      fill
-                      className={styles.cardImage}
-                      sizes="(max-width: 768px) 100vw, 320px"
-                    />
-                  ) : null}
+            {selectedCategory.heroImageUrl ? (
+              <div className={styles.heroImageWrapper}>
+                <Image
+                  src={selectedCategory.heroImageUrl}
+                  alt={selectedCategory.name}
+                  fill
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 480px"
+                  className={styles.heroImage}
+                />
+              </div>
+            ) : null}
+
+            {selectedCategory.type === 'product' ? (
+              <div className={styles.productsSection}>
+                <div className={styles.productsHeader}>
+                  <h3>Products in this category</h3>
+                  <span>{activeTotal} listed</span>
                 </div>
-                <div className={styles.cardBody}>
-                  <span className={styles.cardBadge}>{typeToBadge(category.type)}</span>
-                  <h3 className={styles.cardTitle}>{category.name}</h3>
-                  {category.shortDescription ? (
-                    <p className={styles.cardDescription}>{category.shortDescription}</p>
-                  ) : null}
-                  <div className={styles.cardFooter}>
-                    <Link className={styles.cardLink} href={href} prefetch>
-                      View Details
-                    </Link>
+                {isLoading ? (
+                  <div className={styles.loadingState}>Loading products…</div>
+                ) : fetchState.status === 'error' ? (
+                  <div className={styles.errorState}>{fetchState.message}</div>
+                ) : hasActiveProducts ? (
+                  <div className={styles.productsGrid}>
+                    {activeProducts.map((product) => (
+                      <article key={product.id} className={styles.productCard}>
+                        <div className={styles.productImageWrapper}>
+                          {product.primaryImage ? (
+                            <Image
+                              src={product.primaryImage}
+                              alt={product.title}
+                              fill
+                              sizes="(max-width: 768px) 100vw, 220px"
+                              className={styles.productImage}
+                            />
+                          ) : (
+                            <div className={styles.productImagePlaceholder}>No image</div>
+                          )}
+                        </div>
+                        <div className={styles.productBody}>
+                          <h4 className={styles.productTitle}>{product.title}</h4>
+                          {product.shortSummary ? (
+                            <p className={styles.productSummary}>{product.shortSummary}</p>
+                          ) : null}
+                          <div className={styles.productFooter}>
+                            {product.price ? <span className={styles.productPrice}>{product.price}</span> : null}
+                            <Link className={styles.secondaryButton} href={`/p/${product.slug}`} prefetch>
+                              View product
+                            </Link>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
                   </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
-
-      {totalPages > 1 ? (
-        <nav className={styles.pagination} aria-label="Pagination">
-          <div className={styles.paginationList}>
-            {Array.from({ length: totalPages }, (_, index) => {
-              const pageNumber = index + 1;
-              const isActive = pageNumber === page;
-              const className = isActive
-                ? `${styles.pageButton} ${styles.pageButtonActive}`
-                : styles.pageButton;
-              return (
-                <button
-                  key={pageNumber}
-                  type="button"
-                  className={className}
-                  onClick={() => handlePageChange(pageNumber)}
-                  aria-current={isActive ? 'page' : undefined}
-                  disabled={isPending && isActive}
-                >
-                  {pageNumber}
-                </button>
-              );
-            })}
+                ) : (
+                  <div className={styles.emptyProductsState}>
+                    No published products have been linked to this category yet.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className={styles.blogCategoryNote}>
+                Browse featured blog posts curated for this topic in the BlinkX blog.
+              </div>
+            )}
           </div>
-        </nav>
-      ) : null}
-    </div>
+        ) : (
+          <div className={styles.placeholderState}>
+            Select a category to preview its products and details.
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
