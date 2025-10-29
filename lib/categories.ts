@@ -319,8 +319,8 @@ function normalizeCategoryProductRecord(record: z.infer<typeof categoryProductRe
 }
 
 async function countCategoryProducts(slug: string | null | undefined): Promise<number> {
-  const normalizedSlug = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
-  if (!normalizedSlug) {
+  const normalized = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
+  if (!normalized) {
     return 0;
   }
 
@@ -333,8 +333,8 @@ async function countCategoryProducts(slug: string | null | undefined): Promise<n
     const [rows] = await pool.query(
       `SELECT COUNT(*) AS total
         FROM products
-        WHERE is_published = 1 AND ${whereClause}`,
-      [normalizedSlug]
+        WHERE is_published = 1 AND LOWER(category) = ?`,
+      [normalized]
     );
     const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
     const value = row && typeof row.total !== 'undefined' ? row.total : 0;
@@ -432,8 +432,8 @@ function buildLegacyCategoryWhereClause(variants: string[]): { where: string; pa
   }
 
   const placeholders = normalized.map(() => '?').join(', ');
-  const where = `is_published = 1 AND (LOWER(category) IN (${placeholders}) OR LOWER(category_slug) IN (${placeholders}))`;
-  const params = [...normalized, ...normalized];
+  const where = `is_published = 1 AND LOWER(category) IN (${placeholders})`;
+  const params = [...normalized];
   return { where, params };
 }
 
@@ -515,71 +515,38 @@ export async function getPublishedProductsForCategory(
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
-
   const normalizedSlug = typeof category.slug === 'string' ? category.slug.trim().toLowerCase() : '';
-
-  const executeQuery = async (useFallback: boolean): Promise<CategoryProductsQueryResult | null> => {
-    const whereClause = useFallback
-      ? "p.is_published = 1 AND LOWER(NULLIF(p.category, '')) = ?"
-      : `p.is_published = 1 AND LOWER(COALESCE(NULLIF(p.category, ''), NULLIF(p.category_slug, ''))) = ?`;
-
-    const [rows] = await pool.query(
-      `SELECT p.id, p.slug, p.title_h1, p.short_summary, p.price, p.images_json, p.last_tidb_update_at, p.updated_at
-        FROM products p
-        WHERE ${whereClause}
-        ORDER BY p.title_h1 ASC
-        LIMIT ? OFFSET ?`,
-      [normalizedSlug, limit, offset]
-    );
-
-    const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
-    if (!parsed.success) {
-      console.error(
-        '[categories] failed to parse product rows',
-        parsed.error.format(),
-        requestId ? { requestId } : undefined
-      );
-      return null;
-    }
-
-    const products = parsed.data.map(normalizeCategoryProductRecord);
-    let totalCount = await countCategoryProducts(category.slug);
-    if (products.length > 0 && totalCount === 0) {
-      totalCount = products.length;
-    }
-    if (products.length > 0 || totalCount > 0) {
-      return { products, totalCount };
-    }
-    return null;
-  };
 
   if (normalizedSlug) {
     try {
-      const result = await executeQuery(false);
-      if (result) {
-        return result;
+      const [rows] = await pool.query(
+        `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
+          FROM products
+          WHERE is_published = 1 AND LOWER(category) = ?
+          ORDER BY title_h1 ASC
+          LIMIT ? OFFSET ?`,
+        [normalizedSlug, limit, offset]
+      );
+      const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
+      if (parsed.success) {
+        const products = parsed.data.map(normalizeCategoryProductRecord);
+        let totalCount = await countCategoryProducts(category.slug ?? null);
+        if (products.length > 0 && totalCount === 0) {
+          totalCount = products.length;
+        }
+        if (products.length > 0 || totalCount > 0) {
+          return { products, totalCount };
+        }
+      } else {
+        console.error(
+          '[categories] failed to parse product rows',
+          parsed.error.format(),
+          requestId ? { requestId } : undefined
+        );
       }
     } catch (error) {
       const info = toDbErrorInfo(error);
-      if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
-        console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
-      } else {
-        try {
-          const fallbackResult = await executeQuery(true);
-          if (fallbackResult) {
-            return fallbackResult;
-          }
-        } catch (fallbackError) {
-          const fallbackInfo = toDbErrorInfo(fallbackError);
-          if (fallbackInfo.code !== 'ER_BAD_FIELD_ERROR' && fallbackInfo.code !== '42703') {
-            console.error(
-              '[categories] category products fallback error',
-              fallbackInfo,
-              requestId ? { requestId } : undefined
-            );
-          }
-        }
-      }
+      console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
     }
   }
 
