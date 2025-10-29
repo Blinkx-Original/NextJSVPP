@@ -462,15 +462,19 @@ async function countCategoryProducts(
   }
 
   try {
-    const [rows] = await pool.query(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS total
         FROM products
         WHERE is_published = 1 AND ${match.clause}`,
       match.params
     );
-    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
-    const value = row && typeof row.total !== 'undefined' ? row.total : 0;
-    const total = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return 0;
+    }
+
+    const value = rows[0]?.total;
+    const total = typeof value === 'number' ? value : Number.parseInt(String(value ?? '0'), 10);
     return Number.isFinite(total) && total > 0 ? total : 0;
   };
 
@@ -594,10 +598,13 @@ async function countLegacyCategoryProducts(
         WHERE ${query.where}`;
 
   try {
-    const [rows] = await pool.query(sql, query.params);
-    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
-    const value = row && typeof row.total !== 'undefined' ? row.total : 0;
-    const total = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+    const [rows] = await pool.query<RowDataPacket[]>(sql, query.params);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return 0;
+    }
+
+    const value = rows[0]?.total;
+    const total = typeof value === 'number' ? value : Number.parseInt(String(value ?? '0'), 10);
     return Number.isFinite(total) && total > 0 ? total : 0;
   } catch (error) {
     const info = toDbErrorInfo(error);
