@@ -597,7 +597,7 @@ export default function EditBlogPanel({
         setSaveSuccess(successMessage);
         setToast({ type: 'success', message: successMessage });
         if (options?.openPublicView) {
-          const viewUrl = `/blog/${data.post.slug}`;
+          const viewUrl = `/b/${data.post.slug}`;
           window.open(viewUrl, '_blank', 'noopener');
         }
       } catch (error) {
