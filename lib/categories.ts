@@ -475,25 +475,15 @@ async function countCategoryProducts(
     }
 
     const raw = rows[0]?.total as number | string | null | undefined;
-    const total =
-      typeof raw === 'number'
-        ? raw
-        : Number.parseInt(raw !== null && raw !== undefined ? String(raw) : '0', 10);
-    return Number.isFinite(total) && total > 0 ? total : 0;
-  };
-
-  try {
-    return await runQuery(false);
-  } catch (error) {
-    const info = toDbErrorInfo(error);
-    if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
-      console.error('[categories] count products error', info);
-      return 0;
+    let total: number;
+    if (typeof raw === 'number') {
+      total = raw;
+    } else {
+      const asString = raw !== null && raw !== undefined ? String(raw) : '0';
+      const parsed = Number.parseInt(asString, 10);
+      total = Number.isFinite(parsed) ? parsed : 0;
     }
-  }
-
-  try {
-    return await runQuery(true);
+    return total > 0 ? total : 0;
   } catch (error) {
     const info = toDbErrorInfo(error);
     if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
