@@ -1,5 +1,6 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { z } from 'zod';
+import { slugifyCategoryName } from './category-slug';
 import { getPool, toDbErrorInfo } from './db';
 
 // -- Category type helpers --------------------------------------------------
@@ -84,6 +85,42 @@ function normalizeCategoryValue(value: string | null | undefined): string | null
   }
   const trimmed = value.trim().toLowerCase();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+type CategoryVariantSource = {
+  slug?: string | null;
+  name?: string | null;
+};
+
+function addCategoryVariant(target: Set<string>, value: string | null | undefined): void {
+  const normalized = normalizeCategoryValue(value);
+  if (!normalized) {
+    return;
+  }
+  target.add(normalized);
+
+  const withSpaces = normalizeCategoryValue(normalized.replace(/-/g, ' '));
+  if (withSpaces) {
+    target.add(withSpaces);
+  }
+
+  const collapsed = normalized.replace(/[\s-]+/g, '');
+  if (collapsed.length > 0) {
+    target.add(collapsed);
+  }
+}
+
+export function buildCategoryVariants(source: CategoryVariantSource): string[] {
+  const variants = new Set<string>();
+
+  addCategoryVariant(variants, source.slug ?? null);
+
+  if (source.name) {
+    addCategoryVariant(variants, slugifyCategoryName(source.name));
+    addCategoryVariant(variants, source.name);
+  }
+
+  return Array.from(variants);
 }
 
 function normalizeCount(value: unknown): number {
@@ -404,37 +441,53 @@ function normalizeProductRecord(record: z.infer<typeof categoryProductRecordSche
 // Build a robust match fragment for category columns, including JSON arrays or CSV text in `categories`.
 function buildCategoryMatchFragments(
   columns: ProductCategoryColumn[],
-  normalizedSlug: string
+  variants: string[]
 ): { where: string; params: unknown[] } {
   const pieces: string[] = [];
   const params: unknown[] = [];
 
+  if (columns.length === 0 || variants.length === 0) {
+    return { where: '0', params };
+  }
+
   for (const column of columns) {
     if (column === 'category' || column === 'category_slug') {
-      pieces.push('LOWER(TRIM(??)) = ?');
-      params.push(column, normalizedSlug);
+      const placeholders = variants.map(() => '?').join(', ');
+      pieces.push(`LOWER(TRIM(??)) IN (${placeholders})`);
+      params.push(column, ...variants);
     } else if (column === 'categories') {
-      // Support both JSON arrays and CSV-like text lists.
-      pieces.push(`(
-        (JSON_VALID(??) AND JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?)))
-        OR
-        (NOT JSON_VALID(??) AND (
-            FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', '')) > 0
+      const jsonPieces: string[] = [];
+      const jsonParams: unknown[] = [];
+      const csvPieces: string[] = [];
+      const csvParams: unknown[] = [];
+
+      for (const variant of variants) {
+        jsonPieces.push('JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))');
+        jsonParams.push(column, variant);
+      }
+
+      for (const variant of variants) {
+        const collapsed = variant.replace(/[\s-]+/g, '');
+        if (collapsed.length === 0) {
+          continue;
+        }
+        csvPieces.push(`(
+            FIND_IN_SET(?, REPLACE(REPLACE(LOWER(TRIM(??)), ' ', ''), '-', '')) > 0
             OR
-            CONCAT(',', LOWER(REPLACE(TRIM(??), ' ', '')), ',') LIKE ?
-        ))
+            CONCAT(',', REPLACE(REPLACE(LOWER(TRIM(??)), ' ', ''), '-', ''), ',') LIKE ?
+          )`);
+        csvParams.push(collapsed, column, column, `%,${collapsed},%`);
+      }
+
+      const jsonClause = jsonPieces.length > 0 ? jsonPieces.join(' OR ') : 'FALSE';
+      const csvClause = csvPieces.length > 0 ? csvPieces.join(' OR ') : 'FALSE';
+
+      pieces.push(`(
+        (JSON_VALID(??) AND (${jsonClause}))
+        OR
+        (NOT JSON_VALID(??) AND (${csvClause}))
       )`);
-      // order of params for the above expression:
-      // JSON_VALID(??)
-      params.push(column);
-      // JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))
-      params.push(column, normalizedSlug);
-      // NOT JSON_VALID(??)
-      params.push(column);
-      // FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', ''))
-      params.push(normalizedSlug, column);
-      // CONCAT(... LIKE ?)
-      params.push(column, `%,${normalizedSlug},%`);
+      params.push(column, ...jsonParams, column, ...csvParams);
     }
   }
 
@@ -443,16 +496,15 @@ function buildCategoryMatchFragments(
 }
 
 async function countProductsForCategory(
-  slug: string,
+  variants: string[],
   columns: ProductCategoryColumn[]
 ): Promise<number> {
-  const normalized = normalizeCategoryValue(slug);
-  if (!normalized || columns.length === 0) {
+  if (variants.length === 0 || columns.length === 0) {
     return 0;
   }
 
   const pool = getPool();
-  const { where, params } = buildCategoryMatchFragments(columns, normalized);
+  const { where, params } = buildCategoryMatchFragments(columns, variants);
 
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
@@ -479,13 +531,13 @@ export async function getPublishedProductsForCategory(
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
   const columns = await getProductCategoryColumns(pool);
-  const normalizedSlug = normalizeCategoryValue(category.slug);
+  const variants = buildCategoryVariants({ slug: category.slug, name: category.name });
 
-  if (!normalizedSlug || columns.length === 0) {
+  if (variants.length === 0 || columns.length === 0) {
     return { products: [], totalCount: 0 };
   }
 
-  const { where, params } = buildCategoryMatchFragments(columns, normalizedSlug);
+  const { where, params } = buildCategoryMatchFragments(columns, variants);
 
   try {
     const [rows] = await pool.query(
@@ -506,7 +558,7 @@ export async function getPublishedProductsForCategory(
     }
 
     const products = parsed.data.map(normalizeProductRecord);
-    const totalCount = await countProductsForCategory(category.slug, columns);
+    const totalCount = await countProductsForCategory(variants, columns);
 
     return { products, totalCount };
   } catch (error) {
