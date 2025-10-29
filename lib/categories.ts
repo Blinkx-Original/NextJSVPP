@@ -260,6 +260,12 @@ export interface CategoryPickerOptions {
   requestId?: string;
 }
 
+export interface AllCategoriesQueryOptions {
+  type?: CategoryType;
+  batchSize?: number;
+  requestId?: string;
+}
+
 function buildCategoryWhereClause(options: { type?: CategoryType }): { where: string; params: unknown[] } {
   const where: string[] = ['is_published = 1'];
   const params: unknown[] = [];
@@ -312,6 +318,36 @@ export async function getPublishedCategories(options: CategoryQueryOptions = {})
     console.error('[categories] published categories query failed', info, options.requestId ? { requestId: options.requestId } : undefined);
     return { categories: [], totalCount: 0 };
   }
+}
+
+export async function getAllPublishedCategories(
+  options: AllCategoriesQueryOptions = {}
+): Promise<CategorySummary[]> {
+  const batchSize = options.batchSize && options.batchSize > 0 ? Math.min(options.batchSize, 500) : 200;
+  const categories: CategorySummary[] = [];
+  let offset = 0;
+
+  while (true) {
+    const { categories: pageCategories, totalCount } = await getPublishedCategories({
+      type: options.type,
+      limit: batchSize,
+      offset,
+      requestId: options.requestId
+    });
+
+    if (pageCategories.length === 0) {
+      break;
+    }
+
+    categories.push(...pageCategories);
+    offset += pageCategories.length;
+
+    if (offset >= totalCount || pageCategories.length < batchSize) {
+      break;
+    }
+  }
+
+  return categories;
 }
 
 export async function getPublishedCategoryPickerOptions(
