@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { revalidatePath } from 'next/cache';
 import { getPool, toDbErrorInfo } from '@/lib/db';
-import { getCategoryTypeSynonyms } from '@/lib/categories';
+import { getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
 import { safeGetEnv } from '@/lib/env';
 import { requireAdminAuth } from '@/lib/basic-auth';
 import { ensureCategorySlug } from '@/lib/category-slug';
@@ -18,7 +18,13 @@ import {
   type CategoryType,
   type ErrorCode
 } from '../common';
-import { fetchAdminCategoryBySlug, type AdminCategoryRow } from '../helpers';
+import {
+  countCategoryRelations,
+  fetchAdminCategoryBySlug,
+  getBlogCategoryColumn,
+  type AdminCategoryRow,
+  type BlogCategoryColumn
+} from '../helpers';
 
 interface UpdateCategoryPayload {
   type?: unknown;
@@ -52,6 +58,87 @@ function parseCategoryTypeInput(value: unknown): CategoryType | null {
   return null;
 }
 
+async function updateProductCategoryAssignments(
+  connection: PoolConnection,
+  fromSlug: string,
+  toSlug?: string | null
+): Promise<void> {
+  const columns = await getProductCategoryColumns(connection);
+  if (!Array.isArray(columns) || columns.length === 0) {
+    return;
+  }
+
+  const normalizedFrom = fromSlug.trim().toLowerCase();
+  const normalizedTo = typeof toSlug === 'string' ? toSlug.trim().toLowerCase() : null;
+
+  for (const column of columns) {
+    if (column.mode === 'single') {
+      if (normalizedTo) {
+        await connection.query(
+          `UPDATE products SET \`${column.name}\` = ? WHERE \`${column.name}\` = ?`,
+          [normalizedTo, normalizedFrom]
+        );
+      } else {
+        await connection.query(
+          `UPDATE products SET \`${column.name}\` = NULL WHERE \`${column.name}\` = ?`,
+          [normalizedFrom]
+        );
+      }
+      continue;
+    }
+
+    if (column.mode === 'json') {
+      if (normalizedTo) {
+        await connection.query(
+          `UPDATE products
+            SET \`${column.name}\` = JSON_ARRAY(?)
+          WHERE JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`,
+          [normalizedTo, normalizedFrom]
+        );
+        await connection.query(
+          `UPDATE products
+            SET \`${column.name}\` = JSON_ARRAY(?)
+          WHERE JSON_VALID(\`${column.name}\`) = 0 AND LOWER(TRIM(\`${column.name}\`)) = ?`,
+          [normalizedTo, normalizedFrom]
+        );
+      } else {
+        await connection.query(
+          `UPDATE products
+            SET \`${column.name}\` = NULL
+          WHERE (JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?)))
+            OR LOWER(TRIM(\`${column.name}\`)) = ?`,
+          [normalizedFrom, normalizedFrom]
+        );
+      }
+      continue;
+    }
+
+    if (normalizedTo) {
+      await connection.query(
+        `UPDATE products SET \`${column.name}\` = ? WHERE LOWER(TRIM(\`${column.name}\`)) = ?`,
+        [normalizedTo, normalizedFrom]
+      );
+      await connection.query(
+        `UPDATE products
+          SET \`${column.name}\` = ?
+        WHERE JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`,
+        [normalizedTo, normalizedFrom]
+      );
+    } else {
+      await connection.query(
+        `UPDATE products SET \`${column.name}\` = NULL WHERE LOWER(TRIM(\`${column.name}\`)) = ?`,
+        [normalizedFrom]
+      );
+      await connection.query(
+        `UPDATE products
+          SET \`${column.name}\` = NULL
+        WHERE JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`,
+        [normalizedFrom]
+      );
+    }
+  }
+}
+
 function parseDeleteMode(value: string | null): DeleteMode {
   if (!value) {
     return 'block';
@@ -64,228 +151,6 @@ function parseDeleteMode(value: string | null): DeleteMode {
     return 'detach';
   }
   return 'block';
-}
-
-function normalizeSlugMatch(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-async function countPublishedProductsForSlug(
-  connection: PoolConnection,
-  slug: string
-): Promise<number> {
-  const normalized = normalizeSlugMatch(slug);
-  if (!normalized) {
-    return 0;
-  }
-
-  const runQuery = async (useFallback: boolean): Promise<number> => {
-    const whereClause = useFallback
-      ? "LOWER(NULLIF(category, '')) = ?"
-      : `LOWER(COALESCE(NULLIF(category, ''), NULLIF(category_slug, ''))) = ?`;
-    const [rows] = await connection.query<RowDataPacket[]>(
-      `SELECT COUNT(*) AS total
-        FROM products
-        WHERE is_published = 1 AND ${whereClause}`,
-      [normalized]
-    );
-    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-    const value = row ? row.total : 0;
-    const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
-    return Number.isFinite(total) && total > 0 ? total : 0;
-  };
-
-  try {
-    return await runQuery(false);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  try {
-    return await runQuery(true);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  return 0;
-}
-
-async function countCategoryRelations(
-  connection: PoolConnection,
-  type: CategoryType,
-  categoryId: string,
-  slug: string
-): Promise<number> {
-  if (type === 'product') {
-    return countPublishedProductsForSlug(connection, slug);
-  }
-
-  const [rows] = await connection.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total
-      FROM posts
-      WHERE category_slug = ? AND is_published = 1`,
-    [slug]
-  );
-  const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-  const value = row ? row.total : 0;
-  const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
-  return Number.isFinite(total) && total > 0 ? total : 0;
-}
-
-function isUnknownColumnError(error: unknown): boolean {
-  const info = toDbErrorInfo(error);
-  return info.code === 'ER_BAD_FIELD_ERROR' || info.code === '42703';
-}
-
-async function updateProductFallbacks(
-  connection: PoolConnection,
-  slug: string,
-  newName: string | null
-): Promise<void> {
-  const normalizedSlug = normalizeSlugMatch(slug);
-  if (!normalizedSlug) {
-    return;
-  }
-
-  try {
-    await connection.query(`UPDATE products SET category_slug = ? WHERE LOWER(category_slug) = ?`, [slug, normalizedSlug]);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  try {
-    await connection.query(`UPDATE products SET category = ? WHERE category_slug = ?`, [slug, slug]);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  try {
-    await connection.query(`UPDATE products SET category = ? WHERE LOWER(category) = ?`, [slug, normalizedSlug]);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  if (newName) {
-    const trimmedName = newName.trim();
-    if (trimmedName) {
-      try {
-        await connection.query(`UPDATE products SET category = ? WHERE category = ?`, [slug, trimmedName]);
-      } catch (error) {
-        if (!isUnknownColumnError(error)) {
-          throw error;
-        }
-      }
-    }
-  }
-}
-
-async function detachProductFallbacks(connection: PoolConnection, slug: string, name: string): Promise<void> {
-  const normalizedSlug = normalizeSlugMatch(slug);
-
-  try {
-    await connection.query(`UPDATE products SET category_slug = NULL WHERE LOWER(category_slug) = ?`, [normalizedSlug]);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  try {
-    await connection.query(`UPDATE products SET category = NULL WHERE category_slug = ?`, [slug]);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  try {
-    await connection.query(`UPDATE products SET category = NULL WHERE LOWER(category) = ?`, [normalizedSlug]);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  const trimmedName = name.trim();
-  if (trimmedName) {
-    try {
-      await connection.query(`UPDATE products SET category = NULL WHERE category = ?`, [trimmedName]);
-    } catch (error) {
-      if (!isUnknownColumnError(error)) {
-        throw error;
-      }
-    }
-  }
-}
-
-async function reassignProductFallbacks(
-  connection: PoolConnection,
-  slug: string,
-  name: string,
-  targetSlug: string,
-  targetName: string
-): Promise<void> {
-  const normalizedSlug = normalizeSlugMatch(slug);
-  const normalizedTarget = normalizeSlugMatch(targetSlug);
-  if (!normalizedTarget) {
-    return;
-  }
-
-  try {
-    await connection.query(`UPDATE products SET category_slug = ? WHERE LOWER(category_slug) = ?`, [targetSlug, normalizedSlug]);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  try {
-    await connection.query(`UPDATE products SET category = ? WHERE category_slug = ?`, [targetSlug, slug]);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  try {
-    await connection.query(`UPDATE products SET category = ? WHERE LOWER(category) = ?`, [targetSlug, normalizedSlug]);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  const trimmedName = name.trim();
-  if (trimmedName) {
-    try {
-      await connection.query(`UPDATE products SET category = ? WHERE category = ?`, [targetSlug, trimmedName]);
-    } catch (error) {
-      if (!isUnknownColumnError(error)) {
-        throw error;
-      }
-    }
-  }
-
-  const normalizedTargetName = targetName.trim();
-  if (normalizedTargetName) {
-    try {
-      await connection.query(`UPDATE products SET category = ? WHERE category = ?`, [targetSlug, normalizedTargetName]);
-    } catch (error) {
-      if (!isUnknownColumnError(error)) {
-        throw error;
-      }
-    }
-  }
 }
 
 export async function GET(
@@ -489,14 +354,14 @@ export async function PUT(
 
     if (typeChanged) {
       if (currentType === 'product') {
-        await detachProductFallbacks(connection, slug, currentName);
-      } else if (nextType === 'product') {
-        await connection.query(`UPDATE posts SET category_slug = NULL WHERE category_slug = ?`, [slug]);
-        const fallbackName = nameChanged ? name : currentName;
-        await updateProductFallbacks(connection, slug, fallbackName);
+        await updateProductCategoryAssignments(connection, slug, null);
       }
-    } else if (currentType === 'product' && nameChanged) {
-      await updateProductFallbacks(connection, slug, name);
+      if (nextType === 'product') {
+        const blogColumn = await getBlogCategoryColumn(connection);
+        if (blogColumn) {
+          await connection.query(`UPDATE posts SET \`${blogColumn}\` = NULL WHERE \`${blogColumn}\` = ?`, [slug]);
+        }
+      }
     }
 
     await connection.commit();
@@ -577,7 +442,8 @@ export async function DELETE(
     const categoryId = toIdString(record.id);
     const name = typeof record.name === 'string' ? record.name : '';
 
-    const relatedCount = await countCategoryRelations(connection, type, categoryId, slug);
+    const blogColumn = type === 'blog' ? await getBlogCategoryColumn(connection) : null;
+    const relatedCount = await countCategoryRelations(connection, type, slug, blogColumn);
 
     if (mode === 'block' && relatedCount > 0) {
       await connection.rollback();
@@ -611,9 +477,9 @@ export async function DELETE(
       }
 
       if (type === 'product') {
-        await reassignProductFallbacks(connection, slug, name, target.slug, target.name);
-      } else {
-        await connection.query(`UPDATE posts SET category_slug = ? WHERE category_slug = ?`, [target.slug, slug]);
+        await updateProductCategoryAssignments(connection, slug, target.slug);
+      } else if (blogColumn) {
+        await connection.query(`UPDATE posts SET \`${blogColumn}\` = ? WHERE \`${blogColumn}\` = ?`, [target.slug, slug]);
       }
 
       if (type === 'product') {
@@ -621,9 +487,9 @@ export async function DELETE(
       }
     } else if (mode === 'detach' && relatedCount > 0) {
       if (type === 'product') {
-        await detachProductFallbacks(connection, slug, name);
-      } else {
-        await connection.query(`UPDATE posts SET category_slug = NULL WHERE category_slug = ?`, [slug]);
+        await updateProductCategoryAssignments(connection, slug, null);
+      } else if (blogColumn) {
+        await connection.query(`UPDATE posts SET \`${blogColumn}\` = NULL WHERE \`${blogColumn}\` = ?`, [slug]);
       }
     }
 
