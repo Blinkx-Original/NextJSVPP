@@ -4,6 +4,7 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/prom
 import { getPool, toDbErrorInfo } from '@/lib/db';
 import { safeGetEnv } from '@/lib/env';
 import { clearProductCache, getProductRecordBySlug, type RawProductRecord } from '@/lib/products';
+import { getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
 import { normalizeProductSlugInput } from '@/lib/product-slug';
 import { DESCRIPTION_MAX_LENGTH, sanitizeProductHtml } from '@/lib/sanitize-html';
 
@@ -256,6 +257,45 @@ function normalizeOptionalLabel(value: unknown, maxLength: number): string {
     return trimmed.slice(0, maxLength);
   }
   return trimmed;
+}
+
+async function syncProductCategoryColumns(
+  connection: PoolConnection,
+  slug: string,
+  categoryValue: string | null
+): Promise<void> {
+  const columns = await getProductCategoryColumns(connection);
+  if (!Array.isArray(columns) || columns.length === 0) {
+    return;
+  }
+
+  const normalizedCategory = typeof categoryValue === 'string' ? categoryValue.trim().toLowerCase() : null;
+
+  for (const column of columns) {
+    if (column.name === 'category') {
+      continue;
+    }
+    if (column.mode === 'single') {
+      await connection.query(`UPDATE products SET \`${column.name}\` = ? WHERE slug = ?`, [normalizedCategory, slug]);
+      continue;
+    }
+    if (column.mode === 'json') {
+      if (normalizedCategory) {
+        await connection.query(
+          `UPDATE products SET \`${column.name}\` = JSON_ARRAY(?) WHERE slug = ?`,
+          [normalizedCategory, slug]
+        );
+      } else {
+        await connection.query(`UPDATE products SET \`${column.name}\` = NULL WHERE slug = ?`, [slug]);
+      }
+      continue;
+    }
+    if (normalizedCategory) {
+      await connection.query(`UPDATE products SET \`${column.name}\` = ? WHERE slug = ?`, [normalizedCategory, slug]);
+    } else {
+      await connection.query(`UPDATE products SET \`${column.name}\` = NULL WHERE slug = ?`, [slug]);
+    }
+  }
 }
 
 function normalizeRequiredString(
@@ -599,6 +639,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
         normalizedSlug
       ]
     );
+
+    await syncProductCategoryColumns(connection, normalizedSlug, categoryValue);
 
     clearProductCache(normalizedSlug);
     revalidatePath(`/p/${normalizedSlug}`);

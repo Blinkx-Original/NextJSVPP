@@ -1,6 +1,6 @@
 import footerLinksData from '@/content/footer/links.json';
 
-export interface FooterLink {
+interface FooterLinkRecord {
   title: string;
   href: string;
   external?: boolean;
@@ -21,7 +21,7 @@ export function getFooterLinks(): FooterLink[] {
 }
 
 export function isExternalLink(link: FooterLink): boolean {
-  return link.external === true || /^https?:\/\//i.test(link.href);
+  return link.external;
 }
 
 export function getInternalFooterSlugs(): string[] {
