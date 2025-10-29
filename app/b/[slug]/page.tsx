@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
-import styles from '../p/[slug]/page.module.css';
+import styles from '../../p/[slug]/page.module.css';
 import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
 import {
   getNormalizedPublishedBlogPost,
