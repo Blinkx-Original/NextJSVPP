@@ -1,7 +1,44 @@
-import type { Pool, RowDataPacket } from 'mysql2/promise';
+import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { getCategoryTypeSynonyms } from '@/lib/categories';
+import { toDbErrorInfo } from '@/lib/db';
 
 type CategoryType = 'product' | 'blog';
+
+export type BlogCategoryColumn = 'category_slug' | 'category';
+
+let cachedBlogCategoryColumn: BlogCategoryColumn | null | undefined;
+
+async function detectBlogCategoryColumn(
+  client: Pool | PoolConnection
+): Promise<BlogCategoryColumn | null> {
+  if (cachedBlogCategoryColumn !== undefined) {
+    return cachedBlogCategoryColumn;
+  }
+
+  const candidates: BlogCategoryColumn[] = ['category_slug', 'category'];
+
+  for (const column of candidates) {
+    try {
+      const [rows] = await client.query<RowDataPacket[]>(`SHOW COLUMNS FROM posts LIKE ?`, [column]);
+      if (Array.isArray(rows) && rows.length > 0) {
+        cachedBlogCategoryColumn = column;
+        return column;
+      }
+    } catch (error) {
+      const info = toDbErrorInfo(error);
+      console.warn('[admin/categories] failed to inspect blog posts column', info);
+    }
+  }
+
+  cachedBlogCategoryColumn = null;
+  return null;
+}
+
+export async function getBlogCategoryColumn(
+  client: Pool | PoolConnection
+): Promise<BlogCategoryColumn | null> {
+  return detectBlogCategoryColumn(client);
+}
 
 export interface AdminCategoryRow {
   id: string;
@@ -16,26 +53,37 @@ export interface AdminCategoryRow {
   updated_at: string | null;
 }
 
-function buildStatsJoin(type: CategoryType): { joinSql: string; selectCount: string } {
+function buildStatsJoin(
+  type: CategoryType,
+  options: { blogColumn?: BlogCategoryColumn | null } = {}
+): { joinSql: string; selectCount: string } {
   if (type === 'product') {
     return {
       joinSql: `LEFT JOIN (
-        SELECT cp.category_id AS category_id, COUNT(*) AS total
-        FROM category_products cp
-        INNER JOIN products p ON p.id = cp.product_id
-        WHERE p.is_published = 1
-        GROUP BY cp.category_id
-      ) stats ON stats.category_id = c.id`,
+        SELECT category AS slug, COUNT(*) AS total
+        FROM products
+        WHERE is_published = 1 AND category IS NOT NULL AND category <> ''
+        GROUP BY category
+      ) stats ON stats.slug = c.slug`,
       selectCount: 'COALESCE(stats.total, 0) AS products_count'
+    };
+  }
+
+  const column = options.blogColumn ?? 'category_slug';
+
+  if (!column) {
+    return {
+      joinSql: '',
+      selectCount: '0 AS products_count'
     };
   }
 
   return {
     joinSql: `LEFT JOIN (
-      SELECT category_slug AS slug, COUNT(*) AS total
+      SELECT \`${column}\` AS slug, COUNT(*) AS total
       FROM posts
-      WHERE is_published = 1 AND category_slug IS NOT NULL
-      GROUP BY category_slug
+      WHERE is_published = 1 AND \`${column}\` IS NOT NULL AND \`${column}\` <> ''
+      GROUP BY \`${column}\`
     ) stats ON stats.slug = c.slug`,
     selectCount: 'COALESCE(stats.total, 0) AS products_count'
   };
@@ -67,7 +115,8 @@ export async function fetchAdminCategoryById(
 ): Promise<AdminCategoryRow | null> {
   const typeSynonyms = getCategoryTypeSynonyms(type);
   const placeholders = typeSynonyms.map(() => '?').join(', ');
-  const { joinSql, selectCount } = buildStatsJoin(type);
+  const blogColumn = type === 'blog' ? await getBlogCategoryColumn(pool) : null;
+  const { joinSql, selectCount } = buildStatsJoin(type, { blogColumn });
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT c.id, c.type, c.slug, c.name, c.short_description, c.long_description, c.hero_image_url,
@@ -86,8 +135,11 @@ export async function fetchAdminCategoryById(
   return mapAdminCategoryRow(rows[0] as RowDataPacket, type);
 }
 
-export function buildStatsClause(type: CategoryType): { joinSql: string; selectCount: string } {
-  return buildStatsJoin(type);
+export function buildStatsClause(
+  type: CategoryType,
+  options: { blogColumn?: BlogCategoryColumn | null } = {}
+): { joinSql: string; selectCount: string } {
+  return buildStatsJoin(type, options);
 }
 
 export async function fetchAdminCategoryBySlug(
@@ -97,7 +149,8 @@ export async function fetchAdminCategoryBySlug(
 ): Promise<AdminCategoryRow | null> {
   const typeSynonyms = getCategoryTypeSynonyms(type);
   const placeholders = typeSynonyms.map(() => '?').join(', ');
-  const { joinSql, selectCount } = buildStatsJoin(type);
+  const blogColumn = type === 'blog' ? await getBlogCategoryColumn(pool) : null;
+  const { joinSql, selectCount } = buildStatsJoin(type, { blogColumn });
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT c.id, c.type, c.slug, c.name, c.short_description, c.long_description, c.hero_image_url,
@@ -114,4 +167,41 @@ export async function fetchAdminCategoryBySlug(
   }
 
   return mapAdminCategoryRow(rows[0] as RowDataPacket, type);
+}
+
+export async function countCategoryRelations(
+  connection: PoolConnection,
+  type: CategoryType,
+  slug: string,
+  blogColumnOverride?: BlogCategoryColumn | null
+): Promise<number> {
+  if (type === 'product') {
+    const [rows] = await connection.query<RowDataPacket[]>(
+      `SELECT COUNT(*) AS total
+        FROM products
+        WHERE category = ? AND is_published = 1`,
+      [slug]
+    );
+    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    const value = row ? row.total : 0;
+    const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
+    return Number.isFinite(total) && total > 0 ? total : 0;
+  }
+
+  const blogColumn =
+    blogColumnOverride !== undefined ? blogColumnOverride : await getBlogCategoryColumn(connection);
+  if (!blogColumn) {
+    return 0;
+  }
+
+  const [rows] = await connection.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total
+      FROM posts
+      WHERE \`${blogColumn}\` = ? AND is_published = 1`,
+    [slug]
+  );
+  const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+  const value = row ? row.total : 0;
+  const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
+  return Number.isFinite(total) && total > 0 ? total : 0;
 }
