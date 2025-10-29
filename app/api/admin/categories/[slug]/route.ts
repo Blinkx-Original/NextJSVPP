@@ -71,13 +71,25 @@ function parseDeleteMode(value: string | null): DeleteMode {
   return 'block';
 }
 
-async function countCategoryRelations(
+function normalizeSlugMatch(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+async function countPublishedProductsForSlug(
   connection: PoolConnection,
   type: CategoryType,
   slug: string,
   blogColumnOverride?: BlogCategoryColumn | null
 ): Promise<number> {
-  if (type === 'product') {
+  const normalized = normalizeSlugMatch(slug);
+  if (!normalized) {
+    return 0;
+  }
+
+  const runQuery = async (useFallback: boolean): Promise<number> => {
+    const whereClause = useFallback
+      ? "LOWER(NULLIF(category, '')) = ?"
+      : `LOWER(COALESCE(NULLIF(category, ''), NULLIF(category_slug, ''))) = ?`;
     const [rows] = await connection.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS total
         FROM products

@@ -4,7 +4,6 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/prom
 import { getPool, toDbErrorInfo } from '@/lib/db';
 import { safeGetEnv } from '@/lib/env';
 import { clearProductCache, getProductRecordBySlug, type RawProductRecord } from '@/lib/products';
-import { getCategoryTypeSynonyms } from '@/lib/categories';
 import { normalizeProductSlugInput } from '@/lib/product-slug';
 import { DESCRIPTION_MAX_LENGTH, sanitizeProductHtml } from '@/lib/sanitize-html';
 
