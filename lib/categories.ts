@@ -11,7 +11,12 @@ type CategoryType = 'product' | 'blog';
 export type ProductCategoryColumn = 'category' | 'category_slug' | 'categories';
 export type BlogCategoryColumn = 'category_slug' | 'category';
 
+export type BlogCategoryColumn = 'category_slug' | 'category';
+
+export type BlogCategoryColumn = 'category_slug' | 'category';
+
 let cachedProductCategoryColumns: ProductCategoryColumn[] | undefined;
+let cachedBlogCategoryColumn: BlogCategoryColumn | null | undefined;
 
 async function detectProductCategoryColumns(client: SqlClient): Promise<ProductCategoryColumn[]> {
   if (cachedProductCategoryColumns !== undefined) {
@@ -43,6 +48,38 @@ export async function getProductCategoryColumns(client?: SqlClient): Promise<Pro
   }
   const pool = client ?? getPool();
   return detectProductCategoryColumns(pool);
+}
+
+async function detectBlogCategoryColumn(client: SqlClient): Promise<BlogCategoryColumn | null> {
+  if (cachedBlogCategoryColumn !== undefined) {
+    return cachedBlogCategoryColumn;
+  }
+
+  const candidates: BlogCategoryColumn[] = ['category_slug', 'category'];
+
+  for (const column of candidates) {
+    try {
+      const [rows] = await client.query<RowDataPacket[]>(`SHOW COLUMNS FROM posts LIKE ?`, [column]);
+      if (Array.isArray(rows) && rows.length > 0) {
+        cachedBlogCategoryColumn = column;
+        return column;
+      }
+    } catch (error) {
+      const info = toDbErrorInfo(error);
+      console.warn('[categories] failed to inspect blog posts column', info);
+    }
+  }
+
+  cachedBlogCategoryColumn = null;
+  return null;
+}
+
+export async function getBlogCategoryColumn(client?: SqlClient): Promise<BlogCategoryColumn | null> {
+  if (cachedBlogCategoryColumn !== undefined) {
+    return cachedBlogCategoryColumn;
+  }
+  const pool = client ?? getPool();
+  return detectBlogCategoryColumn(pool);
 }
 
 function normalizeCategoryValue(value: string | null | undefined): string | null {

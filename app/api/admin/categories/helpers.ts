@@ -1,5 +1,6 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import {
+  getBlogCategoryColumn,
   getCategoryTypeSynonyms,
   getProductCategoryColumns,
   type ProductCategoryColumn,
@@ -251,3 +252,5 @@ export async function countCategoryRelations(
   const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
   return Number.isFinite(total) && total > 0 ? total : 0;
 }
+
+export { getBlogCategoryColumn };
