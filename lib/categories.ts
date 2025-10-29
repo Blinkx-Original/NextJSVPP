@@ -325,7 +325,11 @@ async function countCategoryProducts(slug: string | null | undefined): Promise<n
   }
 
   const pool = getPool();
-  try {
+
+  const runQuery = async (useFallback: boolean): Promise<number> => {
+    const whereClause = useFallback
+      ? "LOWER(NULLIF(category, '')) = ?"
+      : `LOWER(COALESCE(NULLIF(category, ''), NULLIF(category_slug, ''))) = ?`;
     const [rows] = await pool.query(
       `SELECT COUNT(*) AS total
         FROM products
@@ -336,9 +340,25 @@ async function countCategoryProducts(slug: string | null | undefined): Promise<n
     const value = row && typeof row.total !== 'undefined' ? row.total : 0;
     const total = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
     return Number.isFinite(total) && total > 0 ? total : 0;
+  };
+
+  try {
+    return await runQuery(false);
   } catch (error) {
     const info = toDbErrorInfo(error);
-    console.error('[categories] count products error', info);
+    if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
+      console.error('[categories] count products error', info);
+      return 0;
+    }
+  }
+
+  try {
+    return await runQuery(true);
+  } catch (error) {
+    const info = toDbErrorInfo(error);
+    if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
+      console.error('[categories] count products fallback error', info);
+    }
     return 0;
   }
 }
