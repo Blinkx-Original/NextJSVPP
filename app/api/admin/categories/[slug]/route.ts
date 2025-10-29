@@ -19,6 +19,7 @@ import {
   type ErrorCode
 } from '../common';
 import {
+  countCategoryRelations,
   fetchAdminCategoryBySlug,
   getBlogCategoryColumn,
   type AdminCategoryRow,
@@ -69,57 +70,6 @@ function parseDeleteMode(value: string | null): DeleteMode {
     return 'detach';
   }
   return 'block';
-}
-
-function normalizeSlugMatch(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-async function countPublishedProductsForSlug(
-  connection: PoolConnection,
-  type: CategoryType,
-  slug: string,
-  blogColumnOverride?: BlogCategoryColumn | null
-): Promise<number> {
-  const normalized = normalizeSlugMatch(slug);
-  if (!normalized) {
-    return 0;
-  }
-
-  const runQuery = async (useFallback: boolean): Promise<number> => {
-    const whereClause = useFallback
-      ? "LOWER(NULLIF(category, '')) = ?"
-      : `LOWER(COALESCE(NULLIF(category, ''), NULLIF(category_slug, ''))) = ?`;
-    const [rows] = await connection.query<RowDataPacket[]>(
-      `SELECT COUNT(*) AS total
-        FROM products
-        WHERE category = ? AND is_published = 1`,
-      [slug]
-    );
-    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-    const value = row ? row.total : 0;
-    const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
-    return Number.isFinite(total) && total > 0 ? total : 0;
-  }
-
-  const blogColumn =
-    blogColumnOverride !== undefined
-      ? blogColumnOverride
-      : await getBlogCategoryColumn(connection);
-  if (!blogColumn) {
-    return 0;
-  }
-
-  const [rows] = await connection.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total
-      FROM posts
-      WHERE \`${blogColumn}\` = ? AND is_published = 1`,
-    [slug]
-  );
-  const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-  const value = row ? row.total : 0;
-  const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
-  return Number.isFinite(total) && total > 0 ? total : 0;
 }
 
 export async function GET(

@@ -168,3 +168,40 @@ export async function fetchAdminCategoryBySlug(
 
   return mapAdminCategoryRow(rows[0] as RowDataPacket, type);
 }
+
+export async function countCategoryRelations(
+  connection: PoolConnection,
+  type: CategoryType,
+  slug: string,
+  blogColumnOverride?: BlogCategoryColumn | null
+): Promise<number> {
+  if (type === 'product') {
+    const [rows] = await connection.query<RowDataPacket[]>(
+      `SELECT COUNT(*) AS total
+        FROM products
+        WHERE category = ? AND is_published = 1`,
+      [slug]
+    );
+    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    const value = row ? row.total : 0;
+    const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
+    return Number.isFinite(total) && total > 0 ? total : 0;
+  }
+
+  const blogColumn =
+    blogColumnOverride !== undefined ? blogColumnOverride : await getBlogCategoryColumn(connection);
+  if (!blogColumn) {
+    return 0;
+  }
+
+  const [rows] = await connection.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total
+      FROM posts
+      WHERE \`${blogColumn}\` = ? AND is_published = 1`,
+    [slug]
+  );
+  const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+  const value = row ? row.total : 0;
+  const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
+  return Number.isFinite(total) && total > 0 ? total : 0;
+}
