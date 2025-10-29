@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, toDbErrorInfo } from './db';
+import { getBlogCategoryColumn, type BlogCategoryColumn } from './categories';
 
 const BLOG_POST_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SLUG_MAX_LENGTH = 160;
@@ -100,6 +101,219 @@ export interface BlogPostWritePayload {
   canonicalUrl: string | null;
   isPublished: boolean;
   publishedAt: Date | null;
+}
+
+type SqlClient = Pool | PoolConnection;
+
+interface BlogSchema {
+  categoryColumn: BlogCategoryColumn | null;
+}
+
+let cachedBlogSchema: BlogSchema | undefined;
+let missingCategoryFilterWarningShown = false;
+
+async function getBlogSchema(client?: SqlClient): Promise<BlogSchema> {
+  if (cachedBlogSchema) {
+    return cachedBlogSchema;
+  }
+
+  const provider = client ?? getPool();
+  const categoryColumn = await getBlogCategoryColumn(provider);
+  const schema: BlogSchema = { categoryColumn };
+  cachedBlogSchema = schema;
+  return schema;
+}
+
+function buildCategorySelect(schema: BlogSchema): string {
+  if (schema.categoryColumn === 'category') {
+    return 'posts.category AS category_slug';
+  }
+  if (schema.categoryColumn === 'category_slug') {
+    return 'posts.category_slug';
+  }
+  return 'NULL AS category_slug';
+}
+
+function applyCategoryFilter(
+  schema: BlogSchema,
+  category: string | undefined,
+  where: string[],
+  params: unknown[]
+): void {
+  if (!category) {
+    return;
+  }
+  if (!schema.categoryColumn) {
+    if (!missingCategoryFilterWarningShown) {
+      console.warn('[blog-posts] category filter requested but posts table has no category column');
+      missingCategoryFilterWarningShown = true;
+    }
+    return;
+  }
+  where.push(`posts.\`${schema.categoryColumn}\` = ?`);
+  params.push(category);
+}
+
+interface InsertStatement {
+  sql: string;
+  values: unknown[];
+}
+
+function buildInsertStatement(schema: BlogSchema, payload: BlogPostWritePayload): InsertStatement {
+  const columns: string[] = [
+    'slug',
+    'title_h1',
+    'short_summary',
+    'content_html',
+    'cover_image_url'
+  ];
+  const placeholders: string[] = ['?', '?', '?', '?', '?'];
+  const values: unknown[] = [
+    payload.slug,
+    payload.title,
+    payload.shortSummary,
+    payload.contentHtml,
+    payload.coverImageUrl
+  ];
+
+  if (schema.categoryColumn) {
+    columns.push(schema.categoryColumn);
+    placeholders.push('?');
+    values.push(payload.categorySlug);
+  }
+
+  columns.push('product_slugs_json');
+  placeholders.push('?');
+  values.push(toJson(payload.productSlugs));
+
+  columns.push('cta_lead_url');
+  placeholders.push('?');
+  values.push(payload.ctaLeadUrl);
+
+  columns.push('cta_affiliate_url');
+  placeholders.push('?');
+  values.push(payload.ctaAffiliateUrl);
+
+  columns.push('seo_title');
+  placeholders.push('?');
+  values.push(payload.seoTitle);
+
+  columns.push('seo_description');
+  placeholders.push('?');
+  values.push(payload.seoDescription);
+
+  columns.push('canonical_url');
+  placeholders.push('?');
+  values.push(payload.canonicalUrl);
+
+  columns.push('is_published');
+  placeholders.push('?');
+  values.push(payload.isPublished ? 1 : 0);
+
+  columns.push('published_at');
+  placeholders.push('?');
+  values.push(payload.publishedAt);
+
+  const quotedColumns = columns.map((column) => `\`${column}\``);
+  const sql = `INSERT INTO posts (${quotedColumns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+
+  return { sql, values };
+}
+
+
+interface UpdateStatement {
+  sql: string;
+  values: unknown[];
+}
+
+function buildUpdateStatement(
+  schema: BlogSchema,
+  payload: BlogPostWritePayload,
+  currentSlug: string
+): UpdateStatement {
+  const assignments: string[] = [
+    'slug = ?',
+    'title_h1 = ?',
+    'short_summary = ?',
+    'content_html = ?',
+    'cover_image_url = ?'
+  ];
+  const values: unknown[] = [
+    payload.slug,
+    payload.title,
+    payload.shortSummary,
+    payload.contentHtml,
+    payload.coverImageUrl
+  ];
+
+  if (schema.categoryColumn) {
+    assignments.push(`\`${schema.categoryColumn}\` = ?`);
+    values.push(payload.categorySlug);
+  }
+
+  assignments.push('product_slugs_json = ?');
+  values.push(toJson(payload.productSlugs));
+
+  assignments.push('cta_lead_url = ?');
+  values.push(payload.ctaLeadUrl);
+
+  assignments.push('cta_affiliate_url = ?');
+  values.push(payload.ctaAffiliateUrl);
+
+  assignments.push('seo_title = ?');
+  values.push(payload.seoTitle);
+
+  assignments.push('seo_description = ?');
+  values.push(payload.seoDescription);
+
+  assignments.push('canonical_url = ?');
+  values.push(payload.canonicalUrl);
+
+  assignments.push('is_published = ?');
+  values.push(payload.isPublished ? 1 : 0);
+
+  assignments.push('published_at = ?');
+  values.push(payload.publishedAt);
+
+  const sql = `UPDATE posts
+    SET ${assignments.join(', ')}, last_tidb_update_at = NOW(6)
+    WHERE slug = ?
+    LIMIT 1`;
+
+  values.push(currentSlug);
+
+  return { sql, values };
+}
+
+async function runInTransaction<T>(
+  context: 'insert' | 'update',
+  handler: (connection: PoolConnection, schema: BlogSchema) => Promise<T>
+): Promise<T> {
+  const connection = await getPool().getConnection();
+  let inTransaction = false;
+  try {
+    await connection.beginTransaction();
+    inTransaction = true;
+    const schema = await getBlogSchema(connection);
+    const result = await handler(connection, schema);
+    await connection.commit();
+    inTransaction = false;
+    return result;
+  } catch (error) {
+    if (inTransaction) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error(
+          `[blog-posts] rollback error after ${context}`,
+          toDbErrorInfo(rollbackError)
+        );
+      }
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 function toBigInt(value: z.infer<typeof bigintLike>): bigint {
@@ -240,34 +454,35 @@ export async function queryBlogPosts(options: BlogPostQueryOptions = {}): Promis
   const limit = Math.min(Math.max(options.limit ?? 20, 1), 50);
   const where: string[] = [];
   const params: unknown[] = [];
+  const pool = getPool();
+  const schema = await getBlogSchema(pool);
 
   if (typeof options.cursor === 'number' && Number.isFinite(options.cursor) && options.cursor > 0) {
-    where.push('id < ?');
+    where.push('posts.id < ?');
     params.push(options.cursor);
   }
 
   if (options.query) {
     const term = `%${options.query.trim()}%`;
-    where.push('(slug LIKE ? OR title_h1 LIKE ? OR short_summary LIKE ? )');
+    where.push('(posts.slug LIKE ? OR posts.title_h1 LIKE ? OR posts.short_summary LIKE ? )');
     params.push(term, term, term);
   }
 
-  if (options.category) {
-    where.push('category_slug = ?');
-    params.push(options.category.trim());
-  }
+  const normalizedCategory = options.category?.trim();
+  applyCategoryFilter(schema, normalizedCategory, where, params);
 
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-  const sql = `SELECT id, slug, title_h1, short_summary, category_slug, is_published, published_at, last_tidb_update_at
+  const categorySelect = buildCategorySelect(schema);
+  const sql = `SELECT posts.id, posts.slug, posts.title_h1, posts.short_summary, ${categorySelect}, posts.is_published, posts.published_at, posts.last_tidb_update_at
     FROM posts
     ${whereClause}
-    ORDER BY id DESC
+    ORDER BY posts.id DESC
     LIMIT ?`;
 
   params.push(limit + 1);
 
   try {
-    const [rows] = await getPool().query<RowDataPacket[]>(sql, params);
+    const [rows] = await pool.query<RowDataPacket[]>(sql, params);
     const parsed = blogPostListRowSchema.array().safeParse(rows);
     if (!parsed.success) {
       console.error('[blog-posts] failed to parse list rows', parsed.error.format());
@@ -291,29 +506,45 @@ export async function queryBlogPosts(options: BlogPostQueryOptions = {}): Promis
   }
 }
 
-export async function findBlogPostBySlug(slug: string): Promise<BlogPostDetail | null> {
-  const sql = `SELECT id, slug, title_h1, short_summary, content_html, cover_image_url, category_slug,
-      product_slugs_json, cta_lead_url, cta_affiliate_url, seo_title, seo_description, canonical_url,
-      is_published, published_at, last_tidb_update_at
-    FROM posts
-    WHERE slug = ?
-    LIMIT 1`;
+type QueryExecutor = Pick<PoolConnection, 'query'>;
 
+function parseBlogPostDetailRows(rows: RowDataPacket[]): BlogPostDetail | null {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+  const parsed = blogPostRowSchema.safeParse(rows[0]);
+  if (!parsed.success) {
+    console.error('[blog-posts] failed to parse detail row', parsed.error.format());
+    return null;
+  }
+  return normalizeDetail(parsed.data);
+}
+
+async function loadBlogPostBySlug(
+  slug: string,
+  schema: BlogSchema,
+  executor: QueryExecutor
+): Promise<BlogPostDetail | null> {
+  const categorySelect = buildCategorySelect(schema);
+  const sql = `SELECT posts.id, posts.slug, posts.title_h1, posts.short_summary, posts.content_html, posts.cover_image_url,
+      ${categorySelect}, posts.product_slugs_json, posts.cta_lead_url, posts.cta_affiliate_url, posts.seo_title,
+      posts.seo_description, posts.canonical_url, posts.is_published, posts.published_at, posts.last_tidb_update_at
+    FROM posts
+    WHERE posts.slug = ?
+    LIMIT 1`;
   try {
-    const [rows] = await getPool().query<RowDataPacket[]>(sql, [slug]);
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return null;
-    }
-    const parsed = blogPostRowSchema.safeParse(rows[0]);
-    if (!parsed.success) {
-      console.error('[blog-posts] failed to parse detail row', parsed.error.format());
-      return null;
-    }
-    return normalizeDetail(parsed.data);
+    const [rows] = await executor.query<RowDataPacket[]>(sql, [slug]);
+    return parseBlogPostDetailRows(rows);
   } catch (error) {
     console.error('[blog-posts] query error', toDbErrorInfo(error));
     return null;
   }
+}
+
+export async function findBlogPostBySlug(slug: string): Promise<BlogPostDetail | null> {
+  const pool = getPool();
+  const schema = await getBlogSchema(pool);
+  return loadBlogPostBySlug(slug, schema, pool);
 }
 
 export interface BlogPostWriteResult {
@@ -466,47 +697,39 @@ export function normalizeBlogWritePayload(payload: Record<string, unknown>): Blo
 }
 
 export async function insertBlogPost(payload: BlogPostWritePayload): Promise<BlogPostWriteResult> {
-  const connection = await getPool().getConnection();
   try {
-    const [result] = await connection.query<ResultSetHeader>(
-      `INSERT INTO posts
-        (slug, title_h1, short_summary, content_html, cover_image_url, category_slug, product_slugs_json,
-         cta_lead_url, cta_affiliate_url, seo_title, seo_description, canonical_url, is_published, published_at,
-         last_tidb_update_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(6))`,
-      [
-        payload.slug,
-        payload.title,
-        payload.shortSummary,
-        payload.contentHtml,
-        payload.coverImageUrl,
-        payload.categorySlug,
-        toJson(payload.productSlugs),
-        payload.ctaLeadUrl,
-        payload.ctaAffiliateUrl,
-        payload.seoTitle,
-        payload.seoDescription,
-        payload.canonicalUrl,
-        payload.isPublished ? 1 : 0,
-        payload.publishedAt
-      ]
-    );
+    const post = await runInTransaction('insert', async (connection, schema) => {
+      const statement = buildInsertStatement(schema, payload);
+      const [result] = await connection.query<ResultSetHeader>(statement.sql, statement.values);
+      if (!result.insertId) {
+        throw new Error('insert_failed');
+      }
 
-    if (!result.insertId) {
-      throw new Error('insert_failed');
+      const created = await loadBlogPostBySlug(payload.slug, schema, connection);
+      if (!created) {
+        throw new Error('load_failed');
+      }
+
+      return created;
+    });
+
+    return { ok: true, post };
+  } catch (error) {
+    const message = (error as Error)?.message;
+    if (message === 'load_failed') {
+      return { ok: false, error: { code: 'sql_error', message: 'Unable to load created post' } };
+    }
+    if (message === 'insert_failed') {
+      return { ok: false, error: { code: 'sql_error', message: 'Unable to create post' } };
     }
 
-    const post = await findBlogPostBySlug(payload.slug);
-    return { ok: true, post: post ?? undefined };
-  } catch (error) {
     const info = toDbErrorInfo(error);
     if (info.code === 'ER_DUP_ENTRY' || info.code === '23505') {
       return { ok: false, error: { code: 'duplicate_slug', message: info.message, info } };
     }
+
     console.error('[blog-posts] insert error', info);
     return { ok: false, error: { code: 'sql_error', message: info.message, info } };
-  } finally {
-    connection.release();
   }
 }
 
@@ -514,60 +737,38 @@ export async function updateBlogPost(
   currentSlug: string,
   payload: BlogPostWritePayload
 ): Promise<BlogPostWriteResult> {
-  const connection = await getPool().getConnection();
   try {
-    const [result] = await connection.query<ResultSetHeader>(
-      `UPDATE posts
-       SET slug = ?,
-           title_h1 = ?,
-           short_summary = ?,
-           content_html = ?,
-           cover_image_url = ?,
-           category_slug = ?,
-           product_slugs_json = ?,
-           cta_lead_url = ?,
-           cta_affiliate_url = ?,
-           seo_title = ?,
-           seo_description = ?,
-           canonical_url = ?,
-           is_published = ?,
-           published_at = ?,
-           last_tidb_update_at = NOW(6)
-       WHERE slug = ?
-       LIMIT 1`,
-      [
-        payload.slug,
-        payload.title,
-        payload.shortSummary,
-        payload.contentHtml,
-        payload.coverImageUrl,
-        payload.categorySlug,
-        toJson(payload.productSlugs),
-        payload.ctaLeadUrl,
-        payload.ctaAffiliateUrl,
-        payload.seoTitle,
-        payload.seoDescription,
-        payload.canonicalUrl,
-        payload.isPublished ? 1 : 0,
-        payload.publishedAt,
-        currentSlug
-      ]
-    );
+    const post = await runInTransaction('update', async (connection, schema) => {
+      const statement = buildUpdateStatement(schema, payload, currentSlug);
+      const [result] = await connection.query<ResultSetHeader>(statement.sql, statement.values);
+      if (result.affectedRows === 0) {
+        throw new Error('not_found');
+      }
 
-    if (result.affectedRows === 0) {
+      const updated = await loadBlogPostBySlug(payload.slug, schema, connection);
+      if (!updated) {
+        throw new Error('load_failed');
+      }
+
+      return updated;
+    });
+
+    return { ok: true, post };
+  } catch (error) {
+    const message = (error as Error)?.message;
+    if (message === 'not_found') {
       return { ok: false, error: { code: 'sql_error', message: 'Post not found' } };
     }
+    if (message === 'load_failed') {
+      return { ok: false, error: { code: 'sql_error', message: 'Unable to load updated post' } };
+    }
 
-    const post = await findBlogPostBySlug(payload.slug);
-    return { ok: true, post: post ?? undefined };
-  } catch (error) {
     const info = toDbErrorInfo(error);
     if (info.code === 'ER_DUP_ENTRY' || info.code === '23505') {
       return { ok: false, error: { code: 'duplicate_slug', message: info.message, info } };
     }
+
     console.error('[blog-posts] update error', info);
     return { ok: false, error: { code: 'sql_error', message: info.message, info } };
-  } finally {
-    connection.release();
   }
 }
