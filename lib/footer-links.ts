@@ -35,7 +35,7 @@ export function getInternalFooterSlugs(): string[] {
 }
 
 export function findFooterLinkBySlug(slug: string): FooterLink | undefined {
-  const normalized = normalizeSlugLikeValue(slug);
+  const normalized = normalizeFooterSlug(slug);
   if (!normalized) {
     return undefined;
   }
@@ -47,7 +47,7 @@ function stripQueryAndHash(href: string): string {
   return href.split('#')[0]?.split('?')[0] ?? href;
 }
 
-function normalizeSlugLikeValue(value: string): string | null {
+export function normalizeFooterSlug(value: string): string | null {
   const trimmed = value.trim().replace(/\/+$/, '').replace(/^\/+/, '');
   if (!trimmed) {
     return null;
@@ -68,5 +68,5 @@ function extractInternalSlug(link: FooterLink): string | null {
     return null;
   }
 
-  return normalizeSlugLikeValue(cleanedHref) ?? null;
+  return normalizeFooterSlug(cleanedHref) ?? null;
 }
