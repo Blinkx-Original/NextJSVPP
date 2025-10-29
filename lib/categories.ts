@@ -476,9 +476,25 @@ async function countCategoryProducts(
     const value = rows[0]?.total;
     const total = typeof value === 'number' ? value : Number.parseInt(String(value ?? '0'), 10);
     return Number.isFinite(total) && total > 0 ? total : 0;
+  };
+
+  try {
+    return await runQuery(false);
   } catch (error) {
     const info = toDbErrorInfo(error);
-    console.error('[categories] count products error', info);
+    if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
+      console.error('[categories] count products error', info);
+      return 0;
+    }
+  }
+
+  try {
+    return await runQuery(true);
+  } catch (error) {
+    const info = toDbErrorInfo(error);
+    if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
+      console.error('[categories] count products fallback error', info);
+    }
     return 0;
   }
 }
