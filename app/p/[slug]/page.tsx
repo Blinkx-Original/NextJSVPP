@@ -131,9 +131,7 @@ export default async function ProductPage({ params }: PageProps) {
               className={styles.productMediaImage}
             />
           ) : (
-            <div className={styles.productMediaPlaceholder} aria-hidden="true">
-              <span>Image coming soon</span>
-            </div>
+            <div className={styles.productMediaPlaceholder} aria-hidden="true" />
           )}
         </div>
         <div className={styles.productDetails}>

@@ -1,5 +1,9 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
-import { getCategoryTypeSynonyms } from '@/lib/categories';
+import {
+  buildProductCategoryMatchClause,
+  getCategoryTypeSynonyms,
+  getProductCategoryColumns
+} from '@/lib/categories';
 import { toDbErrorInfo } from '@/lib/db';
 
 type CategoryType = 'product' | 'blog';
@@ -176,11 +180,17 @@ export async function countCategoryRelations(
   blogColumnOverride?: BlogCategoryColumn | null
 ): Promise<number> {
   if (type === 'product') {
+    const columns = await getProductCategoryColumns(connection);
+    const match = buildProductCategoryMatchClause(columns, [slug]);
+    if (!match) {
+      return 0;
+    }
+
     const [rows] = await connection.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS total
         FROM products
-        WHERE category = ? AND is_published = 1`,
-      [slug]
+        WHERE is_published = 1 AND ${match.clause}`,
+      match.params
     );
     const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
     const value = row ? row.total : 0;
