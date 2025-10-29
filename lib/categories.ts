@@ -12,6 +12,8 @@ export type ProductCategoryColumn = 'category' | 'category_slug' | 'categories';
 
 export type BlogCategoryColumn = 'category_slug' | 'category';
 
+export type BlogCategoryColumn = 'category_slug' | 'category';
+
 let cachedProductCategoryColumns: ProductCategoryColumn[] | undefined;
 let cachedBlogCategoryColumn: BlogCategoryColumn | null | undefined;
 
