@@ -6,6 +6,8 @@ import { SiteHeader } from '@/components/site-header';
 
 const siteName = process.env.NEXT_PUBLIC_SITE_NAME ?? 'Virtual Product Pages';
 
+// Drop your favicon at app/icon.png (Next.js will use it automatically).
+
 export const metadata: Metadata = {
   title: {
     default: siteName,
