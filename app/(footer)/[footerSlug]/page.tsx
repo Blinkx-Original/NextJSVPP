@@ -3,13 +3,22 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { cache } from 'react';
 
-import { findFooterLinkBySlug, getInternalFooterSlugs } from '@/lib/footer-links';
+import {
+  findFooterLinkBySlug,
+  getInternalFooterSlugs,
+  normalizeFooterSlug
+} from '@/lib/footer-links';
 import { renderMarkdown } from '@/lib/simple-markdown';
 
 const FOOTER_CONTENT_DIR = path.join(process.cwd(), 'content', 'footer');
 
-const loadMarkdown = cache(async (slug: string): Promise<string | null> => {
-  const filePath = path.join(FOOTER_CONTENT_DIR, `${slug}.md`);
+const loadMarkdown = cache(async (slugLike: string): Promise<string | null> => {
+  const normalized = normalizeFooterSlug(slugLike);
+  if (!normalized) {
+    return null;
+  }
+
+  const filePath = path.join(FOOTER_CONTENT_DIR, `${normalized}.md`);
   try {
     const file = await fs.readFile(filePath, 'utf8');
     return file;
@@ -43,25 +52,26 @@ export async function generateStaticParams() {
   const slugsFromFiles = await readAvailableSlugs();
   const slugsFromLinks = getInternalFooterSlugs();
   const unique = Array.from(new Set([...slugsFromFiles, ...slugsFromLinks]));
-  return unique.map((slug) => ({ slug }));
+  return unique.map((slug) => ({ footerSlug: slug }));
 }
 
 interface PageProps {
-  params: { slug: string };
+  params: { footerSlug: string };
 }
 
 export const revalidate = 3600;
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { slug } = params;
-  const link = findFooterLinkBySlug(slug);
-  const markdown = await loadMarkdown(slug);
-  const baseTitle = link?.title ?? humanizeSlug(slug);
+  const { footerSlug } = params;
+  const normalizedSlug = normalizeFooterSlug(footerSlug) ?? footerSlug;
+  const link = findFooterLinkBySlug(footerSlug);
+  const markdown = await loadMarkdown(footerSlug);
+  const baseTitle = link?.title ?? humanizeSlug(normalizedSlug);
   const siteName = process.env.NEXT_PUBLIC_SITE_NAME ?? 'Virtual Product Pages';
   const title = markdown ? baseTitle : `${baseTitle} (en preparación)`;
   const description = markdown
     ? `${baseTitle} de ${siteName}.`
-    : `Añade el archivo ${slug}.md en content/footer para publicar esta página.`;
+    : `Añade el archivo ${normalizedSlug}.md en content/footer para publicar esta página.`;
 
   return {
     title,
@@ -69,11 +79,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-export default async function LegalPage({ params }: PageProps) {
-  const { slug } = params;
-  const markdown = await loadMarkdown(slug);
-  const link = findFooterLinkBySlug(slug);
-  const title = link?.title ?? humanizeSlug(slug);
+export default async function FooterPage({ params }: PageProps) {
+  const { footerSlug } = params;
+  const normalizedSlug = normalizeFooterSlug(footerSlug) ?? footerSlug;
+  const markdown = await loadMarkdown(footerSlug);
+  const link = findFooterLinkBySlug(footerSlug);
+  const title = link?.title ?? humanizeSlug(normalizedSlug);
 
   if (!markdown) {
     return (
@@ -85,7 +96,7 @@ export default async function LegalPage({ params }: PageProps) {
           <div className="legal-page__content">
             <p>
               Aún no hay contenido para esta página. Añade un archivo llamado{' '}
-              <code>{slug}.md</code> en <code>content/footer</code> para publicar este
+              <code>{normalizedSlug}.md</code> en <code>content/footer</code> para publicar este
               documento.
             </p>
           </div>

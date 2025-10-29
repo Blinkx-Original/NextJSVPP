@@ -1,34 +1,72 @@
 import footerLinksData from '@/content/footer/links.json';
 
-export interface FooterLink {
+export type FooterLink = {
   title: string;
   href: string;
   external?: boolean;
+};
+
+interface FooterLinkEntry {
+  link: FooterLink;
+  slug: string | null;
 }
 
-const footerLinks: FooterLink[] = footerLinksData as FooterLink[];
+const footerLinkEntries: FooterLinkEntry[] = (footerLinksData as FooterLink[]).map((link) => ({
+  link,
+  slug: extractInternalSlug(link)
+}));
 
 export function getFooterLinks(): FooterLink[] {
-  return [...footerLinks];
+  return footerLinkEntries.map((entry) => entry.link);
 }
 
 export function isExternalLink(link: FooterLink): boolean {
-  return link.external === true || /^https?:\/\//i.test(link.href);
+  if (link.external === true) {
+    return true;
+  }
+
+  return /^https?:\/\//i.test(link.href);
 }
 
 export function getInternalFooterSlugs(): string[] {
-  return footerLinks
-    .filter((link) => !isExternalLink(link) && link.href.startsWith('/legal/'))
-    .map((link) => link.href.replace(/^\/legal\//, '').replace(/\/$/, ''));
+  return footerLinkEntries
+    .map((entry) => entry.slug)
+    .filter((slug): slug is string => Boolean(slug));
 }
 
 export function findFooterLinkBySlug(slug: string): FooterLink | undefined {
-  const normalized = slug.replace(/\/$/, '').toLowerCase();
-  return footerLinks.find((link) => {
-    if (isExternalLink(link)) {
-      return false;
-    }
-    const hrefSlug = link.href.replace(/^\/legal\//, '').replace(/\/$/, '').toLowerCase();
-    return hrefSlug === normalized;
-  });
+  const normalized = normalizeFooterSlug(slug);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return footerLinkEntries.find((entry) => entry.slug === normalized)?.link;
+}
+
+function stripQueryAndHash(href: string): string {
+  return href.split('#')[0]?.split('?')[0] ?? href;
+}
+
+export function normalizeFooterSlug(value: string): string | null {
+  const trimmed = value.trim().replace(/\/+$/, '').replace(/^\/+/, '');
+  if (!trimmed) {
+    return null;
+  }
+
+  const segments = trimmed.split('/');
+  const slug = segments[segments.length - 1];
+  return slug.toLowerCase();
+}
+
+function extractInternalSlug(link: FooterLink): string | null {
+  if (isExternalLink(link)) {
+    return null;
+  }
+
+  const cleanedHref = stripQueryAndHash(link.href);
+  if (!cleanedHref.startsWith('/')) {
+    return null;
+  }
+
+  return normalizeFooterSlug(cleanedHref) ?? null;
 }
