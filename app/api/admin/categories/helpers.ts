@@ -2,13 +2,12 @@ import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import {
   getCategoryTypeSynonyms,
   getProductCategoryColumns,
-  type ProductCategoryColumn
+  type ProductCategoryColumn,
+  type BlogCategoryColumn
 } from '@/lib/categories';
 import { toDbErrorInfo } from '@/lib/db';
 
 type CategoryType = 'product' | 'blog';
-
-export type BlogCategoryColumn = 'category_slug' | 'category';
 
 let cachedBlogCategoryColumn: BlogCategoryColumn | null | undefined;
 

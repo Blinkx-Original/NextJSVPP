@@ -9,6 +9,7 @@ type SqlClient = Pool | PoolConnection;
 type CategoryType = 'product' | 'blog';
 
 export type ProductCategoryColumn = 'category' | 'category_slug' | 'categories';
+export type BlogCategoryColumn = 'category_slug' | 'category';
 
 let cachedProductCategoryColumns: ProductCategoryColumn[] | undefined;
 
