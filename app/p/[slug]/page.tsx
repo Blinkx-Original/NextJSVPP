@@ -124,19 +124,20 @@ export default async function ProductPage({ params }: PageProps) {
             <Image
               src={primaryImage}
               alt={normalized.title_h1 || normalized.slug}
-              fill
-              sizes="(max-width: 900px) 100vw, 540px"
+              width={1200}
+              height={675}
+              sizes="(max-width: 900px) 100vw, 720px"
               priority
               className={styles.productMediaImage}
             />
           ) : (
-            <div className={styles.productMediaPlaceholder} aria-hidden="true">
-              <span>Image coming soon</span>
-            </div>
+            <div className={styles.productMediaPlaceholder} aria-hidden="true" />
           )}
         </div>
         <div className={styles.productDetails}>
-          <h1 className={styles.productTitle}>{normalized.title_h1 || normalized.slug}</h1>
+          <h1 className={`${styles.productTitle} bx-break`}>
+            {normalized.title_h1 || normalized.slug}
+          </h1>
           {summary ? <p className={styles.productSummary}>{summary}</p> : null}
           {ctas.length > 0 ? (
             <div className={styles.productCtas}>
