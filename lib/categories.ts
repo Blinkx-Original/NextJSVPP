@@ -1,5 +1,132 @@
+import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { z } from 'zod';
 import { getPool, toDbErrorInfo } from './db';
+
+type SqlClient = Pool | PoolConnection;
+
+export type ProductCategoryColumnInfo =
+  | { name: 'category' | 'category_slug'; mode: 'single' }
+  | { name: 'categories'; mode: 'json' | 'text' };
+
+let cachedProductCategoryColumns: ProductCategoryColumnInfo[] | undefined;
+
+async function inspectProductCategoryColumn(
+  client: SqlClient,
+  column: 'category' | 'category_slug' | 'categories'
+): Promise<ProductCategoryColumnInfo | null> {
+  try {
+    const [rows] = await client.query<RowDataPacket[]>(`SHOW COLUMNS FROM products LIKE ?`, [column]);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return null;
+    }
+    if (column === 'categories') {
+      const row = rows[0] as Record<string, unknown>;
+      const typeValue = String(row.Type ?? row.type ?? '').toLowerCase();
+      return {
+        name: 'categories',
+        mode: typeValue.includes('json') ? 'json' : 'text'
+      };
+    }
+    return { name: column, mode: 'single' };
+  } catch (error) {
+    const info = toDbErrorInfo(error);
+    console.warn('[categories] failed to inspect product category column', info);
+    return null;
+  }
+}
+
+async function detectProductCategoryColumns(client: SqlClient): Promise<ProductCategoryColumnInfo[]> {
+  if (cachedProductCategoryColumns !== undefined) {
+    return cachedProductCategoryColumns;
+  }
+
+  const columns: ProductCategoryColumnInfo[] = [];
+  const candidates: Array<'category' | 'category_slug' | 'categories'> = [
+    'category',
+    'category_slug',
+    'categories'
+  ];
+
+  for (const column of candidates) {
+    const info = await inspectProductCategoryColumn(client, column);
+    if (info) {
+      columns.push(info);
+    }
+  }
+
+  cachedProductCategoryColumns = columns;
+  return columns;
+}
+
+export async function getProductCategoryColumns(
+  client?: SqlClient
+): Promise<ProductCategoryColumnInfo[]> {
+  if (cachedProductCategoryColumns !== undefined) {
+    return cachedProductCategoryColumns;
+  }
+  const pool = client ?? getPool();
+  return detectProductCategoryColumns(pool);
+}
+
+export function buildProductCategoryMatchClause(
+  columns: ProductCategoryColumnInfo[],
+  variants: string[]
+): { clause: string; params: string[] } | null {
+  if (!Array.isArray(columns) || columns.length === 0) {
+    return null;
+  }
+  const normalized = variants
+    .map((value) => value.trim().toLowerCase())
+    .filter((value, index, all) => value.length > 0 && all.indexOf(value) === index);
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  const columnClauses: string[] = [];
+  const params: string[] = [];
+
+  for (const column of columns) {
+    if (column.mode === 'single') {
+      const equality = normalized.map(() => `LOWER(\`${column.name}\`) = ?`).join(' OR ');
+      if (equality.length > 0) {
+        columnClauses.push(`(${equality})`);
+        params.push(...normalized);
+      }
+      continue;
+    }
+
+    if (column.mode === 'json') {
+      const jsonContains = normalized.map(() => `JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`).join(' OR ');
+      if (jsonContains.length > 0) {
+        columnClauses.push(`(JSON_VALID(\`${column.name}\`) AND (${jsonContains}))`);
+        params.push(...normalized);
+      }
+      continue;
+    }
+
+    const equality = normalized.map(() => `LOWER(TRIM(\`${column.name}\`)) = ?`).join(' OR ');
+    const jsonContains = normalized.map(() => `JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`).join(' OR ');
+    const parts: string[] = [];
+    if (equality.length > 0) {
+      parts.push(`(${equality})`);
+      params.push(...normalized);
+    }
+    if (jsonContains.length > 0) {
+      parts.push(`(JSON_VALID(\`${column.name}\`) AND (${jsonContains}))`);
+      params.push(...normalized);
+    }
+    if (parts.length > 0) {
+      columnClauses.push(`(${parts.join(' OR ')})`);
+    }
+  }
+
+  if (columnClauses.length === 0) {
+    return null;
+  }
+
+  const clause = columnClauses.length === 1 ? columnClauses[0]! : `(${columnClauses.join(' OR ')})`;
+  return { clause, params };
+}
 
 const bigintLike = z.union([z.bigint(), z.number(), z.string()]);
 type BigintLike = z.infer<typeof bigintLike>;
@@ -318,42 +445,45 @@ function normalizeCategoryProductRecord(record: z.infer<typeof categoryProductRe
   };
 }
 
-async function countCategoryProducts(slug: string | null | undefined): Promise<number> {
+async function countCategoryProducts(
+  slug: string | null | undefined,
+  columns?: ProductCategoryColumnInfo[]
+): Promise<number> {
   const normalized = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
   if (!normalized) {
     return 0;
   }
 
   const pool = getPool();
-
-  const runQuery = async (useFallback: boolean): Promise<number> => {
-    const whereClause = useFallback
-      ? "LOWER(NULLIF(category, '')) = ?"
-      : `LOWER(COALESCE(NULLIF(category, ''), NULLIF(category_slug, ''))) = ?`;
-    const [rows] = await pool.query(
-      `SELECT COUNT(*) AS total
-        FROM products
-        WHERE is_published = 1 AND LOWER(category) = ?`,
-      [normalized]
-    );
-    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
-    const value = row && typeof row.total !== 'undefined' ? row.total : 0;
-    const total = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
-    return Number.isFinite(total) && total > 0 ? total : 0;
-  };
-
-  try {
-    return await runQuery(false);
-  } catch (error) {
-    const info = toDbErrorInfo(error);
-    if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
-      console.error('[categories] count products error', info);
-      return 0;
-    }
+  const detectedColumns = columns ?? (await getProductCategoryColumns(pool));
+  const match = buildProductCategoryMatchClause(detectedColumns, [normalized]);
+  if (!match) {
+    return 0;
   }
 
   try {
-    return await runQuery(true);
+    const [rawRows] = await pool.query(
+      `SELECT COUNT(*) AS total
+        FROM products
+        WHERE is_published = 1 AND ${match.clause}`,
+      match.params
+    );
+
+    const rows = Array.isArray(rawRows) ? (rawRows as RowDataPacket[]) : [];
+    if (rows.length === 0) {
+      return 0;
+    }
+
+    const raw = rows[0]?.total as number | string | null | undefined;
+    let total: number;
+    if (typeof raw === 'number') {
+      total = raw;
+    } else {
+      const asString = raw !== null && raw !== undefined ? String(raw) : '0';
+      const parsed = Number.parseInt(asString, 10);
+      total = Number.isFinite(parsed) ? parsed : 0;
+    }
+    return total > 0 ? total : 0;
   } catch (error) {
     const info = toDbErrorInfo(error);
     if (info.code !== 'ER_BAD_FIELD_ERROR' && info.code !== '42703') {
@@ -425,35 +555,50 @@ function normalizeLegacyCategoryVariants(variants: string[]): string[] {
   return Array.from(normalized);
 }
 
-function buildLegacyCategoryWhereClause(variants: string[]): { where: string; params: string[] } | null {
+function buildLegacyCategoryWhereClause(
+  columns: ProductCategoryColumnInfo[],
+  variants: string[]
+): { where: string; params: string[] } | null {
   const normalized = normalizeLegacyCategoryVariants(variants);
   if (normalized.length === 0) {
     return null;
   }
 
-  const placeholders = normalized.map(() => '?').join(', ');
-  const where = `is_published = 1 AND LOWER(category) IN (${placeholders})`;
-  const params = [...normalized];
-  return { where, params };
+  const match = buildProductCategoryMatchClause(columns, normalized);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    where: `is_published = 1 AND ${match.clause}`,
+    params: match.params
+  };
 }
 
-async function countLegacyCategoryProducts(category: Pick<CategorySummary, 'slug' | 'name'>): Promise<number> {
+async function countLegacyCategoryProducts(
+  category: Pick<CategorySummary, 'slug' | 'name'>,
+  columns?: ProductCategoryColumnInfo[]
+): Promise<number> {
   const variants = buildLegacyCategoryMatches(category);
-  const query = buildLegacyCategoryWhereClause(variants);
+  const pool = getPool();
+  const detectedColumns = columns ?? (await getProductCategoryColumns(pool));
+  const query = buildLegacyCategoryWhereClause(detectedColumns, variants);
   if (!query) {
     return 0;
   }
 
-  const pool = getPool();
   const sql = `SELECT COUNT(*) AS total
         FROM products
         WHERE ${query.where}`;
 
   try {
-    const [rows] = await pool.query(sql, query.params);
-    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
-    const value = row && typeof row.total !== 'undefined' ? row.total : 0;
-    const total = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+    const [rows] = await pool.query<RowDataPacket[]>(sql, query.params);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return 0;
+    }
+
+    const value = rows[0]?.total;
+    const total = typeof value === 'number' ? value : Number.parseInt(String(value ?? '0'), 10);
     return Number.isFinite(total) && total > 0 ? total : 0;
   } catch (error) {
     const info = toDbErrorInfo(error);
@@ -464,15 +609,17 @@ async function countLegacyCategoryProducts(category: Pick<CategorySummary, 'slug
 
 async function queryLegacyCategoryProducts(
   category: Pick<CategorySummary, 'slug' | 'name'>,
-  options: CategoryProductsQueryOptions
+  options: CategoryProductsQueryOptions,
+  columns?: ProductCategoryColumnInfo[]
 ): Promise<CategoryProductsQueryResult> {
   const variants = buildLegacyCategoryMatches(category);
-  const query = buildLegacyCategoryWhereClause(variants);
+  const pool = getPool();
+  const detectedColumns = columns ?? (await getProductCategoryColumns(pool));
+  const query = buildLegacyCategoryWhereClause(detectedColumns, variants);
   if (!query) {
     return { products: [], totalCount: 0 };
   }
 
-  const pool = getPool();
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
@@ -498,7 +645,7 @@ async function queryLegacyCategoryProducts(
     }
 
     const products = parsed.data.map(normalizeCategoryProductRecord);
-    const totalCount = await countLegacyCategoryProducts(category);
+    const totalCount = await countLegacyCategoryProducts(category, detectedColumns);
     return { products, totalCount };
   } catch (error) {
     const info = toDbErrorInfo(error);
@@ -516,37 +663,41 @@ export async function getPublishedProductsForCategory(
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
   const normalizedSlug = typeof category.slug === 'string' ? category.slug.trim().toLowerCase() : '';
+  const columns = await getProductCategoryColumns(pool);
 
   if (normalizedSlug) {
-    try {
-      const [rows] = await pool.query(
-        `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
+    const match = buildProductCategoryMatchClause(columns, [normalizedSlug]);
+    if (match) {
+      try {
+        const [rows] = await pool.query(
+          `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
           FROM products
-          WHERE is_published = 1 AND LOWER(category) = ?
+          WHERE is_published = 1 AND ${match.clause}
           ORDER BY title_h1 ASC
           LIMIT ? OFFSET ?`,
-        [normalizedSlug, limit, offset]
-      );
-      const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
-      if (parsed.success) {
-        const products = parsed.data.map(normalizeCategoryProductRecord);
-        let totalCount = await countCategoryProducts(category.slug ?? null);
-        if (products.length > 0 && totalCount === 0) {
-          totalCount = products.length;
-        }
-        if (products.length > 0 || totalCount > 0) {
-          return { products, totalCount };
-        }
-      } else {
-        console.error(
-          '[categories] failed to parse product rows',
-          parsed.error.format(),
-          requestId ? { requestId } : undefined
+          [...match.params, limit, offset]
         );
+        const parsed = z.array(categoryProductRecordSchema).safeParse(rows);
+        if (parsed.success) {
+          const products = parsed.data.map(normalizeCategoryProductRecord);
+          let totalCount = await countCategoryProducts(category.slug ?? null, columns);
+          if (products.length > 0 && totalCount === 0) {
+            totalCount = products.length;
+          }
+          if (products.length > 0 || totalCount > 0) {
+            return { products, totalCount };
+          }
+        } else {
+          console.error(
+            '[categories] failed to parse product rows',
+            parsed.error.format(),
+            requestId ? { requestId } : undefined
+          );
+        }
+      } catch (error) {
+        const info = toDbErrorInfo(error);
+        console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
       }
-    } catch (error) {
-      const info = toDbErrorInfo(error);
-      console.error('[categories] category products error', info, requestId ? { requestId } : undefined);
     }
   }
 
@@ -554,7 +705,7 @@ export async function getPublishedProductsForCategory(
     return { products: [], totalCount: 0 };
   }
 
-  return queryLegacyCategoryProducts(category, options);
+  return queryLegacyCategoryProducts(category, options, columns);
 }
 
 export interface CategorySitemapEntry {
