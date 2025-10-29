@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, toDbErrorInfo } from './db';
 
 const BLOG_POST_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -291,29 +291,39 @@ export async function queryBlogPosts(options: BlogPostQueryOptions = {}): Promis
   }
 }
 
-export async function findBlogPostBySlug(slug: string): Promise<BlogPostDetail | null> {
-  const sql = `SELECT id, slug, title_h1, short_summary, content_html, cover_image_url, category_slug,
-      product_slugs_json, cta_lead_url, cta_affiliate_url, seo_title, seo_description, canonical_url,
-      is_published, published_at, last_tidb_update_at
-    FROM posts
-    WHERE slug = ?
-    LIMIT 1`;
+const BLOG_POST_DETAIL_SQL = `SELECT id, slug, title_h1, short_summary, content_html, cover_image_url, category_slug,
+    product_slugs_json, cta_lead_url, cta_affiliate_url, seo_title, seo_description, canonical_url,
+    is_published, published_at, last_tidb_update_at
+  FROM posts
+  WHERE slug = ?
+  LIMIT 1`;
 
+type QueryExecutor = Pick<PoolConnection, 'query'>;
+
+function parseBlogPostDetailRows(rows: RowDataPacket[]): BlogPostDetail | null {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+  const parsed = blogPostRowSchema.safeParse(rows[0]);
+  if (!parsed.success) {
+    console.error('[blog-posts] failed to parse detail row', parsed.error.format());
+    return null;
+  }
+  return normalizeDetail(parsed.data);
+}
+
+async function loadBlogPostBySlug(slug: string, executor: QueryExecutor): Promise<BlogPostDetail | null> {
   try {
-    const [rows] = await getPool().query<RowDataPacket[]>(sql, [slug]);
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return null;
-    }
-    const parsed = blogPostRowSchema.safeParse(rows[0]);
-    if (!parsed.success) {
-      console.error('[blog-posts] failed to parse detail row', parsed.error.format());
-      return null;
-    }
-    return normalizeDetail(parsed.data);
+    const [rows] = await executor.query<RowDataPacket[]>(BLOG_POST_DETAIL_SQL, [slug]);
+    return parseBlogPostDetailRows(rows);
   } catch (error) {
     console.error('[blog-posts] query error', toDbErrorInfo(error));
     return null;
   }
+}
+
+export async function findBlogPostBySlug(slug: string): Promise<BlogPostDetail | null> {
+  return loadBlogPostBySlug(slug, getPool());
 }
 
 export interface BlogPostWriteResult {
@@ -466,8 +476,12 @@ export function normalizeBlogWritePayload(payload: Record<string, unknown>): Blo
 }
 
 export async function insertBlogPost(payload: BlogPostWritePayload): Promise<BlogPostWriteResult> {
-  const connection = await getPool().getConnection();
+  let connection: PoolConnection | null = null;
+  let startedTransaction = false;
   try {
+    connection = await getPool().getConnection();
+    await connection.beginTransaction();
+    startedTransaction = true;
     const [result] = await connection.query<ResultSetHeader>(
       `INSERT INTO posts
         (slug, title_h1, short_summary, content_html, cover_image_url, category_slug, product_slugs_json,
@@ -496,17 +510,34 @@ export async function insertBlogPost(payload: BlogPostWritePayload): Promise<Blo
       throw new Error('insert_failed');
     }
 
-    const post = await findBlogPostBySlug(payload.slug);
-    return { ok: true, post: post ?? undefined };
+    const post = await loadBlogPostBySlug(payload.slug, connection);
+    if (!post) {
+      throw new Error('load_failed');
+    }
+
+    await connection.commit();
+    startedTransaction = false;
+    return { ok: true, post };
   } catch (error) {
+    if (connection && startedTransaction) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('[blog-posts] rollback error after insert', toDbErrorInfo(rollbackError));
+      }
+      startedTransaction = false;
+    }
     const info = toDbErrorInfo(error);
     if (info.code === 'ER_DUP_ENTRY' || info.code === '23505') {
       return { ok: false, error: { code: 'duplicate_slug', message: info.message, info } };
     }
+    if ((error as Error)?.message === 'load_failed') {
+      return { ok: false, error: { code: 'sql_error', message: 'Unable to load created post' } };
+    }
     console.error('[blog-posts] insert error', info);
     return { ok: false, error: { code: 'sql_error', message: info.message, info } };
   } finally {
-    connection.release();
+    connection?.release();
   }
 }
 
@@ -514,8 +545,12 @@ export async function updateBlogPost(
   currentSlug: string,
   payload: BlogPostWritePayload
 ): Promise<BlogPostWriteResult> {
-  const connection = await getPool().getConnection();
+  let connection: PoolConnection | null = null;
+  let startedTransaction = false;
   try {
+    connection = await getPool().getConnection();
+    await connection.beginTransaction();
+    startedTransaction = true;
     const [result] = await connection.query<ResultSetHeader>(
       `UPDATE posts
        SET slug = ?,
@@ -555,19 +590,38 @@ export async function updateBlogPost(
     );
 
     if (result.affectedRows === 0) {
+      await connection.rollback();
+      startedTransaction = false;
       return { ok: false, error: { code: 'sql_error', message: 'Post not found' } };
     }
 
-    const post = await findBlogPostBySlug(payload.slug);
-    return { ok: true, post: post ?? undefined };
+    const post = await loadBlogPostBySlug(payload.slug, connection);
+    if (!post) {
+      throw new Error('load_failed');
+    }
+
+    await connection.commit();
+    startedTransaction = false;
+    return { ok: true, post };
   } catch (error) {
+    if (connection && startedTransaction) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('[blog-posts] rollback error after update', toDbErrorInfo(rollbackError));
+      }
+      startedTransaction = false;
+    }
     const info = toDbErrorInfo(error);
     if (info.code === 'ER_DUP_ENTRY' || info.code === '23505') {
       return { ok: false, error: { code: 'duplicate_slug', message: info.message, info } };
     }
     console.error('[blog-posts] update error', info);
+    if ((error as Error)?.message === 'load_failed') {
+      return { ok: false, error: { code: 'sql_error', message: 'Unable to load updated post' } };
+    }
     return { ok: false, error: { code: 'sql_error', message: info.message, info } };
   } finally {
-    connection.release();
+    connection?.release();
   }
 }
