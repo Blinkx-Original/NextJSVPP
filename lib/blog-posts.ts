@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, toDbErrorInfo } from './db';
 
 const BLOG_POST_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -466,8 +466,9 @@ export function normalizeBlogWritePayload(payload: Record<string, unknown>): Blo
 }
 
 export async function insertBlogPost(payload: BlogPostWritePayload): Promise<BlogPostWriteResult> {
-  const connection = await getPool().getConnection();
+  let connection: PoolConnection | null = null;
   try {
+    connection = await getPool().getConnection();
     const [result] = await connection.query<ResultSetHeader>(
       `INSERT INTO posts
         (slug, title_h1, short_summary, content_html, cover_image_url, category_slug, product_slugs_json,
@@ -506,7 +507,7 @@ export async function insertBlogPost(payload: BlogPostWritePayload): Promise<Blo
     console.error('[blog-posts] insert error', info);
     return { ok: false, error: { code: 'sql_error', message: info.message, info } };
   } finally {
-    connection.release();
+    connection?.release();
   }
 }
 
@@ -514,8 +515,9 @@ export async function updateBlogPost(
   currentSlug: string,
   payload: BlogPostWritePayload
 ): Promise<BlogPostWriteResult> {
-  const connection = await getPool().getConnection();
+  let connection: PoolConnection | null = null;
   try {
+    connection = await getPool().getConnection();
     const [result] = await connection.query<ResultSetHeader>(
       `UPDATE posts
        SET slug = ?,
@@ -568,6 +570,6 @@ export async function updateBlogPost(
     console.error('[blog-posts] update error', info);
     return { ok: false, error: { code: 'sql_error', message: info.message, info } };
   } finally {
-    connection.release();
+    connection?.release();
   }
 }
