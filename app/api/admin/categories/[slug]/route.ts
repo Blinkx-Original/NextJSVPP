@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { revalidatePath } from 'next/cache';
 import { getPool, toDbErrorInfo } from '@/lib/db';
-import { getCategoryTypeSynonyms } from '@/lib/categories';
+import { getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
 import { safeGetEnv } from '@/lib/env';
 import { requireAdminAuth } from '@/lib/basic-auth';
 import { ensureCategorySlug } from '@/lib/category-slug';
@@ -56,6 +56,87 @@ function parseCategoryTypeInput(value: unknown): CategoryType | null {
     return 'product';
   }
   return null;
+}
+
+async function updateProductCategoryAssignments(
+  connection: PoolConnection,
+  fromSlug: string,
+  toSlug?: string | null
+): Promise<void> {
+  const columns = await getProductCategoryColumns(connection);
+  if (!Array.isArray(columns) || columns.length === 0) {
+    return;
+  }
+
+  const normalizedFrom = fromSlug.trim().toLowerCase();
+  const normalizedTo = typeof toSlug === 'string' ? toSlug.trim().toLowerCase() : null;
+
+  for (const column of columns) {
+    if (column.mode === 'single') {
+      if (normalizedTo) {
+        await connection.query(
+          `UPDATE products SET \`${column.name}\` = ? WHERE \`${column.name}\` = ?`,
+          [normalizedTo, normalizedFrom]
+        );
+      } else {
+        await connection.query(
+          `UPDATE products SET \`${column.name}\` = NULL WHERE \`${column.name}\` = ?`,
+          [normalizedFrom]
+        );
+      }
+      continue;
+    }
+
+    if (column.mode === 'json') {
+      if (normalizedTo) {
+        await connection.query(
+          `UPDATE products
+            SET \`${column.name}\` = JSON_ARRAY(?)
+          WHERE JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`,
+          [normalizedTo, normalizedFrom]
+        );
+        await connection.query(
+          `UPDATE products
+            SET \`${column.name}\` = JSON_ARRAY(?)
+          WHERE JSON_VALID(\`${column.name}\`) = 0 AND LOWER(TRIM(\`${column.name}\`)) = ?`,
+          [normalizedTo, normalizedFrom]
+        );
+      } else {
+        await connection.query(
+          `UPDATE products
+            SET \`${column.name}\` = NULL
+          WHERE (JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?)))
+            OR LOWER(TRIM(\`${column.name}\`)) = ?`,
+          [normalizedFrom, normalizedFrom]
+        );
+      }
+      continue;
+    }
+
+    if (normalizedTo) {
+      await connection.query(
+        `UPDATE products SET \`${column.name}\` = ? WHERE LOWER(TRIM(\`${column.name}\`)) = ?`,
+        [normalizedTo, normalizedFrom]
+      );
+      await connection.query(
+        `UPDATE products
+          SET \`${column.name}\` = ?
+        WHERE JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`,
+        [normalizedTo, normalizedFrom]
+      );
+    } else {
+      await connection.query(
+        `UPDATE products SET \`${column.name}\` = NULL WHERE LOWER(TRIM(\`${column.name}\`)) = ?`,
+        [normalizedFrom]
+      );
+      await connection.query(
+        `UPDATE products
+          SET \`${column.name}\` = NULL
+        WHERE JSON_VALID(\`${column.name}\`) AND JSON_CONTAINS(\`${column.name}\`, JSON_QUOTE(?))`,
+        [normalizedFrom]
+      );
+    }
+  }
 }
 
 function parseDeleteMode(value: string | null): DeleteMode {
@@ -273,7 +354,7 @@ export async function PUT(
 
     if (typeChanged) {
       if (currentType === 'product') {
-        await connection.query(`UPDATE products SET category = NULL WHERE category = ?`, [slug]);
+        await updateProductCategoryAssignments(connection, slug, null);
       }
       if (nextType === 'product') {
         const blogColumn = await getBlogCategoryColumn(connection);
@@ -396,7 +477,7 @@ export async function DELETE(
       }
 
       if (type === 'product') {
-        await connection.query(`UPDATE products SET category = ? WHERE category = ?`, [target.slug, slug]);
+        await updateProductCategoryAssignments(connection, slug, target.slug);
       } else if (blogColumn) {
         await connection.query(`UPDATE posts SET \`${blogColumn}\` = ? WHERE \`${blogColumn}\` = ?`, [target.slug, slug]);
       }
@@ -406,7 +487,7 @@ export async function DELETE(
       }
     } else if (mode === 'detach' && relatedCount > 0) {
       if (type === 'product') {
-        await connection.query(`UPDATE products SET category = NULL WHERE category = ?`, [slug]);
+        await updateProductCategoryAssignments(connection, slug, null);
       } else if (blogColumn) {
         await connection.query(`UPDATE posts SET \`${blogColumn}\` = NULL WHERE \`${blogColumn}\` = ?`, [slug]);
       }
