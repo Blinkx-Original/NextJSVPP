@@ -462,19 +462,23 @@ async function countCategoryProducts(
   }
 
   try {
-    const [rows] = await pool.query<RowDataPacket[]>(
+    const [rawRows] = await pool.query(
       `SELECT COUNT(*) AS total
         FROM products
         WHERE is_published = 1 AND ${match.clause}`,
       match.params
     );
 
-    if (!Array.isArray(rows) || rows.length === 0) {
+    const rows = Array.isArray(rawRows) ? (rawRows as RowDataPacket[]) : [];
+    if (rows.length === 0) {
       return 0;
     }
 
-    const value = rows[0]?.total;
-    const total = typeof value === 'number' ? value : Number.parseInt(String(value ?? '0'), 10);
+    const raw = rows[0]?.total as number | string | null | undefined;
+    const total =
+      typeof raw === 'number'
+        ? raw
+        : Number.parseInt(raw !== null && raw !== undefined ? String(raw) : '0', 10);
     return Number.isFinite(total) && total > 0 ? total : 0;
   };
 
