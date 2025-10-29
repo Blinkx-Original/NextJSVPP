@@ -18,7 +18,12 @@ import {
   type CategoryType,
   type ErrorCode
 } from '../common';
-import { fetchAdminCategoryBySlug, type AdminCategoryRow } from '../helpers';
+import {
+  fetchAdminCategoryBySlug,
+  getBlogCategoryColumn,
+  type AdminCategoryRow,
+  type BlogCategoryColumn
+} from '../helpers';
 
 interface UpdateCategoryPayload {
   type?: unknown;
@@ -73,7 +78,8 @@ function normalizeSlugMatch(value: string): string {
 async function countPublishedProductsForSlug(
   connection: PoolConnection,
   type: CategoryType,
-  slug: string
+  slug: string,
+  blogColumnOverride?: BlogCategoryColumn | null
 ): Promise<number> {
   const normalized = normalizeSlugMatch(slug);
   if (!normalized) {
@@ -94,41 +100,20 @@ async function countPublishedProductsForSlug(
     const value = row ? row.total : 0;
     const total = Number.isFinite(value) ? Number(value) : Number.parseInt(String(value ?? '0'), 10);
     return Number.isFinite(total) && total > 0 ? total : 0;
-  };
-
-  try {
-    return await runQuery(false);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
   }
 
-  try {
-    return await runQuery(true);
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error;
-    }
-  }
-
-  return 0;
-}
-
-async function countCategoryRelations(
-  connection: PoolConnection,
-  type: CategoryType,
-  categoryId: string,
-  slug: string
-): Promise<number> {
-  if (type === 'product') {
-    return countPublishedProductsForSlug(connection, slug);
+  const blogColumn =
+    blogColumnOverride !== undefined
+      ? blogColumnOverride
+      : await getBlogCategoryColumn(connection);
+  if (!blogColumn) {
+    return 0;
   }
 
   const [rows] = await connection.query<RowDataPacket[]>(
     `SELECT COUNT(*) AS total
       FROM posts
-      WHERE category_slug = ? AND is_published = 1`,
+      WHERE \`${blogColumn}\` = ? AND is_published = 1`,
     [slug]
   );
   const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
@@ -341,7 +326,10 @@ export async function PUT(
         await connection.query(`UPDATE products SET category = NULL WHERE category = ?`, [slug]);
       }
       if (nextType === 'product') {
-        await connection.query(`UPDATE posts SET category_slug = NULL WHERE category_slug = ?`, [slug]);
+        const blogColumn = await getBlogCategoryColumn(connection);
+        if (blogColumn) {
+          await connection.query(`UPDATE posts SET \`${blogColumn}\` = NULL WHERE \`${blogColumn}\` = ?`, [slug]);
+        }
       }
     }
 
@@ -423,7 +411,8 @@ export async function DELETE(
     const categoryId = toIdString(record.id);
     const name = typeof record.name === 'string' ? record.name : '';
 
-    const relatedCount = await countCategoryRelations(connection, type, slug);
+    const blogColumn = type === 'blog' ? await getBlogCategoryColumn(connection) : null;
+    const relatedCount = await countCategoryRelations(connection, type, slug, blogColumn);
 
     if (mode === 'block' && relatedCount > 0) {
       await connection.rollback();
@@ -458,8 +447,8 @@ export async function DELETE(
 
       if (type === 'product') {
         await connection.query(`UPDATE products SET category = ? WHERE category = ?`, [target.slug, slug]);
-      } else {
-        await connection.query(`UPDATE posts SET category_slug = ? WHERE category_slug = ?`, [target.slug, slug]);
+      } else if (blogColumn) {
+        await connection.query(`UPDATE posts SET \`${blogColumn}\` = ? WHERE \`${blogColumn}\` = ?`, [target.slug, slug]);
       }
 
       if (type === 'product') {
@@ -468,8 +457,8 @@ export async function DELETE(
     } else if (mode === 'detach' && relatedCount > 0) {
       if (type === 'product') {
         await connection.query(`UPDATE products SET category = NULL WHERE category = ?`, [slug]);
-      } else {
-        await connection.query(`UPDATE posts SET category_slug = NULL WHERE category_slug = ?`, [slug]);
+      } else if (blogColumn) {
+        await connection.query(`UPDATE posts SET \`${blogColumn}\` = NULL WHERE \`${blogColumn}\` = ?`, [slug]);
       }
     }
 
