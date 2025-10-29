@@ -67,6 +67,30 @@ const footerLinks: FooterLink[] = (footerLinksData as FooterLinkRecord[]).map(
   normalizeFooterLink
 );
 
+function stripQueryAndHash(href: string): string {
+  return href.split('#')[0]?.split('?')[0] ?? href;
+}
+
+function extractInternalSlug(link: FooterLink): string | null {
+  if (isExternalLink(link)) {
+    return null;
+  }
+
+  const cleanedHref = stripQueryAndHash(link.href).trim();
+  if (!cleanedHref.startsWith('/')) {
+    return null;
+  }
+
+  const trimmed = cleanedHref.replace(/\/+$/, '').replace(/^\/+/, '');
+  if (!trimmed) {
+    return null;
+  }
+
+  const segments = trimmed.split('/');
+  const slug = segments[segments.length - 1];
+  return slug.toLowerCase();
+}
+
 export function getFooterLinks(): FooterLink[] {
   return footerLinks.map((link) => ({ ...link }));
 }
