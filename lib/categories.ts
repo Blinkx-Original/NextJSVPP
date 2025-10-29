@@ -155,6 +155,42 @@ export function buildCategoryVariants(source: CategoryVariantSource): CategoryVa
   };
 }
 
+type CategoryVariantSource = {
+  slug?: string | null;
+  name?: string | null;
+};
+
+function addCategoryVariant(target: Set<string>, value: string | null | undefined): void {
+  const normalized = normalizeCategoryValue(value);
+  if (!normalized) {
+    return;
+  }
+  target.add(normalized);
+
+  const withSpaces = normalizeCategoryValue(normalized.replace(/-/g, ' '));
+  if (withSpaces) {
+    target.add(withSpaces);
+  }
+
+  const collapsed = normalized.replace(/[\s-]+/g, '');
+  if (collapsed.length > 0) {
+    target.add(collapsed);
+  }
+}
+
+export function buildCategoryVariants(source: CategoryVariantSource): string[] {
+  const variants = new Set<string>();
+
+  addCategoryVariant(variants, source.slug ?? null);
+
+  if (source.name) {
+    addCategoryVariant(variants, slugifyCategoryName(source.name));
+    addCategoryVariant(variants, source.name);
+  }
+
+  return Array.from(variants);
+}
+
 function normalizeCount(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
