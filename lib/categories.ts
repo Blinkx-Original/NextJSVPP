@@ -79,12 +79,80 @@ export async function getBlogCategoryColumn(client?: SqlClient): Promise<BlogCat
   return detectBlogCategoryColumn(pool);
 }
 
-function normalizeCategoryValue(value: string | null | undefined): string | null {
+type CategoryVariantSource = {
+  slug?: string | null;
+  name?: string | null;
+};
+
+interface CategoryVariantBuckets {
+  normalized: Set<string>;
+  raw: Set<string>;
+  collapsed: Set<string>;
+}
+
+export interface CategoryVariants {
+  normalized: string[];
+  raw: string[];
+  collapsed: string[];
+}
+
+function addCategoryVariant(
+  buckets: CategoryVariantBuckets,
+  value: string | null | undefined
+): void {
   if (typeof value !== 'string') {
-    return null;
+    return;
   }
-  const trimmed = value.trim().toLowerCase();
-  return trimmed.length > 0 ? trimmed : null;
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return;
+  }
+
+  buckets.raw.add(trimmed);
+
+  const normalized = trimmed.toLowerCase();
+  if (normalized) {
+    buckets.normalized.add(normalized);
+    const collapsed = normalized.replace(/[\s-]+/g, '');
+    if (collapsed) {
+      buckets.collapsed.add(collapsed);
+    }
+  }
+
+  const withSpaces = trimmed.replace(/-/g, ' ').trim();
+  if (withSpaces && withSpaces !== trimmed) {
+    buckets.raw.add(withSpaces);
+    const normalizedWithSpaces = withSpaces.toLowerCase();
+    if (normalizedWithSpaces) {
+      buckets.normalized.add(normalizedWithSpaces);
+      const collapsedWithSpaces = normalizedWithSpaces.replace(/[\s-]+/g, '');
+      if (collapsedWithSpaces) {
+        buckets.collapsed.add(collapsedWithSpaces);
+      }
+    }
+  }
+}
+
+export function buildCategoryVariants(source: CategoryVariantSource): CategoryVariants {
+  const buckets: CategoryVariantBuckets = {
+    normalized: new Set<string>(),
+    raw: new Set<string>(),
+    collapsed: new Set<string>()
+  };
+
+  addCategoryVariant(buckets, source.slug ?? null);
+
+  if (source.name) {
+    addCategoryVariant(buckets, slugifyCategoryName(source.name));
+    addCategoryVariant(buckets, source.name);
+  }
+
+  return {
+    normalized: Array.from(buckets.normalized),
+    raw: Array.from(buckets.raw),
+    collapsed: Array.from(buckets.collapsed)
+  };
 }
 
 type CategoryVariantSource = {
@@ -441,53 +509,79 @@ function normalizeProductRecord(record: z.infer<typeof categoryProductRecordSche
 // Build a robust match fragment for category columns, including JSON arrays or CSV text in `categories`.
 function buildCategoryMatchFragments(
   columns: ProductCategoryColumn[],
-  variants: string[]
+  variants: CategoryVariants
 ): { where: string; params: unknown[] } {
   const pieces: string[] = [];
   const params: unknown[] = [];
 
-  if (columns.length === 0 || variants.length === 0) {
+  const hasVariants =
+    variants.normalized.length > 0 || variants.raw.length > 0 || variants.collapsed.length > 0;
+
+  if (columns.length === 0 || !hasVariants) {
     return { where: '0', params };
   }
 
   for (const column of columns) {
     if (column === 'category' || column === 'category_slug') {
-      const placeholders = variants.map(() => '?').join(', ');
+      if (variants.normalized.length === 0) {
+        continue;
+      }
+      const placeholders = variants.normalized.map(() => '?').join(', ');
       pieces.push(`LOWER(TRIM(??)) IN (${placeholders})`);
-      params.push(column, ...variants);
+      params.push(column, ...variants.normalized);
     } else if (column === 'categories') {
       const jsonPieces: string[] = [];
       const jsonParams: unknown[] = [];
       const csvPieces: string[] = [];
       const csvParams: unknown[] = [];
 
-      for (const variant of variants) {
+      const jsonScalarValues = new Set<string>([...variants.raw, ...variants.normalized]);
+      const jsonSlugValues = new Set<string>(variants.normalized);
+      const jsonNameValues = new Set<string>(variants.raw);
+
+      for (const value of jsonScalarValues) {
         jsonPieces.push('JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))');
-        jsonParams.push(column, variant);
+        jsonParams.push(column, value);
       }
 
-      for (const variant of variants) {
-        const collapsed = variant.replace(/[\s-]+/g, '');
+      for (const value of jsonSlugValues) {
+        jsonPieces.push("JSON_CONTAINS(JSON_EXTRACT(CAST(?? AS JSON), '$[*].slug'), JSON_QUOTE(?))");
+        jsonParams.push(column, value);
+        jsonPieces.push("JSON_CONTAINS(JSON_EXTRACT(CAST(?? AS JSON), '$[*].category_slug'), JSON_QUOTE(?))");
+        jsonParams.push(column, value);
+      }
+
+      for (const value of jsonNameValues) {
+        jsonPieces.push("JSON_CONTAINS(JSON_EXTRACT(CAST(?? AS JSON), '$[*].name'), JSON_QUOTE(?))");
+        jsonParams.push(column, value);
+      }
+
+      for (const collapsed of variants.collapsed) {
         if (collapsed.length === 0) {
           continue;
         }
+        const sanitizedExpr = String.raw`REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(CAST(?? AS CHAR)))), '"', ','), '[', ','), ']', ','), '{', ','), '}', ','), ':', ','), ' ', ''), '-', '')`;
         csvPieces.push(`(
-            FIND_IN_SET(?, REPLACE(REPLACE(LOWER(TRIM(??)), ' ', ''), '-', '')) > 0
+            FIND_IN_SET(?, ${sanitizedExpr}) > 0
             OR
-            CONCAT(',', REPLACE(REPLACE(LOWER(TRIM(??)), ' ', ''), '-', ''), ',') LIKE ?
+            CONCAT(',', ${sanitizedExpr}, ',') LIKE ?
           )`);
         csvParams.push(collapsed, column, column, `%,${collapsed},%`);
       }
 
-      const jsonClause = jsonPieces.length > 0 ? jsonPieces.join(' OR ') : 'FALSE';
-      const csvClause = csvPieces.length > 0 ? csvPieces.join(' OR ') : 'FALSE';
+      const clauses: string[] = [];
+      if (jsonPieces.length > 0) {
+        clauses.push(`(JSON_VALID(??) AND (${jsonPieces.join(' OR ')}))`);
+        params.push(column, ...jsonParams);
+      }
+      if (csvPieces.length > 0) {
+        clauses.push(`(${csvPieces.join(' OR ')})`);
+        params.push(...csvParams);
+      }
 
-      pieces.push(`(
-        (JSON_VALID(??) AND (${jsonClause}))
-        OR
-        (NOT JSON_VALID(??) AND (${csvClause}))
-      )`);
-      params.push(column, ...jsonParams, column, ...csvParams);
+      if (clauses.length > 0) {
+        pieces.push(clauses.length === 1 ? clauses[0]! : `(${clauses.join(' OR ')})`);
+      }
     }
   }
 
@@ -496,10 +590,13 @@ function buildCategoryMatchFragments(
 }
 
 async function countProductsForCategory(
-  variants: string[],
+  variants: CategoryVariants,
   columns: ProductCategoryColumn[]
 ): Promise<number> {
-  if (variants.length === 0 || columns.length === 0) {
+  const hasVariants =
+    variants.normalized.length > 0 || variants.raw.length > 0 || variants.collapsed.length > 0;
+
+  if (!hasVariants || columns.length === 0) {
     return 0;
   }
 
@@ -533,7 +630,10 @@ export async function getPublishedProductsForCategory(
   const columns = await getProductCategoryColumns(pool);
   const variants = buildCategoryVariants({ slug: category.slug, name: category.name });
 
-  if (variants.length === 0 || columns.length === 0) {
+  const hasVariants =
+    variants.normalized.length > 0 || variants.raw.length > 0 || variants.collapsed.length > 0;
+
+  if (!hasVariants || columns.length === 0) {
     return { products: [], totalCount: 0 };
   }
 
