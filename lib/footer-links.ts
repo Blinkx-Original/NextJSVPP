@@ -8,6 +8,34 @@ export interface FooterLink {
 
 const footerLinks: FooterLink[] = footerLinksData as FooterLink[];
 
+function stripQueryAndHash(href: string): string {
+  return href.split('#')[0]?.split('?')[0] ?? href;
+}
+
+function normalizeSlugLikeValue(value: string): string | null {
+  const trimmed = value.trim().replace(/\/+$/, '').replace(/^\/+/, '');
+  if (!trimmed) {
+    return null;
+  }
+
+  const segments = trimmed.split('/');
+  const slug = segments[segments.length - 1];
+  return slug.toLowerCase();
+}
+
+function extractInternalSlug(link: FooterLink): string | null {
+  if (isExternalLink(link)) {
+    return null;
+  }
+
+  const cleanedHref = stripQueryAndHash(link.href);
+  if (!cleanedHref.startsWith('/')) {
+    return null;
+  }
+
+  return normalizeSlugLikeValue(cleanedHref) ?? null;
+}
+
 export function getFooterLinks(): FooterLink[] {
   return [...footerLinks];
 }
@@ -18,17 +46,15 @@ export function isExternalLink(link: FooterLink): boolean {
 
 export function getInternalFooterSlugs(): string[] {
   return footerLinks
-    .filter((link) => !isExternalLink(link) && link.href.startsWith('/legal/'))
-    .map((link) => link.href.replace(/^\/legal\//, '').replace(/\/$/, ''));
+    .map((link) => extractInternalSlug(link))
+    .filter((slug): slug is string => Boolean(slug));
 }
 
 export function findFooterLinkBySlug(slug: string): FooterLink | undefined {
-  const normalized = slug.replace(/\/$/, '').toLowerCase();
-  return footerLinks.find((link) => {
-    if (isExternalLink(link)) {
-      return false;
-    }
-    const hrefSlug = link.href.replace(/^\/legal\//, '').replace(/\/$/, '').toLowerCase();
-    return hrefSlug === normalized;
-  });
+  const normalized = normalizeSlugLikeValue(slug);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return footerLinks.find((link) => extractInternalSlug(link) === normalized);
 }
