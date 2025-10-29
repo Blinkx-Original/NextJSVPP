@@ -104,5 +104,11 @@
   .headline {
     justify-content: flex-start;
     text-align: left;
+    font-size: clamp(1.1rem, 6vw, 1.5rem);
+    font-weight: 600;
+  }
+
+  .textSegment {
+    font-weight: 600;
   }
 }
