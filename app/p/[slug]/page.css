@@ -14,22 +14,24 @@
 }
 
 .vpp-product-media {
-  position: relative;
   width: 100%;
   border-radius: 20px;
   overflow: hidden;
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  aspect-ratio: 4 / 3;
 }
 
 .vpp-product-media-image {
-  object-fit: contain;
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
   background: #0f172a;
 }
 
 .vpp-product-media-placeholder {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 16 / 9;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -53,6 +55,9 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #0f172a;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 .vpp-product-summary {
@@ -172,8 +177,11 @@
   }
 
   .vpp-product-media {
-    aspect-ratio: 16 / 10;
     border-radius: 14px;
+  }
+
+  .vpp-product-media-image {
+    aspect-ratio: 16 / 9;
   }
 
   .vpp-product-title {
@@ -188,25 +196,6 @@
 
   .vpp-product-ctas {
     gap: 0.65rem;
-  }
-
-  .vpp-product-hero {
-    gap: 1.5rem;
-  }
-
-  .vpp-product-media {
-    aspect-ratio: 16 / 11;
-    border-radius: 16px;
-  }
-
-  .vpp-product-title {
-    font-size: clamp(1.5rem, 4vw + 1rem, 2.25rem);
-    letter-spacing: 0.025em;
-  }
-
-  .vpp-product-summary {
-    font-size: 0.95rem;
-    line-height: 1.6;
   }
 
   .vpp-product-description {
