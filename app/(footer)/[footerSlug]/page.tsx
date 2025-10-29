@@ -43,25 +43,25 @@ export async function generateStaticParams() {
   const slugsFromFiles = await readAvailableSlugs();
   const slugsFromLinks = getInternalFooterSlugs();
   const unique = Array.from(new Set([...slugsFromFiles, ...slugsFromLinks]));
-  return unique.map((slug) => ({ slug }));
+  return unique.map((slug) => ({ footerSlug: slug }));
 }
 
 interface PageProps {
-  params: { slug: string };
+  params: { footerSlug: string };
 }
 
 export const revalidate = 3600;
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { slug } = params;
-  const link = findFooterLinkBySlug(slug);
-  const markdown = await loadMarkdown(slug);
-  const baseTitle = link?.title ?? humanizeSlug(slug);
+  const { footerSlug } = params;
+  const link = findFooterLinkBySlug(footerSlug);
+  const markdown = await loadMarkdown(footerSlug);
+  const baseTitle = link?.title ?? humanizeSlug(footerSlug);
   const siteName = process.env.NEXT_PUBLIC_SITE_NAME ?? 'Virtual Product Pages';
   const title = markdown ? baseTitle : `${baseTitle} (en preparación)`;
   const description = markdown
     ? `${baseTitle} de ${siteName}.`
-    : `Añade el archivo ${slug}.md en content/footer para publicar esta página.`;
+    : `Añade el archivo ${footerSlug}.md en content/footer para publicar esta página.`;
 
   return {
     title,
@@ -69,11 +69,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-export default async function LegalPage({ params }: PageProps) {
-  const { slug } = params;
-  const markdown = await loadMarkdown(slug);
-  const link = findFooterLinkBySlug(slug);
-  const title = link?.title ?? humanizeSlug(slug);
+export default async function FooterPage({ params }: PageProps) {
+  const { footerSlug } = params;
+  const markdown = await loadMarkdown(footerSlug);
+  const link = findFooterLinkBySlug(footerSlug);
+  const title = link?.title ?? humanizeSlug(footerSlug);
 
   if (!markdown) {
     return (
@@ -85,7 +85,7 @@ export default async function LegalPage({ params }: PageProps) {
           <div className="legal-page__content">
             <p>
               Aún no hay contenido para esta página. Añade un archivo llamado{' '}
-              <code>{slug}.md</code> en <code>content/footer</code> para publicar este
+              <code>{footerSlug}.md</code> en <code>content/footer</code> para publicar este
               documento.
             </p>
           </div>
