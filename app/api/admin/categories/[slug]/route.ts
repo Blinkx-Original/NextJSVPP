@@ -22,8 +22,7 @@ import {
   countCategoryRelations,
   fetchAdminCategoryBySlug,
   getBlogCategoryColumn,
-  type AdminCategoryRow,
-  type BlogCategoryColumn
+  type AdminCategoryRow
 } from '../helpers';
 
 export const runtime = 'nodejs';
