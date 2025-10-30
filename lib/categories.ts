@@ -1,8 +1,7 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { z } from 'zod';
-import { slugifyCategoryName } from './category-slug';
 import { getPool, toDbErrorInfo } from './db';
-import { slugifyCategoryName as formatCategorySlug } from './category-slug';
+import { slugifyCategoryName, slugifyCategoryName as formatCategorySlug } from './category-slug';
 
 // -- Category type helpers --------------------------------------------------
 
@@ -487,8 +486,9 @@ function buildCategoryMatchFragments(
   const pieces: string[] = [];
   const params: unknown[] = [];
 
+  // Determine whether there are any variant values to match
   const hasVariants =
-    variants.normalized.length > 0 || variants.raw.length > 0 || variants.collapsed.length > 0;
+    match.normalizedValues.length > 0 || match.jsonValues.length > 0 || match.csvTokens.length > 0;
 
   if (columns.length === 0 || !hasVariants) {
     return { where: '0', params };
