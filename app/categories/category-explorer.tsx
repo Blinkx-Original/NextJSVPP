@@ -14,31 +14,111 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Tree as ArboristTree, type NodeRendererProps, type TreeItem } from '@/lib/react-arborist';
 import styles from './page.module.css';
+import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
 
-export type CategoryFilterType = 'all' | 'product' | 'blog';
-
-export interface CategoryCard {
+export type ExplorerCategory = {
   id: string;
-  type: 'product' | 'blog';
   slug: string;
   name: string;
+  type: 'product' | 'blog';
   shortDescription: string | null;
   heroImageUrl: string | null;
-}
+};
 
-export interface CategoryExplorerProps {
-  categories: CategoryCard[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-  activeType: CategoryFilterType;
-  categoryPickerOptions: CategoryPickerOption[];
-}
-
-export interface CategoryPickerOption {
-  type: 'product' | 'blog';
+export type ExplorerProductCard = {
+  id: string;
   slug: string;
-  name: string;
+  title: string;
+  shortSummary: string | null;
+  price: string | null;
+  primaryImage: string | null;
+  lastUpdatedAt: string | null;
+};
+
+interface CategoryExplorerProps {
+  productCategories: ExplorerCategory[];
+  blogCategories: ExplorerCategory[];
+  initialCategory: ExplorerCategory | null;
+  initialProducts: ExplorerProductCard[];
+  initialTotalCount: number;
+  productsPreviewLimit: number;
+}
+
+type TreeNodeData =
+  | { kind: 'group'; label: string }
+  | { kind: 'category'; category: ExplorerCategory };
+
+type FetchState =
+  | { status: 'idle'; products: ExplorerProductCard[]; totalCount: number }
+  | { status: 'loading'; products: ExplorerProductCard[]; totalCount: number }
+  | { status: 'error'; products: ExplorerProductCard[]; totalCount: number; message: string };
+
+function buildTreeData(
+  productCategories: ExplorerCategory[],
+  blogCategories: ExplorerCategory[],
+  search: string
+): { data: Array<TreeItem<TreeNodeData>>; hasResults: boolean } {
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchesSearch = (category: ExplorerCategory) => {
+    if (!normalizedSearch) {
+      return true;
+    }
+    const haystack = `${category.name} ${category.slug}`.toLowerCase();
+    return haystack.includes(normalizedSearch);
+  };
+
+  const productNodes = productCategories.filter(matchesSearch).map((category) => ({
+    id: `product:${category.slug}`,
+    data: { kind: 'category', category } satisfies TreeNodeData
+  }));
+
+  const blogNodes = blogCategories.filter(matchesSearch).map((category) => ({
+    id: `blog:${category.slug}`,
+    data: { kind: 'category', category } satisfies TreeNodeData
+  }));
+
+  const data: Array<TreeItem<TreeNodeData>> = [];
+
+  if (productNodes.length > 0) {
+    data.push({
+      id: 'group:products',
+      data: { kind: 'group', label: 'Product Categories' },
+      children: productNodes
+    });
+  }
+
+  if (blogNodes.length > 0) {
+    data.push({
+      id: 'group:blogs',
+      data: { kind: 'group', label: 'Blog Categories' },
+      children: blogNodes
+    });
+  }
+
+  const hasResults = productNodes.length > 0 || blogNodes.length > 0;
+  return { data, hasResults };
+}
+
+function renderTreeNode({ node, style }: NodeRendererProps<TreeNodeData>) {
+  const { data } = node;
+  if (data.kind === 'group') {
+    return (
+      <div className={styles.treeGroup} style={style} role="presentation">
+        {data.label}
+      </div>
+    );
+  }
+
+  const className = node.isSelected
+    ? `${styles.treeNode} ${styles.treeNodeSelected}`
+    : styles.treeNode;
+
+  return (
+    <div className={className} style={style}>
+      <span className={styles.treeNodeName}>{data.category.name}</span>
+      <span className={styles.treeNodeMeta}>{data.category.type === 'product' ? 'Products' : 'Blog'}</span>
+    </div>
+  );
 }
 
 type CategoryGroup = 'product' | 'blog';
@@ -178,12 +258,12 @@ function buildPaginationButtons(
 }
 
 export function CategoryExplorer({
-  categories,
-  totalCount,
-  page,
-  pageSize,
-  activeType,
-  categoryPickerOptions
+  productCategories,
+  blogCategories,
+  initialCategory,
+  initialProducts,
+  initialTotalCount,
+  productsPreviewLimit
 }: CategoryExplorerProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -194,7 +274,15 @@ export function CategoryExplorer({
     activeType === 'all' ? [] : [`group:${activeType}`]
   );
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const treeData = useMemo(() => {
+    const options =
+      categoryPickerOptions.length > 0
+        ? categoryPickerOptions
+        : categories.map((category) => ({
+            type: category.type,
+            slug: category.slug,
+            name: category.name
+          }));
 
   const treeData = useMemo(() => {
     const options = derivePickerOptions(categories, categoryPickerOptions);
@@ -334,7 +422,10 @@ export function CategoryExplorer({
     }
   }
 
-  const resultsText = `${filteredCategories.length} of ${totalCount} categories`;
+  const activeProducts = fetchState.products;
+  const activeTotal = fetchState.totalCount;
+  const isLoading = fetchState.status === 'loading' || isPending;
+  const hasActiveProducts = activeProducts.length > 0;
 
   return (
     <div className={styles.layout}>
