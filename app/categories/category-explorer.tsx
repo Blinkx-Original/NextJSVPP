@@ -158,22 +158,22 @@ export function CategoryExplorer({
     }));
   }, [categories, categoryPickerOptions]);
 
-  const pickerOptions =
-    categoryPickerOptions.length > 0
-      ? categoryPickerOptions
-      : categories.map((category) => ({
-          type: category.type,
-          slug: category.slug,
-          name: category.name
-        }));
-
   const treeData = useMemo(() => {
+    const options =
+      categoryPickerOptions.length > 0
+        ? categoryPickerOptions
+        : categories.map((category) => ({
+            type: category.type,
+            slug: category.slug,
+            name: category.name
+          }));
+
     const groups: Record<CategoryGroup, CategoryPickerOption[]> = {
       product: [],
       blog: []
     };
 
-    pickerOptions.forEach((option) => {
+    options.forEach((option) => {
       groups[option.type].push(option);
     });
 
@@ -210,7 +210,7 @@ export function CategoryExplorer({
     });
 
     return items;
-  }, [pickerOptions]);
+  }, [categories, categoryPickerOptions]);
 
   useEffect(() => {
     setTreeSelection((current) => {
@@ -302,24 +302,6 @@ export function CategoryExplorer({
       updateQuery({ type: value === 'all' ? undefined : value, page: '1' });
     },
     [updateQuery]
-  );
-
-      return (
-        <div style={style} className={className}>
-          <span className={styles.treeLabel}>{node.data.label}</span>
-          {node.data.kind === 'category' ? (
-            <span
-              className={`${styles.treeBadge} ${
-                node.data.type === 'product' ? styles.productBadge : styles.blogBadge
-              }`}
-            >
-              {node.data.type === 'product' ? 'Products' : 'Blog'}
-            </span>
-          ) : null}
-        </div>
-      );
-    },
-    []
   );
 
   function handleTreeSelect(ids: Array<string | number>) {
