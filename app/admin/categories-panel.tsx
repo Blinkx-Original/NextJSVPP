@@ -1,8 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import type { CSSProperties } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
 import type { CategoryProductSummary } from '@/lib/categories';
 import { CATEGORY_SLUG_REGEX, slugifyCategoryName } from '@/lib/category-slug';

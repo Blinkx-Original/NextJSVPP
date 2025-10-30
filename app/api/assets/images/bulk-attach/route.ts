@@ -13,9 +13,10 @@ import {
   inferCloudflareImageDetails,
   normalizeImages,
   parseImagesJson,
-  toImagesJsonString
+  toImagesJsonString,
+  type BasicProductImageInfo,
+  type ParsedImagesJson
 } from '@/lib/product-images';
-import type { BasicProductImageInfo, ParsedImagesJson } from '@/lib/product-images';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
