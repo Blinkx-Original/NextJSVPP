@@ -22,6 +22,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "react-arborist": [
+        "./lib/react-arborist"
       ]
     },
     "types": [
