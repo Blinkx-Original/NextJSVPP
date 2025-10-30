@@ -3,24 +3,33 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
   useTransition,
   type ChangeEvent,
   type ReactNode
-} from 'react';
-import Image from 'next/image';
-import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+} from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Tree as ArboristTree,
   type NodeRendererProps,
   type TreeItem
-} from '@/lib/react-arborist';
-import styles from './page.module.css';
-import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
+} from "@/lib/react-arborist";
+import styles from "./page.module.css";
 
-export type ExplorerCategory = {
+export type CategoryFilterType = "all" | "product" | "blog";
+
+type CategoryGroup = "product" | "blog";
+
+type PickerTreeNode =
+  | { kind: "group"; group: CategoryGroup; label: string }
+  | { kind: "category"; group: CategoryGroup; label: string; slug: string };
+
+export interface CategoryCard {
   id: string;
+  type: CategoryGroup;
   slug: string;
   name: string;
   type: 'product' | 'blog';
@@ -53,6 +62,12 @@ export interface CategoryPickerOption {
   name: string;
 }
 
+export interface CategoryPickerOption {
+  type: CategoryGroup;
+  slug: string;
+  name: string;
+}
+
 export interface CategoryExplorerProps {
   categories: CategoryCard[];
   totalCount: number;
@@ -62,14 +77,155 @@ export interface CategoryExplorerProps {
   categoryPickerOptions: CategoryPickerOption[];
 }
 
-type CategoryGroup = 'product' | 'blog';
+const GROUP_LABELS: Record<CategoryGroup, string> = {
+  product: "Product categories",
+  blog: "Blog categories"
+};
 
-type PickerTreeNode =
-  | { kind: 'group'; type: CategoryGroup; label: string }
-  | { kind: 'category'; type: CategoryGroup; label: string; slug: string };
+const GROUP_BADGES: Record<CategoryGroup, string> = {
+  product: "Products",
+  blog: "Blog"
+};
 
-function typeToBadge(type: CategoryGroup): string {
-  return type === 'product' ? 'Product' : 'Blog';
+function derivePickerOptions(
+  categories: CategoryCard[],
+  provided: CategoryPickerOption[]
+): CategoryPickerOption[] {
+  if (provided.length > 0) {
+    return provided;
+  }
+
+  return categories.map((category) => ({
+    type: category.type,
+    slug: category.slug,
+    name: category.name
+  }));
+}
+
+function buildTreeItems(
+  options: CategoryPickerOption[]
+): Array<TreeItem<PickerTreeNode>> {
+  const grouped: Record<CategoryGroup, CategoryPickerOption[]> = {
+    product: [],
+    blog: []
+  };
+
+  options.forEach((option) => {
+    grouped[option.type].push(option);
+  });
+
+  const items: Array<TreeItem<PickerTreeNode>> = [];
+
+  (Object.keys(grouped) as CategoryGroup[]).forEach((group) => {
+    if (grouped[group].length === 0) {
+      return;
+    }
+
+    const children = grouped[group]
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((option) => ({
+        id: `category:${group}:${option.slug}`,
+        data: {
+          kind: "category" as const,
+          group,
+          label: option.name,
+          slug: option.slug
+        }
+      }));
+
+    items.push({
+      id: `group:${group}`,
+      data: {
+        kind: "group" as const,
+        group,
+        label: GROUP_LABELS[group]
+      },
+      children
+    });
+  });
+
+  return items;
+}
+
+function filterCategories(
+  categories: CategoryCard[],
+  query: string
+): CategoryCard[] {
+  const value = query.trim().toLowerCase();
+  if (!value) {
+    return categories;
+  }
+
+  return categories.filter((category) => {
+    const haystack = `${category.name} ${category.shortDescription ?? ""}`.toLowerCase();
+    return haystack.includes(value);
+  });
+}
+
+function renderCategoryCards(categories: CategoryCard[]): ReactNode {
+  return categories.map((category) => {
+    const href =
+      category.type === "blog"
+        ? `/bc/${category.slug}`
+        : `/categories/${category.slug}`;
+
+    return (
+      <article key={category.id} className={styles.card}>
+        <div className={styles.cardImageWrapper}>
+          {category.heroImageUrl ? (
+            <Image
+              src={category.heroImageUrl}
+              alt={category.name}
+              fill
+              sizes="(max-width: 768px) 100vw, 320px"
+              className={styles.cardImage}
+            />
+          ) : null}
+        </div>
+        <div className={styles.cardBody}>
+          <span className={styles.cardBadge}>{GROUP_BADGES[category.type]}</span>
+          <h3 className={styles.cardTitle}>{category.name}</h3>
+          {category.shortDescription ? (
+            <p className={styles.cardDescription}>{category.shortDescription}</p>
+          ) : null}
+          <div className={styles.cardFooter}>
+            <Link href={href} prefetch className={styles.cardLink}>
+              View Details
+            </Link>
+          </div>
+        </div>
+      </article>
+    );
+  });
+}
+
+function buildPagination(
+  totalPages: number,
+  currentPage: number,
+  handlePageChange: (page: number) => void,
+  isPending: boolean
+): ReactNode {
+  return Array.from({ length: totalPages }, (_, index) => {
+    const target = index + 1;
+    const isActive = target === currentPage;
+    const className = isActive
+      ? `${styles.pageButton} ${styles.pageButtonActive}`
+      : styles.pageButton;
+
+    return (
+      <button
+        key={target}
+        type="button"
+        className={className}
+        onClick={() => handlePageChange(target)}
+        aria-current={isActive ? "page" : undefined}
+        disabled={isPending && isActive}
+      >
+        {target}
+      </button>
+    );
+  });
 }
 
 function derivePickerOptions(
@@ -223,39 +379,42 @@ export function CategoryExplorer({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
   const [isPending, startTransition] = useTransition();
-  const [treeSelection, setTreeSelection] = useState<string[]>(() =>
-    activeType === 'all' ? [] : [`group:${activeType}`]
+  const [selection, setSelection] = useState<string[]>(() =>
+    activeType === "all" ? [] : [`group:${activeType}`]
   );
 
-  const treeData = useMemo(() => {
-    const options =
-      categoryPickerOptions.length > 0
-        ? categoryPickerOptions
-        : categories.map((category) => ({
-            type: category.type,
-            slug: category.slug,
-            name: category.name
-          }));
+  const pickerOptions = useMemo(
+    () => derivePickerOptions(categories, categoryPickerOptions),
+    [categories, categoryPickerOptions]
+  );
 
-  const pickerOptions = derivePickerOptions(categories, categoryPickerOptions);
-  const treeData = buildTreeData(pickerOptions);
+  const treeItems = useMemo(() => buildTreeItems(pickerOptions), [pickerOptions]);
+
+  const filteredCategories = useMemo(
+    () => filterCategories(categories, search),
+    [categories, search]
+  );
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(totalCount / pageSize)),
+    [pageSize, totalCount]
+  );
 
   useEffect(() => {
-    setTreeSelection((current) => {
-      if (current.length > 0 && current[0]?.startsWith('category:')) {
+    setSelection((current) => {
+      if (current.length > 0 && current[0]?.startsWith("category:")) {
         return current;
       }
-      if (activeType === 'all') {
+
+      if (activeType === "all") {
         return [];
       }
+
       return [`group:${activeType}`];
     });
   }, [activeType]);
-
-  const filteredCategories = filterCategories(categories, search);
-  const categoryCards = buildCategoryCards(filteredCategories);
 
   const updateQuery = useCallback(
     (next: Record<string, string | undefined>) => {
@@ -267,23 +426,24 @@ export function CategoryExplorer({
           params.set(key, value);
         }
       });
-      const query = params.toString();
+
+      const queryString = params.toString();
       startTransition(() => {
-        router.push(query ? `${pathname}?${query}` : pathname);
+        router.push(queryString ? `${pathname}?${queryString}` : pathname);
       });
     },
-    [pathname, router, searchParams]
+    [pathname, router, searchParams, startTransition]
   );
 
   const handleTypeChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
       const value = event.target.value as CategoryFilterType;
-      if (value === 'all') {
-        setTreeSelection([]);
+      if (value === "all") {
+        setSelection([]);
       } else {
-        setTreeSelection([`group:${value}`]);
+        setSelection([`group:${value}`]);
       }
-      updateQuery({ type: value === 'all' ? undefined : value, page: '1' });
+      updateQuery({ type: value === "all" ? undefined : value, page: "1" });
     },
     [updateQuery]
   );
@@ -298,31 +458,37 @@ export function CategoryExplorer({
     [page, updateQuery]
   );
 
-  const paginationButtons =
-    totalPages > 1
-      ? buildPaginationButtons(totalPages, page, handlePageChange, isPending)
-      : [];
+  const pagination = useMemo(
+    () =>
+      totalPages > 1
+        ? buildPagination(totalPages, page, handlePageChange, isPending)
+        : null,
+    [handlePageChange, isPending, page, totalPages]
+  );
 
   const renderTreeNode = useCallback(
     ({ node, style }: NodeRendererProps<PickerTreeNode>) => {
-      const baseClassName =
-        node.data.kind === 'group'
+      const baseClass =
+        node.data.kind === "group"
           ? `${styles.treeNode} ${styles.treeGroup}`
           : `${styles.treeNode} ${styles.treeLeaf}`;
+
       const className = node.isSelected
-        ? `${baseClassName} ${styles.treeNodeActive}`
-        : baseClassName;
+        ? `${baseClass} ${styles.treeNodeActive}`
+        : baseClass;
 
       return (
         <div style={style} className={className}>
           <span className={styles.treeLabel}>{node.data.label}</span>
-          {node.data.kind === 'category' ? (
+          {node.data.kind === "category" ? (
             <span
               className={`${styles.treeBadge} ${
-                node.data.type === 'product' ? styles.productBadge : styles.blogBadge
+                node.data.group === "product"
+                  ? styles.productBadge
+                  : styles.blogBadge
               }`}
             >
-              {node.data.type === 'product' ? 'Products' : 'Blog'}
+              {GROUP_BADGES[node.data.group]}
             </span>
           ) : null}
         </div>
@@ -334,29 +500,30 @@ export function CategoryExplorer({
   const handleTreeSelect = useCallback(
     (ids: Array<string | number>) => {
       const [id] = ids;
-      if (!id || typeof id !== 'string') {
+      if (!id || typeof id !== "string") {
         return;
       }
 
-      if (id.startsWith('group:')) {
-        const [, type] = id.split(':');
-        if (type === 'product' || type === 'blog') {
-          setTreeSelection([id]);
-          updateQuery({ type, page: '1' });
+      if (id.startsWith("group:")) {
+        const [, group] = id.split(":");
+        if (group === "product" || group === "blog") {
+          setSelection([id]);
+          updateQuery({ type: group, page: "1" });
         } else {
-          setTreeSelection([]);
-          updateQuery({ type: undefined, page: '1' });
+          setSelection([]);
+          updateQuery({ type: undefined, page: "1" });
         }
         return;
       }
 
-      if (id.startsWith('category:')) {
-        const [, type, slug] = id.split(':');
-        if (!type || !slug) {
+      if (id.startsWith("category:")) {
+        const [, group, slug] = id.split(":");
+        if (!group || !slug) {
           return;
         }
-        setTreeSelection([id]);
-        const href = type === 'blog' ? `/bc/${slug}` : `/categories/${slug}`;
+
+        setSelection([id]);
+        const href = group === "blog" ? `/bc/${slug}` : `/categories/${slug}`;
         startTransition(() => {
           router.push(href);
         });
@@ -365,10 +532,11 @@ export function CategoryExplorer({
     [router, startTransition, updateQuery]
   );
 
-  const activeProducts = fetchState.products;
-  const activeTotal = fetchState.totalCount;
-  const isLoading = fetchState.status === 'loading' || isPending;
-  const hasActiveProducts = activeProducts.length > 0;
+  const resultsText = `${filteredCategories.length} of ${totalCount} categories`;
+  const categoryCards = useMemo(
+    () => renderCategoryCards(filteredCategories),
+    [filteredCategories]
+  );
 
   return (
     <div className={styles.layout}>
@@ -379,11 +547,11 @@ export function CategoryExplorer({
             Pick a category from the list to open its dedicated page.
           </p>
         </div>
-        {treeData.length > 0 ? (
+        {treeItems.length > 0 ? (
           <div className={styles.treeContainer}>
             <ArboristTree
-              data={treeData}
-              selection={treeSelection}
+              data={treeItems}
+              selection={selection}
               onSelect={handleTreeSelect}
               renderNode={renderTreeNode}
             />
@@ -430,9 +598,9 @@ export function CategoryExplorer({
           <div className={styles.grid}>{categoryCards}</div>
         )}
 
-        {totalPages > 1 ? (
+        {pagination ? (
           <nav className={styles.pagination} aria-label="Pagination">
-            <div className={styles.paginationList}>{paginationButtons}</div>
+            <div className={styles.paginationList}>{pagination}</div>
           </nav>
         ) : null}
       </section>
