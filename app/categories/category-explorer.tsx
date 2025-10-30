@@ -139,16 +139,16 @@ export function CategoryExplorer({
     activeType === 'all' ? [] : [`group:${activeType}`]
   );
 
-  const categoriesByNodeId = useMemo(() => {
-    const map = new Map<string, ExplorerCategory>();
-    for (const category of productCategories) {
-      map.set(`product:${category.slug}`, category);
+  const pickerSource = useMemo(() => {
+    if (categoryPickerOptions.length > 0) {
+      return categoryPickerOptions;
     }
-    for (const category of blogCategories) {
-      map.set(`blog:${category.slug}`, category);
-    }
-    return map;
-  }, [productCategories, blogCategories]);
+    return categories.map((category) => ({
+      type: category.type,
+      slug: category.slug,
+      name: category.name
+    }));
+  }, [categories, categoryPickerOptions]);
 
   const pickerSource = useMemo(() => {
     if (categoryPickerOptions.length > 0) {
@@ -446,3 +446,4 @@ export function CategoryExplorer({
     </div>
   );
 }
+
