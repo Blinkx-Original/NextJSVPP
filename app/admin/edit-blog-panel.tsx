@@ -89,6 +89,12 @@ const previewPlaceholderStyle: React.CSSProperties = {
   background: '#f1f5f9'
 };
 
+interface PreviewCta {
+  type: 'lead' | 'affiliate';
+  url: string;
+  label: string;
+}
+
 interface BlogPostDetail {
   slug: string;
   title: string | null;
@@ -642,6 +648,28 @@ export default function EditBlogPanel({
   const isSaving = saveStatus === 'loading';
   const isSaveDisabled = isSaving || assetUploadStatus !== 'idle';
   const previewSlug = slugInput || 'nuevo-post';
+  const summaryPreview = summary.trim();
+  const coverPreviewUrl = coverImageUrl.trim();
+  const previewCtas = useMemo<PreviewCta[]>(() => {
+    const config: Array<{ type: PreviewCta['type']; url: string }> = [
+      { type: 'lead', url: ctaLeadUrl },
+      { type: 'affiliate', url: ctaAffiliateUrl }
+    ];
+    return config
+      .map((item) => {
+        const trimmedUrl = item.url.trim();
+        if (!trimmedUrl) {
+          return null;
+        }
+        return {
+          type: item.type,
+          url: trimmedUrl,
+          label: resolveCtaLabel(item.type, null)
+        } satisfies PreviewCta;
+      })
+      .filter((cta): cta is PreviewCta => cta !== null);
+  }, [ctaAffiliateUrl, ctaLeadUrl]);
+  const primaryCtaType = previewCtas[0]?.type;
 
   const handleEditorImageUpload = useCallback(
     async (file: File) => {
