@@ -1,3 +1,4 @@
+import he from 'he';
 import { z } from 'zod';
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, toDbErrorInfo } from './db';
@@ -570,12 +571,23 @@ function normalizeSummary(record: BlogPostListRow): BlogPostSummary {
   };
 }
 
+function decodeContentHtml(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return he.decode(trimmed);
+}
+
 function normalizeDetail(record: BlogPostRow): BlogPostDetail {
   const summary = normalizeSummary(record);
   const productSlugs = parseProductSlugs(record.product_slugs_json);
   return {
     ...summary,
-    contentHtml: record.content_html ?? null,
+    contentHtml: decodeContentHtml(record.content_html),
     coverImageUrl: record.cover_image_url ?? null,
     productSlugs,
     ctaLeadUrl: record.cta_lead_url ?? null,
@@ -679,7 +691,11 @@ function normalizeContentHtml(value: string | null): string {
   if (typeof value !== 'string') {
     return '';
   }
-  return value;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  return he.decode(trimmed);
 }
 
 function normalizeBlogDetail(detail: BlogPostDetail): NormalizedBlogPost | null {
