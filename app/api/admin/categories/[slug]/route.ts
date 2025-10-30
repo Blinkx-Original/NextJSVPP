@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { revalidatePath } from 'next/cache';
 import { getPool, toDbErrorInfo } from '@/lib/db';
-import { getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
+import { getBlogCategoryColumn, getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
 import { safeGetEnv } from '@/lib/env';
 import { requireAdminAuth } from '@/lib/basic-auth';
 import { ensureCategorySlug } from '@/lib/category-slug';
@@ -18,13 +18,7 @@ import {
   type CategoryType,
   type ErrorCode
 } from '../common';
-import {
-  countCategoryRelations,
-  fetchAdminCategoryBySlug,
-  getBlogCategoryColumn,
-  type AdminCategoryRow,
-  type BlogCategoryColumn
-} from '../helpers';
+import { countCategoryRelations, fetchAdminCategoryBySlug, type AdminCategoryRow } from '../helpers';
 
 interface UpdateCategoryPayload {
   type?: unknown;
