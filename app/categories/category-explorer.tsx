@@ -4,7 +4,7 @@ import * as React from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
+import { Tree as ArboristTree, type NodeRendererProps, type TreeItem } from 'react-arborist';
 import styles from './page.module.css';
 import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
 
@@ -151,7 +151,7 @@ export function CategoryExplorer({
     }));
   }, [categories, categoryPickerOptions]);
 
-  const pickerSource = React.useMemo(() => {
+  const pickerOptions = React.useMemo(() => {
     if (categoryPickerOptions.length > 0) {
       return categoryPickerOptions;
     }
@@ -168,7 +168,7 @@ export function CategoryExplorer({
       blog: []
     };
 
-    pickerSource.forEach((option) => {
+    pickerOptions.forEach((option) => {
       groups[option.type].push(option);
     });
 
@@ -205,7 +205,7 @@ export function CategoryExplorer({
     });
 
     return items;
-  }, [pickerSource]);
+  }, [pickerOptions]);
 
   React.useEffect(() => {
     setTreeSelection((current) => {
@@ -409,7 +409,7 @@ export function CategoryExplorer({
         </div>
         {treeData.length > 0 ? (
           <div className={styles.treeContainer}>
-            <Tree
+            <ArboristTree
               data={treeData}
               selection={treeSelection}
               onSelect={handleTreeSelect}
