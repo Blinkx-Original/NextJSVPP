@@ -6,7 +6,8 @@ import {
   useMemo,
   useState,
   useTransition,
-  type ChangeEvent
+  type ChangeEvent,
+  type ReactNode
 } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -130,6 +131,132 @@ function typeToBadge(type: 'product' | 'blog'): string {
   return type === 'product' ? 'Product' : 'Blog';
 }
 
+function derivePickerOptions(
+  categories: CategoryCard[],
+  options: CategoryPickerOption[]
+): CategoryPickerOption[] {
+  if (options.length > 0) {
+    return options;
+  }
+  return categories.map((category) => ({
+    type: category.type,
+    slug: category.slug,
+    name: category.name
+  }));
+}
+
+function buildTreeData(
+  pickerOptions: CategoryPickerOption[]
+): Array<TreeItem<PickerTreeNode>> {
+  const groups: Record<CategoryGroup, CategoryPickerOption[]> = {
+    product: [],
+    blog: []
+  };
+
+  pickerOptions.forEach((option) => {
+    groups[option.type].push(option);
+  });
+
+  const rootLabels: Record<CategoryGroup, string> = {
+    product: 'Product categories',
+    blog: 'Blog categories'
+  };
+
+  const items: Array<TreeItem<PickerTreeNode>> = [];
+
+  (['product', 'blog'] as const).forEach((type) => {
+    if (groups[type].length === 0) {
+      return;
+    }
+
+    const children = groups[type]
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((option) => ({
+        id: `category:${type}:${option.slug}`,
+        data: {
+          kind: 'category' as const,
+          type,
+          label: option.name,
+          slug: option.slug
+        }
+      }));
+
+    items.push({
+      id: `group:${type}`,
+      data: { kind: 'group', type, label: rootLabels[type] },
+      children
+    });
+  });
+
+  return items;
+}
+
+function buildCategoryCards(categories: CategoryCard[]): ReactNode[] {
+  return categories.map((category) => {
+    const href =
+      category.type === 'product'
+        ? `/categories/${category.slug}`
+        : `/bc/${category.slug}`;
+
+    return (
+      <article key={category.id} className={styles.card}>
+        <div className={styles.cardImageWrapper}>
+          {category.heroImageUrl ? (
+            <Image
+              src={category.heroImageUrl}
+              alt={category.name}
+              fill
+              className={styles.cardImage}
+              sizes="(max-width: 768px) 100vw, 320px"
+            />
+          ) : null}
+        </div>
+        <div className={styles.cardBody}>
+          <span className={styles.cardBadge}>{typeToBadge(category.type)}</span>
+          <h3 className={styles.cardTitle}>{category.name}</h3>
+          {category.shortDescription ? (
+            <p className={styles.cardDescription}>{category.shortDescription}</p>
+          ) : null}
+          <div className={styles.cardFooter}>
+            <Link className={styles.cardLink} href={href} prefetch>
+              View Details
+            </Link>
+          </div>
+        </div>
+      </article>
+    );
+  });
+}
+
+function buildPaginationButtons(
+  totalPages: number,
+  currentPage: number,
+  handlePageChange: (page: number) => void,
+  isPending: boolean
+): ReactNode[] {
+  return Array.from({ length: totalPages }, (_, index) => {
+    const pageNumber = index + 1;
+    const isActive = pageNumber === currentPage;
+    const className = isActive
+      ? `${styles.pageButton} ${styles.pageButtonActive}`
+      : styles.pageButton;
+
+    return (
+      <button
+        key={pageNumber}
+        type="button"
+        className={className}
+        onClick={() => handlePageChange(pageNumber)}
+        aria-current={isActive ? 'page' : undefined}
+        disabled={isPending && isActive}
+      >
+        {pageNumber}
+      </button>
+    );
+  });
+}
+
 export function CategoryExplorer({
   productCategories,
   blogCategories,
@@ -147,17 +274,6 @@ export function CategoryExplorer({
     activeType === 'all' ? [] : [`group:${activeType}`]
   );
 
-  const pickerSource = useMemo(() => {
-    if (categoryPickerOptions.length > 0) {
-      return categoryPickerOptions;
-    }
-    return categories.map((category) => ({
-      type: category.type,
-      slug: category.slug,
-      name: category.name
-    }));
-  }, [categories, categoryPickerOptions]);
-
   const treeData = useMemo(() => {
     const options =
       categoryPickerOptions.length > 0
@@ -168,48 +284,9 @@ export function CategoryExplorer({
             name: category.name
           }));
 
-    const groups: Record<CategoryGroup, CategoryPickerOption[]> = {
-      product: [],
-      blog: []
-    };
-
-    options.forEach((option) => {
-      groups[option.type].push(option);
-    });
-
-    const rootLabels: Record<CategoryGroup, string> = {
-      product: 'Product categories',
-      blog: 'Blog categories'
-    };
-
-    const items: Array<TreeItem<PickerTreeNode>> = [];
-
-    (['product', 'blog'] as const).forEach((type) => {
-      if (groups[type].length === 0) {
-        return;
-      }
-
-      const children = groups[type]
-        .slice()
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((option) => ({
-          id: `category:${type}:${option.slug}`,
-          data: {
-            kind: 'category' as const,
-            type,
-            label: option.name,
-            slug: option.slug
-          }
-        }));
-
-      items.push({
-        id: `group:${type}`,
-        data: { kind: 'group', type, label: rootLabels[type] },
-        children
-      });
-    });
-
-    return items;
+  const treeData = useMemo(() => {
+    const options = derivePickerOptions(categories, categoryPickerOptions);
+    return buildTreeData(options);
   }, [categories, categoryPickerOptions]);
 
   useEffect(() => {
@@ -235,41 +312,8 @@ export function CategoryExplorer({
     });
   }, [categories, search]);
 
-  const categoryCards = useMemo(() =>
-    filteredCategories.map((category) => {
-      const href =
-        category.type === 'product'
-          ? `/categories/${category.slug}`
-          : `/bc/${category.slug}`;
-
-      return (
-        <article key={category.id} className={styles.card}>
-          <div className={styles.cardImageWrapper}>
-            {category.heroImageUrl ? (
-              <Image
-                src={category.heroImageUrl}
-                alt={category.name}
-                fill
-                className={styles.cardImage}
-                sizes="(max-width: 768px) 100vw, 320px"
-              />
-            ) : null}
-          </div>
-          <div className={styles.cardBody}>
-            <span className={styles.cardBadge}>{typeToBadge(category.type)}</span>
-            <h3 className={styles.cardTitle}>{category.name}</h3>
-            {category.shortDescription ? (
-              <p className={styles.cardDescription}>{category.shortDescription}</p>
-            ) : null}
-            <div className={styles.cardFooter}>
-              <Link className={styles.cardLink} href={href} prefetch>
-                View Details
-              </Link>
-            </div>
-          </div>
-        </article>
-      );
-    }),
+  const categoryCards = useMemo(
+    () => buildCategoryCards(filteredCategories),
     [filteredCategories]
   );
 
@@ -304,32 +348,20 @@ export function CategoryExplorer({
     [updateQuery]
   );
 
-  function handleTreeSelect(ids: Array<string | number>) {
-    const [id] = ids;
-    if (!id || typeof id !== 'string') {
-      return;
-    }
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      if (nextPage === page) {
+        return;
+      }
+      updateQuery({ page: nextPage > 1 ? String(nextPage) : undefined });
+    },
+    [page, updateQuery]
+  );
 
-  const paginationButtons = Array.from({ length: totalPages }, (_, index) => {
-    const pageNumber = index + 1;
-    const isActive = pageNumber === page;
-    const className = isActive
-      ? `${styles.pageButton} ${styles.pageButtonActive}`
-      : styles.pageButton;
-
-    return (
-      <button
-        key={pageNumber}
-        type="button"
-        className={className}
-        onClick={() => handlePageChange(pageNumber)}
-        aria-current={isActive ? 'page' : undefined}
-        disabled={isPending && isActive}
-      >
-        {pageNumber}
-      </button>
-    );
-  });
+  const paginationButtons = useMemo(
+    () => buildPaginationButtons(totalPages, page, handlePageChange, isPending),
+    [handlePageChange, isPending, page, totalPages]
+  );
 
   const renderTreeNode = useCallback(
     ({ node, style }: NodeRendererProps<PickerTreeNode>) => {
