@@ -2,6 +2,7 @@ import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { z } from 'zod';
 import { slugifyCategoryName } from './category-slug';
 import { getPool, toDbErrorInfo } from './db';
+import { slugifyCategoryName } from './category-slug';
 
 // -- Category type helpers --------------------------------------------------
 
@@ -77,82 +78,6 @@ export async function getBlogCategoryColumn(client?: SqlClient): Promise<BlogCat
   }
   const pool = client ?? getPool();
   return detectBlogCategoryColumn(pool);
-}
-
-type CategoryVariantSource = {
-  slug?: string | null;
-  name?: string | null;
-};
-
-interface CategoryVariantBuckets {
-  normalized: Set<string>;
-  raw: Set<string>;
-  collapsed: Set<string>;
-}
-
-export interface CategoryVariants {
-  normalized: string[];
-  raw: string[];
-  collapsed: string[];
-}
-
-function addCategoryVariant(
-  buckets: CategoryVariantBuckets,
-  value: string | null | undefined
-): void {
-  if (typeof value !== 'string') {
-    return;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return;
-  }
-
-  buckets.raw.add(trimmed);
-
-  const normalized = trimmed.toLowerCase();
-  if (normalized) {
-    buckets.normalized.add(normalized);
-    const collapsed = normalized.replace(/[\s-]+/g, '');
-    if (collapsed) {
-      buckets.collapsed.add(collapsed);
-    }
-  }
-
-  const withSpaces = trimmed.replace(/-/g, ' ').trim();
-  if (withSpaces && withSpaces !== trimmed) {
-    buckets.raw.add(withSpaces);
-    const normalizedWithSpaces = withSpaces.toLowerCase();
-    if (normalizedWithSpaces) {
-      buckets.normalized.add(normalizedWithSpaces);
-      const collapsedWithSpaces = normalizedWithSpaces.replace(/[\s-]+/g, '');
-      if (collapsedWithSpaces) {
-        buckets.collapsed.add(collapsedWithSpaces);
-      }
-    }
-  }
-}
-
-export function buildCategoryVariants(source: CategoryVariantSource): CategoryVariants {
-  const buckets: CategoryVariantBuckets = {
-    normalized: new Set<string>(),
-    raw: new Set<string>(),
-    collapsed: new Set<string>()
-  };
-
-  addCategoryVariant(buckets, source.slug ?? null);
-
-  if (source.name) {
-    addCategoryVariant(buckets, slugifyCategoryName(source.name));
-    addCategoryVariant(buckets, source.name);
-  }
-
-  return {
-    normalized: Array.from(buckets.normalized),
-    raw: Array.from(buckets.raw),
-    collapsed: Array.from(buckets.collapsed)
-  };
 }
 
 function normalizeCount(value: unknown): number {
@@ -507,9 +432,57 @@ function normalizeProductRecord(record: z.infer<typeof categoryProductRecordSche
 }
 
 // Build a robust match fragment for category columns, including JSON arrays or CSV text in `categories`.
+interface CategoryMatchData {
+  normalizedValues: string[];
+  jsonValues: string[];
+  csvTokens: string[];
+}
+
+function createCategoryMatchData(
+  category: Pick<CategorySummary, 'slug' | 'name'>
+): CategoryMatchData {
+  const normalizedValues = new Set<string>();
+  const jsonValues = new Set<string>();
+  const csvTokens = new Set<string>();
+
+  function registerCandidate(value: string | null | undefined) {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    jsonValues.add(trimmed);
+
+    const normalized = trimmed.toLowerCase();
+    jsonValues.add(normalized);
+    normalizedValues.add(normalized);
+
+    const csv = normalized.replace(/\s+/g, '');
+    if (csv) {
+      csvTokens.add(csv);
+    }
+  }
+
+  registerCandidate(category.slug);
+  registerCandidate(category.name);
+
+  if (typeof category.name === 'string' && category.name.trim()) {
+    registerCandidate(slugifyCategoryName(category.name));
+  }
+
+  return {
+    normalizedValues: Array.from(normalizedValues),
+    jsonValues: Array.from(jsonValues),
+    csvTokens: Array.from(csvTokens)
+  };
+}
+
 function buildCategoryMatchFragments(
   columns: ProductCategoryColumn[],
-  variants: CategoryVariants
+  match: CategoryMatchData
 ): { where: string; params: unknown[] } {
   const pieces: string[] = [];
   const params: unknown[] = [];
@@ -522,68 +495,39 @@ function buildCategoryMatchFragments(
   }
 
   for (const column of columns) {
-    if (column === 'category' || column === 'category_slug') {
-      if (variants.normalized.length === 0) {
-        continue;
+    if ((column === 'category' || column === 'category_slug') && match.normalizedValues.length > 0) {
+      const equality = match.normalizedValues.map(() => 'LOWER(TRIM(??)) = ?').join(' OR ');
+      pieces.push(`(${equality})`);
+      for (const value of match.normalizedValues) {
+        params.push(column, value);
       }
-      const placeholders = variants.normalized.map(() => '?').join(', ');
-      pieces.push(`LOWER(TRIM(??)) IN (${placeholders})`);
-      params.push(column, ...variants.normalized);
-    } else if (column === 'categories') {
-      const jsonPieces: string[] = [];
+    } else if (column === 'categories' && (match.jsonValues.length > 0 || match.csvTokens.length > 0)) {
+      const jsonFragments: string[] = [];
       const jsonParams: unknown[] = [];
-      const csvPieces: string[] = [];
+      for (const value of match.jsonValues) {
+        jsonFragments.push('JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))');
+        jsonParams.push(column, value);
+      }
+
+      const csvFragments: string[] = [];
       const csvParams: unknown[] = [];
-
-      const jsonScalarValues = Array.from(
-        new Set<string>([...variants.raw, ...variants.normalized].filter((value) => value.length > 0))
-      );
-      const jsonSlugValues = Array.from(new Set<string>(variants.normalized.filter((value) => value.length > 0)));
-      const jsonNameValues = Array.from(new Set<string>(variants.raw.filter((value) => value.length > 0)));
-
-      for (const value of jsonScalarValues) {
-        jsonPieces.push('JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))');
-        jsonParams.push(column, value);
+      for (const token of match.csvTokens) {
+        csvFragments.push(`FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', '')) > 0`);
+        csvParams.push(token, column);
+        csvFragments.push(`CONCAT(',', REPLACE(LOWER(TRIM(??)), ' ', ''), ',') LIKE ?`);
+        csvParams.push(column, `%,${token},%`);
       }
 
-      for (const value of jsonSlugValues) {
-        jsonPieces.push("JSON_CONTAINS(JSON_EXTRACT(CAST(?? AS JSON), '$[*].slug'), JSON_QUOTE(?))");
-        jsonParams.push(column, value);
-        jsonPieces.push("JSON_CONTAINS(JSON_EXTRACT(CAST(?? AS JSON), '$[*].category_slug'), JSON_QUOTE(?))");
-        jsonParams.push(column, value);
-      }
+      const jsonClause = jsonFragments.length > 0 ? jsonFragments.join(' OR ') : '0';
+      const csvClause = csvFragments.length > 0 ? csvFragments.join(' OR ') : '0';
 
-      for (const value of jsonNameValues) {
-        jsonPieces.push("JSON_CONTAINS(JSON_EXTRACT(CAST(?? AS JSON), '$[*].name'), JSON_QUOTE(?))");
-        jsonParams.push(column, value);
-      }
+      pieces.push(`(
+        (JSON_VALID(??) AND (${jsonClause}))
+        OR
+        (NOT JSON_VALID(??) AND (${csvClause}))
+      )`);
 
-      for (const collapsed of variants.collapsed) {
-        if (collapsed.length === 0) {
-          continue;
-        }
-        const sanitizedExpr = String.raw`REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(CAST(?? AS CHAR)))), '"', ','), '[', ','), ']', ','), '{', ','), '}', ','), ':', ','), ' ', ''), '-', '')`;
-        csvPieces.push(`(
-            FIND_IN_SET(?, ${sanitizedExpr}) > 0
-            OR
-            CONCAT(',', ${sanitizedExpr}, ',') LIKE ?
-          )`);
-        csvParams.push(collapsed, column, column, `%,${collapsed},%`);
-      }
-
-      const clauses: string[] = [];
-      if (jsonPieces.length > 0) {
-        clauses.push(`(JSON_VALID(??) AND (${jsonPieces.join(' OR ')}))`);
-        params.push(column, ...jsonParams);
-      }
-      if (csvPieces.length > 0) {
-        clauses.push(`(${csvPieces.join(' OR ')})`);
-        params.push(...csvParams);
-      }
-
-      if (clauses.length > 0) {
-        pieces.push(clauses.length === 1 ? clauses[0]! : `(${clauses.join(' OR ')})`);
-      }
+      params.push(column, ...jsonParams, column, ...csvParams);
     }
   }
 
@@ -592,18 +536,25 @@ function buildCategoryMatchFragments(
 }
 
 async function countProductsForCategory(
-  variants: CategoryVariants,
-  columns: ProductCategoryColumn[]
+  category: Pick<CategorySummary, 'slug' | 'name'>,
+  columns: ProductCategoryColumn[],
+  match?: CategoryMatchData
 ): Promise<number> {
-  const hasVariants =
-    variants.normalized.length > 0 || variants.raw.length > 0 || variants.collapsed.length > 0;
+  if (columns.length === 0) {
+    return 0;
+  }
 
-  if (!hasVariants || columns.length === 0) {
+  const categoryMatch = match ?? createCategoryMatchData(category);
+  if (
+    categoryMatch.normalizedValues.length === 0 &&
+    categoryMatch.jsonValues.length === 0 &&
+    categoryMatch.csvTokens.length === 0
+  ) {
     return 0;
   }
 
   const pool = getPool();
-  const { where, params } = buildCategoryMatchFragments(columns, variants);
+  const { where, params } = buildCategoryMatchFragments(columns, categoryMatch);
 
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
@@ -630,16 +581,15 @@ export async function getPublishedProductsForCategory(
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
   const columns = await getProductCategoryColumns(pool);
-  const variants = buildCategoryVariants({ slug: category.slug, name: category.name });
-
-  const hasVariants =
-    variants.normalized.length > 0 || variants.raw.length > 0 || variants.collapsed.length > 0;
-
-  if (!hasVariants || columns.length === 0) {
+  if (columns.length === 0) {
+    return { products: [], totalCount: 0 };
+  }
+  const match = createCategoryMatchData({ slug: category.slug, name: category.name });
+  if (match.normalizedValues.length === 0 && match.jsonValues.length === 0 && match.csvTokens.length === 0) {
     return { products: [], totalCount: 0 };
   }
 
-  const { where, params } = buildCategoryMatchFragments(columns, variants);
+  const { where, params } = buildCategoryMatchFragments(columns, match);
 
   try {
     const [rows] = await pool.query(
@@ -660,7 +610,7 @@ export async function getPublishedProductsForCategory(
     }
 
     const products = parsed.data.map(normalizeProductRecord);
-    const totalCount = await countProductsForCategory(variants, columns);
+    const totalCount = await countProductsForCategory({ slug: category.slug, name: category.name }, columns, match);
 
     return { products, totalCount };
   } catch (error) {
