@@ -9,34 +9,10 @@ import React, {
   type ChangeEvent,
   type FormEvent
 } from 'react';
-import TinyMceEditor from './tinymce-editor';
+import TinyMceEditor, { type TinyMceEditorHandle } from './tinymce-editor';
 import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle, textareaStyle } from './panel-styles';
 import { createAdminApiClient } from './admin-api-client';
-
-const topBarStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-  gap: '1rem',
-  alignItems: 'flex-end'
-};
-
-const contentLayoutStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '2rem'
-};
-
-const buttonRowStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: '0.75rem',
-  flexWrap: 'wrap'
-};
-
-const toggleWrapperStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '0.5rem'
-};
+import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
 
 const labelStyle: React.CSSProperties = {
   fontSize: '0.85rem',
@@ -59,34 +35,6 @@ const successTextStyle: React.CSSProperties = {
   color: '#16a34a'
 };
 
-const editorWrapperStyle: React.CSSProperties = {
-  ...cardStyle,
-  padding: 0,
-  overflow: 'hidden',
-  width: '100%'
-};
-
-const editorHeaderStyle: React.CSSProperties = {
-  padding: '1rem 1.5rem',
-  borderBottom: '1px solid #e2e8f0',
-  background: '#f8fafc'
-};
-
-const editorBodyStyle: React.CSSProperties = {
-  padding: '1rem 1.5rem 1.5rem'
-};
-
-const sidePanelContainerStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'flex-end'
-};
-
-const sidePanelStyle: React.CSSProperties = {
-  ...cardStyle,
-  width: '100%',
-  maxWidth: 380
-};
-
 const statusBadgeStyle: React.CSSProperties = {
   borderRadius: 9999,
   padding: '0.125rem 0.5rem',
@@ -106,11 +54,50 @@ const statusBadgeDanger: React.CSSProperties = {
   color: '#991b1b'
 };
 
-const disabledSecondaryButton: React.CSSProperties = {
-  ...disabledButtonStyle,
-  background: '#e2e8f0',
-  color: '#475569'
+const sectionStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1.25rem'
 };
+
+const primaryLayoutStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+  gap: '1.25rem',
+  alignItems: 'stretch'
+};
+
+const actionsRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  justifyContent: 'flex-end',
+  flexWrap: 'wrap'
+};
+
+const previewImageStyle: React.CSSProperties = {
+  width: '100%',
+  height: 180,
+  objectFit: 'cover',
+  borderRadius: 12,
+  background: '#f1f5f9'
+};
+
+const previewPlaceholderStyle: React.CSSProperties = {
+  width: '100%',
+  height: 180,
+  borderRadius: 12,
+  background: '#f1f5f9'
+};
+
+const BLOG_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+type PreviewCtaType = keyof typeof CTA_DEFAULT_LABELS;
+
+interface PreviewCta {
+  type: PreviewCtaType;
+  url: string;
+  label: string;
+}
 
 interface BlogPostDetail {
   slug: string;
@@ -121,7 +108,13 @@ interface BlogPostDetail {
   categorySlug: string | null;
   productSlugs: string[];
   ctaLeadUrl: string | null;
+  ctaLeadLabel: string | null;
   ctaAffiliateUrl: string | null;
+  ctaAffiliateLabel: string | null;
+  ctaStripeUrl: string | null;
+  ctaStripeLabel: string | null;
+  ctaPaypalUrl: string | null;
+  ctaPaypalLabel: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   canonicalUrl: string | null;
@@ -198,7 +191,7 @@ interface EditBlogPanelProps {
 }
 
 function normalizeSlugInput(value: string): string {
-  return value.trim().toLowerCase();
+  return sanitizeSlugCandidate(value) ?? '';
 }
 
 function toDatetimeLocalInput(value: string | null): string {
@@ -253,16 +246,23 @@ export default function EditBlogPanel({
     () => createAdminApiClient({ authHeader, adminToken }),
     [authHeader, adminToken]
   );
-  const [slugInput, setSlugInput] = useState<string>(initialSlug ? normalizeSlugInput(initialSlug) : '');
-  const [loadedSlug, setLoadedSlug] = useState<string>(initialSlug ? normalizeSlugInput(initialSlug) : '');
+  const initialNormalizedSlug = initialSlug ? normalizeSlugInput(initialSlug) : '';
+  const [slugInput, setSlugInput] = useState<string>(initialNormalizedSlug);
+  const [loadedSlug, setLoadedSlug] = useState<string>(initialNormalizedSlug);
   const [title, setTitle] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
   const [categorySlug, setCategorySlug] = useState<string>('');
   const [publishedAtInput, setPublishedAtInput] = useState<string>('');
   const [isPublished, setIsPublished] = useState<boolean>(false);
   const [coverImageUrl, setCoverImageUrl] = useState<string>('');
+  const [ctaLeadLabel, setCtaLeadLabel] = useState<string>('');
   const [ctaLeadUrl, setCtaLeadUrl] = useState<string>('');
+  const [ctaAffiliateLabel, setCtaAffiliateLabel] = useState<string>('');
   const [ctaAffiliateUrl, setCtaAffiliateUrl] = useState<string>('');
+  const [ctaStripeLabel, setCtaStripeLabel] = useState<string>('');
+  const [ctaStripeUrl, setCtaStripeUrl] = useState<string>('');
+  const [ctaPaypalLabel, setCtaPaypalLabel] = useState<string>('');
+  const [ctaPaypalUrl, setCtaPaypalUrl] = useState<string>('');
   const [seoTitle, setSeoTitle] = useState<string>('');
   const [seoDescription, setSeoDescription] = useState<string>('');
   const [canonicalUrl, setCanonicalUrl] = useState<string>('');
@@ -292,6 +292,7 @@ export default function EditBlogPanel({
   const isExistingPost = Boolean(loadedSlug);
 
   const pendingRequestRef = useRef<AbortController | null>(null);
+  const editorRef = useRef<TinyMceEditorHandle | null>(null);
 
   const editorSlug = slugInput || 'new-blog-post';
 
@@ -307,16 +308,23 @@ export default function EditBlogPanel({
   }, [resetMessages]);
 
   const applyPostData = useCallback((post: BlogPostDetail) => {
-    setLoadedSlug(post.slug);
-    setSlugInput(post.slug);
+    const normalizedSlug = normalizeSlugInput(post.slug ?? '');
+    setLoadedSlug(normalizedSlug);
+    setSlugInput(normalizedSlug);
     setTitle(post.title ?? '');
     setSummary(post.shortSummary ?? '');
     setCategorySlug(post.categorySlug ?? '');
     setPublishedAtInput(toDatetimeLocalInput(post.publishedAt));
     setIsPublished(Boolean(post.isPublished));
     setCoverImageUrl(post.coverImageUrl ?? '');
+    setCtaLeadLabel(post.ctaLeadLabel ?? '');
     setCtaLeadUrl(post.ctaLeadUrl ?? '');
+    setCtaAffiliateLabel(post.ctaAffiliateLabel ?? '');
     setCtaAffiliateUrl(post.ctaAffiliateUrl ?? '');
+    setCtaStripeLabel(post.ctaStripeLabel ?? '');
+    setCtaStripeUrl(post.ctaStripeUrl ?? '');
+    setCtaPaypalLabel(post.ctaPaypalLabel ?? '');
+    setCtaPaypalUrl(post.ctaPaypalUrl ?? '');
     setSeoTitle(post.seoTitle ?? '');
     setSeoDescription(post.seoDescription ?? '');
     setCanonicalUrl(post.canonicalUrl ?? '');
@@ -327,6 +335,7 @@ export default function EditBlogPanel({
     setSaveError(null);
     setSaveSuccess(null);
     setToast(null);
+    editorRef.current?.clearDraft();
   }, []);
 
   const handleLoadPost = useCallback(
@@ -389,6 +398,29 @@ export default function EditBlogPanel({
       setCategoriesError((error as Error)?.message ?? 'Error al cargar categorías.');
     }
   }, [adminApi]);
+
+  const handleSlugChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const value = normalizeSlugInput(event.target.value);
+      setSlugInput(value);
+      if (loadStatus === 'error') {
+        setLoadStatus('idle');
+      }
+      setLoadError(null);
+      if (!loadedSlug || value !== loadedSlug) {
+        markDirty();
+      }
+    },
+    [loadStatus, loadedSlug, markDirty]
+  );
+
+  const handleSlugSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      void handleLoadPost(slugInput);
+    },
+    [handleLoadPost, slugInput]
+  );
 
   useEffect(() => {
     fetchCategories().catch(() => {
@@ -462,8 +494,14 @@ export default function EditBlogPanel({
     setPublishedAtInput('');
     setIsPublished(false);
     setCoverImageUrl('');
+    setCtaLeadLabel('');
     setCtaLeadUrl('');
+    setCtaAffiliateLabel('');
     setCtaAffiliateUrl('');
+    setCtaStripeLabel('');
+    setCtaStripeUrl('');
+    setCtaPaypalLabel('');
+    setCtaPaypalUrl('');
     setSeoTitle('');
     setSeoDescription('');
     setCanonicalUrl('');
@@ -476,6 +514,7 @@ export default function EditBlogPanel({
     setSaveError(null);
     setSaveSuccess(null);
     setToast(null);
+    editorRef.current?.clearDraft();
   }, []);
 
   const handleCreateCategory = useCallback(
@@ -560,8 +599,14 @@ export default function EditBlogPanel({
         cover_image_url: coverImageUrl.trim() || null,
         category_slug: categorySlug.trim() || null,
         product_slugs: parseProductSlugsInput(productSlugsInput),
+        cta_lead_label: ctaLeadLabel.trim() || null,
         cta_lead_url: ctaLeadUrl.trim() || null,
+        cta_affiliate_label: ctaAffiliateLabel.trim() || null,
         cta_affiliate_url: ctaAffiliateUrl.trim() || null,
+        cta_stripe_label: ctaStripeLabel.trim() || null,
+        cta_stripe_url: ctaStripeUrl.trim() || null,
+        cta_paypal_label: ctaPaypalLabel.trim() || null,
+        cta_paypal_url: ctaPaypalUrl.trim() || null,
         seo_title: seoTitle.trim() || null,
         seo_description: seoDescription.trim() || null,
         canonical_url: canonicalUrl.trim() || null,
@@ -597,7 +642,7 @@ export default function EditBlogPanel({
         setSaveSuccess(successMessage);
         setToast({ type: 'success', message: successMessage });
         if (options?.openPublicView) {
-          const viewUrl = `/blog/${data.post.slug}`;
+          const viewUrl = `/b/${data.post.slug}`;
           window.open(viewUrl, '_blank', 'noopener');
         }
       } catch (error) {
@@ -621,8 +666,14 @@ export default function EditBlogPanel({
       coverImageUrl,
       categorySlug,
       productSlugsInput,
+      ctaLeadLabel,
       ctaLeadUrl,
+      ctaAffiliateLabel,
       ctaAffiliateUrl,
+      ctaStripeLabel,
+      ctaStripeUrl,
+      ctaPaypalLabel,
+      ctaPaypalUrl,
       seoTitle,
       seoDescription,
       canonicalUrl,
@@ -635,9 +686,34 @@ export default function EditBlogPanel({
   );
 
   const [assetUploadStatus, setAssetUploadStatus] = useState<'idle' | 'image' | 'pdf'>('idle');
-  const isUploadingImage = assetUploadStatus === 'image';
-  const isUploadingPdf = assetUploadStatus === 'pdf';
-  const isSaveDisabled = saveStatus === 'loading' || assetUploadStatus !== 'idle';
+  const isLoadingPost = loadStatus === 'loading';
+  const isSaving = saveStatus === 'loading';
+  const isSaveDisabled = isSaving || assetUploadStatus !== 'idle';
+  const previewSlug = slugInput || 'nuevo-post';
+  const summaryPreview = summary.trim();
+  const coverPreviewUrl = coverImageUrl.trim();
+  const previewCtas = useMemo<PreviewCta[]>(() => {
+    const config: Array<{ type: PreviewCtaType; url: string; label: string }> = [
+      { type: 'lead', url: ctaLeadUrl, label: ctaLeadLabel },
+      { type: 'affiliate', url: ctaAffiliateUrl, label: ctaAffiliateLabel },
+      { type: 'stripe', url: ctaStripeUrl, label: ctaStripeLabel },
+      { type: 'paypal', url: ctaPaypalUrl, label: ctaPaypalLabel }
+    ];
+    return config
+      .map((item) => {
+        const trimmedUrl = item.url.trim();
+        if (!trimmedUrl) {
+          return null;
+        }
+        return {
+          type: item.type,
+          url: trimmedUrl,
+          label: resolveCtaLabel(item.type, item.label)
+        } satisfies PreviewCta;
+      })
+      .filter((cta): cta is PreviewCta => cta !== null);
+  }, [ctaAffiliateLabel, ctaAffiliateUrl, ctaLeadLabel, ctaLeadUrl, ctaPaypalLabel, ctaPaypalUrl, ctaStripeLabel, ctaStripeUrl]);
+  const primaryCtaType = previewCtas[0]?.type;
 
   const handleEditorImageUpload = useCallback(
     async (file: File) => {
@@ -724,117 +800,254 @@ export default function EditBlogPanel({
   );
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <header style={cardStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
-          <div>
-            <h2 style={{ margin: 0, color: '#0f172a' }}>Edit Blog</h2>
-            <p style={{ margin: '0.5rem 0 0', color: '#475569', maxWidth: 640 }}>
-              Crea o edita publicaciones del blog. Completa los campos requeridos y usa TinyMCE para el contenido principal.
-            </p>
-          </div>
-          <div>
-            {saveStatus === 'success' ? (
-              <span style={statusBadgeSuccess}>Guardado</span>
-            ) : hasUnsavedChanges ? (
-              <span style={statusBadgeDanger}>Cambios sin guardar</span>
-            ) : null}
-          </div>
-        </div>
-
-        <div style={topBarStyle}>
-          <div>
-            <label htmlFor="blog-slug" style={labelStyle}>
-              Slug
-            </label>
-            <input
-              id="blog-slug"
-              type="text"
-              style={inputStyle}
-              placeholder="ej. mi-primer-post"
-              value={slugInput}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                setSlugInput(normalizeSlugInput(event.target.value));
-                markDirty();
-              }}
-              disabled={isPublished || isSaveDisabled}
-            />
-            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                style={isSaveDisabled ? disabledButtonStyle : buttonStyle}
-                disabled={isSaveDisabled}
-                onClick={() => handleLoadPost(slugInput)}
-              >
-                Cargar Post
-              </button>
-              <button type="button" style={buttonStyle} onClick={handleNewPost}>
-                Nuevo Post
-              </button>
+    <section style={sectionStyle} aria-label="Blog editor">
+      <div style={primaryLayoutStyle}>
+        <section style={{ ...(cardStyle as any), gap: '1rem' }}>
+          <header
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '0.5rem'
+            }}
+          >
+            <div>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Cabecera del blog</h2>
+              <p style={{ ...helperTextStyle, marginTop: 4 }}>
+                Elige el slug, la imagen y los CTA igual que en la ficha de productos.
+              </p>
             </div>
-            {loadStatus === 'error' && loadError ? <p style={errorTextStyle}>{loadError}</p> : null}
-            {isPublished ? <p style={helperTextStyle}>El slug está bloqueado porque el post está publicado.</p> : null}
-          </div>
+            <div>
+              {saveStatus === 'success' ? (
+                <span style={statusBadgeSuccess}>Guardado</span>
+              ) : hasUnsavedChanges ? (
+                <span style={statusBadgeDanger}>Cambios sin guardar</span>
+              ) : null}
+            </div>
+          </header>
 
-          <div>
-            <label htmlFor="blog-title" style={labelStyle}>
-              Título H1
+          <form onSubmit={handleSlugSubmit} style={{ display: 'grid', gap: '0.75rem' }}>
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontWeight: 600 }}>Slug del post</span>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  value={slugInput}
+                  onChange={handleSlugChange}
+                  placeholder="b-ej: mi-primer-post"
+                  style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                  disabled={isPublished || isSaveDisabled}
+                />
+                <button
+                  type="submit"
+                  style={isSaveDisabled || !slugInput ? disabledButtonStyle : buttonStyle}
+                  disabled={isSaveDisabled || !slugInput || isLoadingPost}
+                >
+                  {isLoadingPost ? 'Cargando…' : 'Cargar'}
+                </button>
+                <button
+                  type="button"
+                  style={isSaveDisabled ? disabledButtonStyle : buttonStyle}
+                  onClick={handleNewPost}
+                  disabled={isSaveDisabled}
+                >
+                  Nuevo
+                </button>
+              </div>
             </label>
-            <input
-              id="blog-title"
-              type="text"
-              style={inputStyle}
-              placeholder="Título principal del post"
-              value={title}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                setTitle(event.target.value);
-                markDirty();
-              }}
-            />
-          </div>
+          </form>
 
-          <div>
-            <label htmlFor="blog-category" style={labelStyle}>
-              Categoría
+          {loadStatus === 'loading' ? (
+            <p style={helperTextStyle}>Cargando post…</p>
+          ) : loadStatus === 'error' && loadError ? (
+            <p style={errorTextStyle}>{loadError}</p>
+          ) : loadedSlug ? (
+            <p style={helperTextStyle}>Post cargado: {loadedSlug}</p>
+          ) : (
+            <p style={helperTextStyle}>Ingresa un slug nuevo para crear el post o carga uno existente.</p>
+          )}
+          {isPublished ? <p style={helperTextStyle}>El slug está bloqueado porque el post está publicado.</p> : null}
+
+          <div style={{ display: 'grid', gap: 12 }}>
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontWeight: 600 }}>Título (H1)</span>
+              <input
+                value={title}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  setTitle(event.target.value);
+                  markDirty();
+                }}
+                placeholder="Título del post"
+                style={inputStyle}
+              />
             </label>
-            <select
-              id="blog-category"
-              style={inputStyle}
-              value={categorySlug}
-              onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-                setCategorySlug(event.target.value);
-                markDirty();
-              }}
-            >
-              <option value="">Sin categoría</option>
-              {categories.map((category) => (
-                <option key={category.slug} value={category.slug}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
+
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontWeight: 600 }}>Resumen breve</span>
+              <textarea
+                value={summary}
+                onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
+                  setSummary(event.target.value);
+                  markDirty();
+                }}
+                rows={3}
+                placeholder="Resumen introductorio para la tarjeta y el lead box."
+                style={{ ...textareaStyle, minHeight: '5rem' }}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontWeight: 600 }}>Imagen principal (URL)</span>
+              <input
+                value={coverImageUrl}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  setCoverImageUrl(event.target.value);
+                  markDirty();
+                }}
+                placeholder="https://..."
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontWeight: 600 }}>Categoría</span>
+              <select
+                value={categorySlug}
+                onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                  setCategorySlug(event.target.value);
+                  markDirty();
+                }}
+                style={inputStyle}
+              >
+                <option value="">Sin categoría</option>
+                {categories.map((category) => (
+                  <option key={category.slug} value={category.slug}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             {categoriesStatus === 'loading' ? <p style={helperTextStyle}>Cargando categorías…</p> : null}
-            {categoriesStatus === 'error' && categoriesError ? (
-              <p style={errorTextStyle}>{categoriesError}</p>
-            ) : null}
-          </div>
+            {categoriesStatus === 'error' && categoriesError ? <p style={errorTextStyle}>{categoriesError}</p> : null}
 
-          <div>
-            <label htmlFor="blog-published-at" style={labelStyle}>
-              Fecha de publicación
-            </label>
-            <input
-              id="blog-published-at"
-              type="datetime-local"
-              style={inputStyle}
-              value={publishedAtInput}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                setPublishedAtInput(event.target.value);
-                markDirty();
-              }}
-            />
-            <div style={{ marginTop: '0.5rem' }}>
-              <label style={toggleWrapperStyle}>
+            <div style={{ display: 'grid', gap: '0.75rem' }}>
+              <h3 style={{ margin: '0.5rem 0 0', fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                Call to actions
+              </h3>
+              <div
+                style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+              >
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Lead Label</span>
+                  <input
+                    value={ctaLeadLabel}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaLeadLabel(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder={CTA_DEFAULT_LABELS.lead}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Lead URL</span>
+                  <input
+                    value={ctaLeadUrl}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaLeadUrl(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="https://..."
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Affiliate Label</span>
+                  <input
+                    value={ctaAffiliateLabel}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaAffiliateLabel(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder={CTA_DEFAULT_LABELS.affiliate}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Affiliate URL</span>
+                  <input
+                    value={ctaAffiliateUrl}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaAffiliateUrl(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="https://..."
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Stripe Label</span>
+                  <input
+                    value={ctaStripeLabel}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaStripeLabel(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder={CTA_DEFAULT_LABELS.stripe}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Stripe URL</span>
+                  <input
+                    value={ctaStripeUrl}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaStripeUrl(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="https://..."
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA PayPal Label</span>
+                  <input
+                    value={ctaPaypalLabel}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaPaypalLabel(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder={CTA_DEFAULT_LABELS.paypal}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA PayPal URL</span>
+                  <input
+                    value={ctaPaypalUrl}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaPaypalUrl(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="https://..."
+                    style={inputStyle}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontWeight: 600 }}>Publicación</span>
+              <input
+                type="datetime-local"
+                value={publishedAtInput}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  setPublishedAtInput(event.target.value);
+                  markDirty();
+                }}
+                style={inputStyle}
+              />
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <input
                   type="checkbox"
                   checked={isPublished}
@@ -845,244 +1058,216 @@ export default function EditBlogPanel({
                 />
                 <span>Publicar post</span>
               </label>
-              <p style={helperTextStyle}>
-                Si el post está publicado, el slug no se podrá editar y se usará la fecha indicada.
-              </p>
+              <p style={helperTextStyle}>Al publicar se activará la ruta /b/{loadedSlug || previewSlug}.</p>
             </div>
           </div>
+
+          <div style={actionsRowStyle}>
+            <button
+              type="button"
+              onClick={() => handleSave()}
+              style={isSaveDisabled ? disabledButtonStyle : buttonStyle}
+              disabled={isSaveDisabled}
+            >
+              {isSaving ? 'Guardando…' : 'Guardar cambios'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSave({ openPublicView: true })}
+              style={isSaveDisabled || !slugInput ? disabledButtonStyle : buttonStyle}
+              disabled={isSaveDisabled || !slugInput}
+            >
+              {isSaving ? 'Guardando…' : 'Guardar y ver'}
+            </button>
+          </div>
+
+          {saveStatus === 'error' && saveError ? <p style={errorTextStyle}>{saveError}</p> : null}
+          {saveStatus === 'success' && saveSuccess ? <p style={successTextStyle}>{saveSuccess}</p> : null}
+          {toast ? <p style={toast.type === 'error' ? errorTextStyle : successTextStyle}>{toast.message}</p> : null}
+        </section>
+
+        <section style={{ ...(cardStyle as any), gap: '1rem' }}>
+          <header>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Vista previa</h2>
+            <p style={{ ...helperTextStyle, marginTop: 4 }}>Así se verá la hero pública.</p>
+          </header>
+
+          <div style={{ display: 'grid', gap: 12 }}>
+            {coverPreviewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={coverPreviewUrl} alt="" style={previewImageStyle} />
+            ) : (
+              <div style={previewPlaceholderStyle} aria-hidden="true" />
+            )}
+            <h1 style={{ fontSize: 36, lineHeight: 1.1, fontWeight: 800, margin: 0 }}>{title || 'TÍTULO DEL POST'}</h1>
+            {summaryPreview ? <p style={{ color: '#334155', margin: 0 }}>{summaryPreview}</p> : null}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {previewCtas.map((cta) => {
+                const isPrimary = cta.type === primaryCtaType;
+                const style: React.CSSProperties = {
+                  ...buttonStyle,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: isPrimary ? '#0f172a' : '#e2e8f0',
+                  color: isPrimary ? '#f8fafc' : '#0f172a'
+                };
+                return (
+                  <span key={cta.type} style={style}>
+                    {cta.label}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section style={{ ...(cardStyle as any), gap: '1.25rem', width: '100%' }}>
+        <header>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Contenido (HTML)</h2>
+        </header>
+
+        <div>
+          <TinyMceEditor
+            ref={editorRef}
+            value={contentHtml}
+            onChange={(value) => {
+              setContentHtml(value);
+              markDirty();
+            }}
+            slug={editorSlug}
+            placeholder="Escribe el contenido del blog aquí..."
+            onRequestImageUpload={handleEditorImageUpload}
+            onRequestPdfUpload={handleEditorPdfUpload}
+          />
+          {assetUploadStatus !== 'idle' ? (
+            <p style={{ ...helperTextStyle, marginTop: '0.75rem' }}>
+              {assetUploadStatus === 'image' ? 'Subiendo imagen a Cloudflare…' : 'Subiendo PDF…'}
+            </p>
+          ) : null}
         </div>
 
-        <div style={buttonRowStyle}>
+        <div style={actionsRowStyle}>
           <button
             type="button"
+            onClick={() => handleSave()}
             style={isSaveDisabled ? disabledButtonStyle : buttonStyle}
             disabled={isSaveDisabled}
-            onClick={() => handleSave()}
           >
-            Guardar
+            {isSaving ? 'Guardando…' : 'Guardar contenido'}
           </button>
           <button
             type="button"
-            style={isSaveDisabled ? disabledButtonStyle : buttonStyle}
-            disabled={isSaveDisabled || !slugInput}
             onClick={() => handleSave({ openPublicView: true })}
+            style={isSaveDisabled || !slugInput ? disabledButtonStyle : buttonStyle}
+            disabled={isSaveDisabled || !slugInput}
           >
-            Guardar y Ver
-          </button>
-          <button
-            type="button"
-            style={buttonStyle}
-            onClick={() =>
-              setToast({ type: 'error', message: 'La purga de Cloudflare estará disponible en una fase posterior.' })
-            }
-          >
-            Purge CF
-          </button>
-          <button type="button" style={disabledSecondaryButton} disabled>
-            Push to Algolia
+            {isSaving ? 'Guardando…' : 'Guardar y ver'}
           </button>
         </div>
-        {saveStatus === 'error' && saveError ? <p style={errorTextStyle}>{saveError}</p> : null}
-        {saveStatus === 'success' && saveSuccess ? <p style={successTextStyle}>{saveSuccess}</p> : null}
-        {toast ? (
-          <p style={toast.type === 'error' ? errorTextStyle : successTextStyle}>{toast.message}</p>
-        ) : null}
-      </header>
+      </section>
 
-      <div style={contentLayoutStyle}>
-        <div style={editorWrapperStyle}>
-          <div style={editorHeaderStyle}>
-            <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.1rem' }}>Contenido del Post</h3>
-            <p style={{ margin: '0.35rem 0 0', color: '#475569' }}>
-              El editor TinyMCE guarda borradores localmente. Usa «Guardar» para persistir los cambios.
-            </p>
-          </div>
-          <div style={editorBodyStyle}>
-            <TinyMceEditor
-              value={contentHtml}
-              onChange={(value) => {
-                setContentHtml(value);
-                markDirty();
-              }}
-              slug={editorSlug}
-              placeholder="Escribe el contenido del blog aquí..."
-              onRequestImageUpload={handleEditorImageUpload}
-              onRequestPdfUpload={handleEditorPdfUpload}
-            />
-            {assetUploadStatus !== 'idle' ? (
-              <p style={{ ...helperTextStyle, marginTop: '0.75rem' }}>
-                {assetUploadStatus === 'image'
-                  ? 'Subiendo imagen a Cloudflare…'
-                  : 'Subiendo PDF…'}
-              </p>
-            ) : null}
-          </div>
-        </div>
+      <section style={{ ...(cardStyle as any), gap: '1.25rem', width: '100%' }}>
+        <header>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>SEO, relacionamiento y categorías</h2>
+        </header>
 
-        <div style={sidePanelContainerStyle}>
-          <aside style={sidePanelStyle}>
-          <section>
-            <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1rem' }}>Resumen & SEO</h3>
-            <label htmlFor="blog-summary" style={{ ...labelStyle, marginTop: '1rem' }}>
-              Resumen corto (160 caracteres)
-            </label>
-            <textarea
-              id="blog-summary"
-              style={textareaStyle}
-              maxLength={160}
-              placeholder="Breve resumen para meta description y listados."
-              value={summary}
-              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
-                setSummary(event.target.value);
-                markDirty();
-              }}
-            />
-            <small style={helperTextStyle}>{summary.length}/160</small>
-
-            <label htmlFor="seo-title" style={{ ...labelStyle, marginTop: '1rem' }}>
-              SEO title (60 caracteres)
-            </label>
+        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontWeight: 600 }}>SEO Title</span>
             <input
-              id="seo-title"
-              type="text"
-              style={inputStyle}
-              maxLength={60}
               value={seoTitle}
               onChange={(event: ChangeEvent<HTMLInputElement>) => {
                 setSeoTitle(event.target.value);
                 markDirty();
               }}
+              placeholder="Título para buscadores"
+              style={inputStyle}
             />
-            <small style={helperTextStyle}>{seoTitle.length}/60</small>
+          </label>
 
-            <label htmlFor="seo-description" style={{ ...labelStyle, marginTop: '1rem' }}>
-              SEO description (160 caracteres)
-            </label>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontWeight: 600 }}>SEO Description</span>
             <textarea
-              id="seo-description"
-              style={textareaStyle}
-              maxLength={160}
               value={seoDescription}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
                 setSeoDescription(event.target.value);
                 markDirty();
               }}
+              rows={3}
+              placeholder="Descripción corta para Google (160 caracteres)."
+              style={{ ...textareaStyle, minHeight: '5rem' }}
             />
-            <small style={helperTextStyle}>{seoDescription.length}/160</small>
+          </label>
 
-            <label htmlFor="canonical-url" style={{ ...labelStyle, marginTop: '1rem' }}>
-              Canonical URL
-            </label>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontWeight: 600 }}>Canonical URL</span>
             <input
-              id="canonical-url"
-              type="url"
-              style={inputStyle}
-              placeholder="https://..."
               value={canonicalUrl}
               onChange={(event: ChangeEvent<HTMLInputElement>) => {
                 setCanonicalUrl(event.target.value);
                 markDirty();
               }}
-            />
-          </section>
-
-          <section>
-            <h3 style={{ margin: '1.5rem 0 0', color: '#0f172a', fontSize: '1rem' }}>CTA & Portada</h3>
-            <label htmlFor="cover-image" style={{ ...labelStyle, marginTop: '1rem' }}>
-              Cover image URL
-            </label>
-            <input
-              id="cover-image"
-              type="url"
-              style={inputStyle}
               placeholder="https://..."
-              value={coverImageUrl}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                setCoverImageUrl(event.target.value);
-                markDirty();
-              }}
-            />
-
-            <label htmlFor="cta-lead" style={{ ...labelStyle, marginTop: '1rem' }}>
-              CTA Lead URL
-            </label>
-            <input
-              id="cta-lead"
-              type="url"
               style={inputStyle}
-              placeholder="https://..."
-              value={ctaLeadUrl}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                setCtaLeadUrl(event.target.value);
-                markDirty();
-              }}
             />
+          </label>
 
-            <label htmlFor="cta-affiliate" style={{ ...labelStyle, marginTop: '1rem' }}>
-              CTA Affiliate URL
-            </label>
-            <input
-              id="cta-affiliate"
-              type="url"
-              style={inputStyle}
-              placeholder="https://..."
-              value={ctaAffiliateUrl}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                setCtaAffiliateUrl(event.target.value);
-                markDirty();
-              }}
-            />
-          </section>
-
-          <section>
-            <h3 style={{ margin: '1.5rem 0 0', color: '#0f172a', fontSize: '1rem' }}>Productos relacionados</h3>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontWeight: 600 }}>Slugs de productos relacionados</span>
             <textarea
-              style={{ ...textareaStyle, minHeight: '6rem' }}
-              placeholder="Introduce los slugs de producto, uno por línea."
               value={productSlugsInput}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
                 setProductSlugsInput(event.target.value);
                 markDirty();
               }}
+              style={{ ...textareaStyle, minHeight: '6rem' }}
+              placeholder="Ingresa un slug de producto por línea."
             />
-            <p style={helperTextStyle}>Se guardarán en formato JSON para relacionar productos destacados.</p>
-          </section>
+            <p style={helperTextStyle}>Se guardarán como JSON para armar listados relacionados.</p>
+          </label>
+        </div>
 
-          <section>
-            <h3 style={{ margin: '1.5rem 0 0', color: '#0f172a', fontSize: '1rem' }}>Nueva categoría</h3>
-            <form onSubmit={handleCreateCategory} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div>
-                <label htmlFor="new-category-name" style={labelStyle}>
-                  Nombre
-                </label>
-                <input
-                  id="new-category-name"
-                  type="text"
-                  style={inputStyle}
-                  value={newCategoryName}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                    setNewCategoryName(event.target.value);
-                    setCreateCategoryError(null);
-                    setCreateCategorySuccess(null);
-                  }}
-                />
-              </div>
-              <div>
-                <label htmlFor="new-category-slug" style={labelStyle}>
-                  Slug opcional
-                </label>
-                <input
-                  id="new-category-slug"
-                  type="text"
-                  style={inputStyle}
-                  value={newCategorySlug}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                    setNewCategorySlug(event.target.value);
-                    setCreateCategoryError(null);
-                    setCreateCategorySuccess(null);
-                  }}
-                />
-              </div>
+        <section style={{ display: 'grid', gap: '0.75rem' }}>
+          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: '#0f172a' }}>Crear nueva categoría</h3>
+          <form
+            onSubmit={handleCreateCategory}
+            style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+          >
+            <div style={{ display: 'grid', gap: 4 }}>
+              <label htmlFor="new-category-name" style={labelStyle}>
+                Nombre
+              </label>
+              <input
+                id="new-category-name"
+                type="text"
+                style={inputStyle}
+                value={newCategoryName}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  setNewCategoryName(event.target.value);
+                  setCreateCategoryError(null);
+                  setCreateCategorySuccess(null);
+                }}
+              />
+            </div>
+            <div style={{ display: 'grid', gap: 4 }}>
+              <label htmlFor="new-category-slug" style={labelStyle}>
+                Slug opcional
+              </label>
+              <input
+                id="new-category-slug"
+                type="text"
+                style={inputStyle}
+                value={newCategorySlug}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  setNewCategorySlug(event.target.value);
+                  setCreateCategoryError(null);
+                  setCreateCategorySuccess(null);
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
               <button
                 type="submit"
                 style={createCategoryStatus === 'loading' ? disabledButtonStyle : buttonStyle}
@@ -1090,17 +1275,86 @@ export default function EditBlogPanel({
               >
                 Crear categoría
               </button>
-            </form>
-            {createCategoryStatus === 'error' && createCategoryError ? (
-              <p style={errorTextStyle}>{createCategoryError}</p>
-            ) : null}
-            {createCategoryStatus === 'success' && createCategorySuccess ? (
-              <p style={successTextStyle}>{createCategorySuccess}</p>
-            ) : null}
-          </section>
-        </aside>
-        </div>
-      </div>
+            </div>
+          </form>
+          {createCategoryStatus === 'error' && createCategoryError ? <p style={errorTextStyle}>{createCategoryError}</p> : null}
+          {createCategoryStatus === 'success' && createCategorySuccess ? (
+            <p style={successTextStyle}>{createCategorySuccess}</p>
+          ) : null}
+        </section>
+      </section>
     </section>
   );
+}
+
+function sanitizeSlugCandidate(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const url = tryParseUrl(trimmed);
+  const input = url ? url.pathname : trimmed;
+  const normalizedPath = stripQueryAndHash(input);
+  const cleanedPath = normalizedPath
+    .split(/[\\/]+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (cleanedPath.length > 0 && (cleanedPath[0].toLowerCase() === 'b' || cleanedPath[0].toLowerCase() === 'blog')) {
+    cleanedPath.shift();
+  }
+
+  const candidate = cleanedPath[0] ?? trimmed;
+  const normalized = removeAccents(candidate.toLowerCase())
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (!BLOG_SLUG_REGEX.test(normalized)) {
+    return normalized
+      .split('-')
+      .filter(Boolean)
+      .map((segment) => segment.replace(/[^a-z0-9]+/g, ''))
+      .filter(Boolean)
+      .join('-');
+  }
+
+  return normalized;
+}
+
+function stripQueryAndHash(value: string): string {
+  const queryIndex = value.indexOf('?');
+  const hashIndex = value.indexOf('#');
+  let end = value.length;
+  if (queryIndex >= 0) {
+    end = Math.min(end, queryIndex);
+  }
+  if (hashIndex >= 0) {
+    end = Math.min(end, hashIndex);
+  }
+  return value.slice(0, end);
+}
+
+function tryParseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    try {
+      return new URL(value, 'https://example.com');
+    } catch {
+      return null;
+    }
+  }
+}
+
+function removeAccents(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
