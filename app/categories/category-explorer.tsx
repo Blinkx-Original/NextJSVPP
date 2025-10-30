@@ -3,16 +3,19 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useState,
   useTransition,
   type ChangeEvent,
   type ReactNode
 } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import Image from 'next/image';
-import { Tree as ArboristTree, type NodeRendererProps, type TreeItem } from '@/lib/react-arborist';
+import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import {
+  Tree as ArboristTree,
+  type NodeRendererProps,
+  type TreeItem
+} from '@/lib/react-arborist';
 import styles from './page.module.css';
 import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
 
@@ -44,81 +47,19 @@ interface CategoryExplorerProps {
   productsPreviewLimit: number;
 }
 
-type TreeNodeData =
-  | { kind: 'group'; label: string }
-  | { kind: 'category'; category: ExplorerCategory };
-
-type FetchState =
-  | { status: 'idle'; products: ExplorerProductCard[]; totalCount: number }
-  | { status: 'loading'; products: ExplorerProductCard[]; totalCount: number }
-  | { status: 'error'; products: ExplorerProductCard[]; totalCount: number; message: string };
-
-function buildTreeData(
-  productCategories: ExplorerCategory[],
-  blogCategories: ExplorerCategory[],
-  search: string
-): { data: Array<TreeItem<TreeNodeData>>; hasResults: boolean } {
-  const normalizedSearch = search.trim().toLowerCase();
-  const matchesSearch = (category: ExplorerCategory) => {
-    if (!normalizedSearch) {
-      return true;
-    }
-    const haystack = `${category.name} ${category.slug}`.toLowerCase();
-    return haystack.includes(normalizedSearch);
-  };
-
-  const productNodes = productCategories.filter(matchesSearch).map((category) => ({
-    id: `product:${category.slug}`,
-    data: { kind: 'category', category } satisfies TreeNodeData
-  }));
-
-  const blogNodes = blogCategories.filter(matchesSearch).map((category) => ({
-    id: `blog:${category.slug}`,
-    data: { kind: 'category', category } satisfies TreeNodeData
-  }));
-
-  const data: Array<TreeItem<TreeNodeData>> = [];
-
-  if (productNodes.length > 0) {
-    data.push({
-      id: 'group:products',
-      data: { kind: 'group', label: 'Product Categories' },
-      children: productNodes
-    });
-  }
-
-  if (blogNodes.length > 0) {
-    data.push({
-      id: 'group:blogs',
-      data: { kind: 'group', label: 'Blog Categories' },
-      children: blogNodes
-    });
-  }
-
-  const hasResults = productNodes.length > 0 || blogNodes.length > 0;
-  return { data, hasResults };
+export interface CategoryPickerOption {
+  type: 'product' | 'blog';
+  slug: string;
+  name: string;
 }
 
-function renderTreeNode({ node, style }: NodeRendererProps<TreeNodeData>) {
-  const { data } = node;
-  if (data.kind === 'group') {
-    return (
-      <div className={styles.treeGroup} style={style} role="presentation">
-        {data.label}
-      </div>
-    );
-  }
-
-  const className = node.isSelected
-    ? `${styles.treeNode} ${styles.treeNodeSelected}`
-    : styles.treeNode;
-
-  return (
-    <div className={className} style={style}>
-      <span className={styles.treeNodeName}>{data.category.name}</span>
-      <span className={styles.treeNodeMeta}>{data.category.type === 'product' ? 'Products' : 'Blog'}</span>
-    </div>
-  );
+export interface CategoryExplorerProps {
+  categories: CategoryCard[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  activeType: CategoryFilterType;
+  categoryPickerOptions: CategoryPickerOption[];
 }
 
 type CategoryGroup = 'product' | 'blog';
@@ -127,16 +68,16 @@ type PickerTreeNode =
   | { kind: 'group'; type: CategoryGroup; label: string }
   | { kind: 'category'; type: CategoryGroup; label: string; slug: string };
 
-function typeToBadge(type: 'product' | 'blog'): string {
+function typeToBadge(type: CategoryGroup): string {
   return type === 'product' ? 'Product' : 'Blog';
 }
 
 function derivePickerOptions(
   categories: CategoryCard[],
-  options: CategoryPickerOption[]
+  provided: CategoryPickerOption[]
 ): CategoryPickerOption[] {
-  if (options.length > 0) {
-    return options;
+  if (provided.length > 0) {
+    return provided;
   }
   return categories.map((category) => ({
     type: category.type,
@@ -146,14 +87,14 @@ function derivePickerOptions(
 }
 
 function buildTreeData(
-  pickerOptions: CategoryPickerOption[]
+  options: CategoryPickerOption[]
 ): Array<TreeItem<PickerTreeNode>> {
   const groups: Record<CategoryGroup, CategoryPickerOption[]> = {
     product: [],
     blog: []
   };
 
-  pickerOptions.forEach((option) => {
+  options.forEach((option) => {
     groups[option.type].push(option);
   });
 
@@ -190,6 +131,20 @@ function buildTreeData(
   });
 
   return items;
+}
+
+function filterCategories(
+  categories: CategoryCard[],
+  search: string
+): CategoryCard[] {
+  const query = search.trim().toLowerCase();
+  if (!query) {
+    return categories;
+  }
+  return categories.filter((category) => {
+    const haystack = `${category.name} ${category.shortDescription ?? ''}`.toLowerCase();
+    return haystack.includes(query);
+  });
 }
 
 function buildCategoryCards(categories: CategoryCard[]): ReactNode[] {
@@ -284,10 +239,8 @@ export function CategoryExplorer({
             name: category.name
           }));
 
-  const treeData = useMemo(() => {
-    const options = derivePickerOptions(categories, categoryPickerOptions);
-    return buildTreeData(options);
-  }, [categories, categoryPickerOptions]);
+  const pickerOptions = derivePickerOptions(categories, categoryPickerOptions);
+  const treeData = buildTreeData(pickerOptions);
 
   useEffect(() => {
     setTreeSelection((current) => {
@@ -299,23 +252,10 @@ export function CategoryExplorer({
       }
       return [`group:${activeType}`];
     });
-  }, [activeType, setTreeSelection]);
+  }, [activeType]);
 
-  const filteredCategories = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) {
-      return categories;
-    }
-    return categories.filter((category) => {
-      const haystack = `${category.name} ${category.shortDescription ?? ''}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [categories, search]);
-
-  const categoryCards = useMemo(
-    () => buildCategoryCards(filteredCategories),
-    [filteredCategories]
-  );
+  const filteredCategories = filterCategories(categories, search);
+  const categoryCards = buildCategoryCards(filteredCategories);
 
   const updateQuery = useCallback(
     (next: Record<string, string | undefined>) => {
@@ -332,7 +272,7 @@ export function CategoryExplorer({
         router.push(query ? `${pathname}?${query}` : pathname);
       });
     },
-    [pathname, router, searchParams, startTransition]
+    [pathname, router, searchParams]
   );
 
   const handleTypeChange = useCallback(
@@ -358,10 +298,10 @@ export function CategoryExplorer({
     [page, updateQuery]
   );
 
-  const paginationButtons = useMemo(
-    () => buildPaginationButtons(totalPages, page, handlePageChange, isPending),
-    [handlePageChange, isPending, page, totalPages]
-  );
+  const paginationButtons =
+    totalPages > 1
+      ? buildPaginationButtons(totalPages, page, handlePageChange, isPending)
+      : [];
 
   const renderTreeNode = useCallback(
     ({ node, style }: NodeRendererProps<PickerTreeNode>) => {
@@ -391,36 +331,39 @@ export function CategoryExplorer({
     []
   );
 
-  function handleTreeSelect(ids: Array<string | number>) {
-    const [id] = ids;
-    if (!id || typeof id !== 'string') {
-      return;
-    }
-
-    if (id.startsWith('group:')) {
-      const [, type] = id.split(':');
-      if (type === 'product' || type === 'blog') {
-        setTreeSelection([id]);
-        updateQuery({ type, page: '1' });
-      } else {
-        setTreeSelection([]);
-        updateQuery({ type: undefined, page: '1' });
-      }
-      return;
-    }
-
-    if (id.startsWith('category:')) {
-      const [, type, slug] = id.split(':');
-      if (!type || !slug) {
+  const handleTreeSelect = useCallback(
+    (ids: Array<string | number>) => {
+      const [id] = ids;
+      if (!id || typeof id !== 'string') {
         return;
       }
-      setTreeSelection([id]);
-      const href = type === 'blog' ? `/bc/${slug}` : `/categories/${slug}`;
-      startTransition(() => {
-        router.push(href);
-      });
-    }
-  }
+
+      if (id.startsWith('group:')) {
+        const [, type] = id.split(':');
+        if (type === 'product' || type === 'blog') {
+          setTreeSelection([id]);
+          updateQuery({ type, page: '1' });
+        } else {
+          setTreeSelection([]);
+          updateQuery({ type: undefined, page: '1' });
+        }
+        return;
+      }
+
+      if (id.startsWith('category:')) {
+        const [, type, slug] = id.split(':');
+        if (!type || !slug) {
+          return;
+        }
+        setTreeSelection([id]);
+        const href = type === 'blog' ? `/bc/${slug}` : `/categories/${slug}`;
+        startTransition(() => {
+          router.push(href);
+        });
+      }
+    },
+    [router, startTransition, updateQuery]
+  );
 
   const activeProducts = fetchState.products;
   const activeTotal = fetchState.totalCount;
@@ -484,20 +427,15 @@ export function CategoryExplorer({
         {filteredCategories.length === 0 ? (
           <div className={styles.emptyState}>No categories match your search.</div>
         ) : (
-          <div className={styles.grid}>
-            {categoryCards}
-          </div>
+          <div className={styles.grid}>{categoryCards}</div>
         )}
 
         {totalPages > 1 ? (
           <nav className={styles.pagination} aria-label="Pagination">
-            <div className={styles.paginationList}>
-              {paginationButtons}
-            </div>
+            <div className={styles.paginationList}>{paginationButtons}</div>
           </nav>
         ) : null}
       </section>
     </div>
   );
 }
-
