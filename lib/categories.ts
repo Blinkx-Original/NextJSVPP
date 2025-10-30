@@ -2,7 +2,7 @@ import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { z } from 'zod';
 import { slugifyCategoryName } from './category-slug';
 import { getPool, toDbErrorInfo } from './db';
-import { slugifyCategoryName } from './category-slug';
+import { slugifyCategoryName as formatCategorySlug } from './category-slug';
 
 // -- Category type helpers --------------------------------------------------
 
@@ -470,7 +470,7 @@ function createCategoryMatchData(
   registerCandidate(category.name);
 
   if (typeof category.name === 'string' && category.name.trim()) {
-    registerCandidate(slugifyCategoryName(category.name));
+    registerCandidate(formatCategorySlug(category.name));
   }
 
   return {
