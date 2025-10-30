@@ -1,8 +1,16 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
-import type { ChangeEvent, CSSProperties, DragEvent } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type CSSProperties,
+  type DragEvent
+} from 'react';
 import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle } from './panel-styles';
 import { createAdminApiClient } from './admin-api-client';
 
