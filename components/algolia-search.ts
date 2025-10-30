@@ -1,8 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import type { FormEvent, KeyboardEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 const APP_ID = process.env.NEXT_PUBLIC_ALGOLIA_APP_ID?.trim() ?? "";
 const SEARCH_KEY = process.env.NEXT_PUBLIC_ALGOLIA_SEARCH_KEY?.trim() ?? "";
