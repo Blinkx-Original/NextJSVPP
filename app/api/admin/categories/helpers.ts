@@ -1,6 +1,11 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
-import { getBlogCategoryColumn, getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
-import type { ProductCategoryColumn, BlogCategoryColumn } from '@/lib/categories';
+import {
+  getBlogCategoryColumn,
+  getCategoryTypeSynonyms,
+  getProductCategoryColumns,
+  type BlogCategoryColumn,
+  type ProductCategoryColumn
+} from '@/lib/categories';
 
 type CategoryType = 'product' | 'blog';
 
