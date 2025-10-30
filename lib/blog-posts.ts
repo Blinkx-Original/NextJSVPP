@@ -1,3 +1,4 @@
+import he from 'he';
 import { z } from 'zod';
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, toDbErrorInfo } from './db';
@@ -11,6 +12,7 @@ const SUMMARY_MAX_LENGTH = 160;
 const URL_MAX_LENGTH = 2048;
 export const SEO_TITLE_MAX_LENGTH = 60;
 export const SEO_DESCRIPTION_MAX_LENGTH = 160;
+const CTA_LABEL_MAX_LENGTH = 120;
 
 const bigintLike = z.union([z.bigint(), z.number(), z.string()]);
 
@@ -26,7 +28,13 @@ const blogPostRowSchema = z.object({
   category_slug: z.string().nullable().optional(),
   product_slugs_json: z.any().nullable().optional(),
   cta_lead_url: z.string().nullable().optional(),
+  cta_lead_label: z.string().nullable().optional(),
   cta_affiliate_url: z.string().nullable().optional(),
+  cta_affiliate_label: z.string().nullable().optional(),
+  cta_stripe_url: z.string().nullable().optional(),
+  cta_stripe_label: z.string().nullable().optional(),
+  cta_paypal_url: z.string().nullable().optional(),
+  cta_paypal_label: z.string().nullable().optional(),
   seo_title: z.string().nullable().optional(),
   seo_description: z.string().nullable().optional(),
   canonical_url: z.string().nullable().optional(),
@@ -68,10 +76,91 @@ export interface BlogPostDetail extends BlogPostSummary {
   coverImageUrl: string | null;
   productSlugs: string[];
   ctaLeadUrl: string | null;
+  ctaLeadLabel: string | null;
   ctaAffiliateUrl: string | null;
+  ctaAffiliateLabel: string | null;
+  ctaStripeUrl: string | null;
+  ctaStripeLabel: string | null;
+  ctaPaypalUrl: string | null;
+  ctaPaypalLabel: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   canonicalUrl: string | null;
+}
+
+export interface NormalizedBlogPost {
+  slug: string;
+  title_h1: string;
+  short_summary: string;
+  content_html: string;
+  cover_image_url: string;
+  category_slug: string | null;
+  product_slugs: string[];
+  cta_lead_url: string;
+  cta_affiliate_url: string;
+  cta_lead_label: string;
+  cta_affiliate_label: string;
+  cta_stripe_url: string;
+  cta_stripe_label: string;
+  cta_paypal_url: string;
+  cta_paypal_label: string;
+  seo_title: string;
+  seo_description: string;
+  canonical_url: string;
+  published_at: string | null;
+}
+
+export interface NormalizedBlogPostResult {
+  raw: BlogPostDetail;
+  normalized: NormalizedBlogPost;
+}
+
+export interface BlogPostSummaryJson extends Omit<BlogPostSummary, 'id'> {
+  id: string;
+}
+
+export interface BlogPostDetailJson extends Omit<BlogPostDetail, 'id'> {
+  id: string;
+}
+
+const BLOG_POST_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface CachedBlogPostEntry {
+  value: NormalizedBlogPostResult;
+  expiresAt: number;
+}
+
+const blogPostCache = new Map<string, CachedBlogPostEntry>();
+
+function cacheLabel(requestId?: string): string {
+  return requestId ? ` [${requestId}]` : '';
+}
+
+function readBlogPostCache(slug: string, requestId?: string): NormalizedBlogPostResult | null {
+  const entry = blogPostCache.get(slug);
+  if (!entry) {
+    console.log(`[isr-cache][blog] slug=${slug} MISS${cacheLabel(requestId)}`);
+    return null;
+  }
+  if (entry.expiresAt <= Date.now()) {
+    blogPostCache.delete(slug);
+    console.log(`[isr-cache][blog] slug=${slug} EXPIRED${cacheLabel(requestId)}`);
+    return null;
+  }
+  console.log(`[isr-cache][blog] slug=${slug} HIT${cacheLabel(requestId)}`);
+  return entry.value;
+}
+
+function writeBlogPostCache(slug: string, value: NormalizedBlogPostResult): void {
+  blogPostCache.set(slug, { value, expiresAt: Date.now() + BLOG_POST_CACHE_TTL_MS });
+}
+
+export function clearBlogPostCache(slug?: string): void {
+  if (typeof slug === 'string') {
+    blogPostCache.delete(slug);
+  } else {
+    blogPostCache.clear();
+  }
 }
 
 export interface BlogPostQueryOptions {
@@ -95,7 +184,13 @@ export interface BlogPostWritePayload {
   categorySlug: string | null;
   productSlugs: string[];
   ctaLeadUrl: string | null;
+  ctaLeadLabel: string | null;
   ctaAffiliateUrl: string | null;
+  ctaAffiliateLabel: string | null;
+  ctaStripeUrl: string | null;
+  ctaStripeLabel: string | null;
+  ctaPaypalUrl: string | null;
+  ctaPaypalLabel: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   canonicalUrl: string | null;
@@ -190,9 +285,33 @@ function buildInsertStatement(schema: BlogSchema, payload: BlogPostWritePayload)
   placeholders.push('?');
   values.push(payload.ctaLeadUrl);
 
+  columns.push('cta_lead_label');
+  placeholders.push('?');
+  values.push(payload.ctaLeadLabel);
+
   columns.push('cta_affiliate_url');
   placeholders.push('?');
   values.push(payload.ctaAffiliateUrl);
+
+  columns.push('cta_affiliate_label');
+  placeholders.push('?');
+  values.push(payload.ctaAffiliateLabel);
+
+  columns.push('cta_stripe_url');
+  placeholders.push('?');
+  values.push(payload.ctaStripeUrl);
+
+  columns.push('cta_stripe_label');
+  placeholders.push('?');
+  values.push(payload.ctaStripeLabel);
+
+  columns.push('cta_paypal_url');
+  placeholders.push('?');
+  values.push(payload.ctaPaypalUrl);
+
+  columns.push('cta_paypal_label');
+  placeholders.push('?');
+  values.push(payload.ctaPaypalLabel);
 
   columns.push('seo_title');
   placeholders.push('?');
@@ -257,8 +376,26 @@ function buildUpdateStatement(
   assignments.push('cta_lead_url = ?');
   values.push(payload.ctaLeadUrl);
 
+  assignments.push('cta_lead_label = ?');
+  values.push(payload.ctaLeadLabel);
+
   assignments.push('cta_affiliate_url = ?');
   values.push(payload.ctaAffiliateUrl);
+
+  assignments.push('cta_affiliate_label = ?');
+  values.push(payload.ctaAffiliateLabel);
+
+  assignments.push('cta_stripe_url = ?');
+  values.push(payload.ctaStripeUrl);
+
+  assignments.push('cta_stripe_label = ?');
+  values.push(payload.ctaStripeLabel);
+
+  assignments.push('cta_paypal_url = ?');
+  values.push(payload.ctaPaypalUrl);
+
+  assignments.push('cta_paypal_label = ?');
+  values.push(payload.ctaPaypalLabel);
 
   assignments.push('seo_title = ?');
   values.push(payload.seoTitle);
@@ -434,19 +571,164 @@ function normalizeSummary(record: BlogPostListRow): BlogPostSummary {
   };
 }
 
+function decodeContentHtml(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return he.decode(trimmed);
+}
+
 function normalizeDetail(record: BlogPostRow): BlogPostDetail {
   const summary = normalizeSummary(record);
   const productSlugs = parseProductSlugs(record.product_slugs_json);
   return {
     ...summary,
-    contentHtml: record.content_html ?? null,
+    contentHtml: decodeContentHtml(record.content_html),
     coverImageUrl: record.cover_image_url ?? null,
     productSlugs,
     ctaLeadUrl: record.cta_lead_url ?? null,
+    ctaLeadLabel: record.cta_lead_label ?? null,
     ctaAffiliateUrl: record.cta_affiliate_url ?? null,
+    ctaAffiliateLabel: record.cta_affiliate_label ?? null,
+    ctaStripeUrl: record.cta_stripe_url ?? null,
+    ctaStripeLabel: record.cta_stripe_label ?? null,
+    ctaPaypalUrl: record.cta_paypal_url ?? null,
+    ctaPaypalLabel: record.cta_paypal_label ?? null,
     seoTitle: record.seo_title ?? null,
     seoDescription: record.seo_description ?? null,
     canonicalUrl: record.canonical_url ?? null
+  };
+}
+
+function calculatePayloadPublicState(payload: BlogPostWritePayload): boolean {
+  if (!payload.isPublished || !(payload.publishedAt instanceof Date)) {
+    return false;
+  }
+  const timestamp = payload.publishedAt.getTime();
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+  return timestamp <= Date.now();
+}
+
+function toBigIntId(value: number | string | bigint): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return BigInt(Math.trunc(value));
+  }
+  return BigInt(value);
+}
+
+function buildInsertedPostFallback(
+  insertId: number | string | bigint,
+  payload: BlogPostWritePayload
+): BlogPostDetail {
+  const publishedAtIso = payload.publishedAt instanceof Date ? payload.publishedAt.toISOString() : null;
+  const lastUpdatedAt = new Date().toISOString();
+  const productSlugs = Array.isArray(payload.productSlugs) ? [...payload.productSlugs] : [];
+
+  return {
+    id: toBigIntId(insertId),
+    slug: payload.slug,
+    title: payload.title,
+    shortSummary: payload.shortSummary ?? null,
+    categorySlug: payload.categorySlug ?? null,
+    isPublished: payload.isPublished,
+    publishedAt: publishedAtIso,
+    isPublic: calculatePayloadPublicState(payload),
+    lastUpdatedAt,
+    contentHtml: payload.contentHtml ?? null,
+    coverImageUrl: payload.coverImageUrl ?? null,
+    productSlugs,
+    ctaLeadUrl: payload.ctaLeadUrl ?? null,
+    ctaLeadLabel: payload.ctaLeadLabel ?? null,
+    ctaAffiliateUrl: payload.ctaAffiliateUrl ?? null,
+    ctaAffiliateLabel: payload.ctaAffiliateLabel ?? null,
+    ctaStripeUrl: payload.ctaStripeUrl ?? null,
+    ctaStripeLabel: payload.ctaStripeLabel ?? null,
+    ctaPaypalUrl: payload.ctaPaypalUrl ?? null,
+    ctaPaypalLabel: payload.ctaPaypalLabel ?? null,
+    seoTitle: payload.seoTitle ?? null,
+    seoDescription: payload.seoDescription ?? null,
+    canonicalUrl: payload.canonicalUrl ?? null
+  };
+}
+
+function stringifyId(id: bigint): string {
+  return id.toString(10);
+}
+
+export function serializeBlogPostSummary(summary: BlogPostSummary): BlogPostSummaryJson {
+  const { id, ...rest } = summary;
+  return {
+    ...rest,
+    id: stringifyId(id)
+  };
+}
+
+export function serializeBlogPostDetail(detail: BlogPostDetail): BlogPostDetailJson {
+  const { id, ...rest } = detail;
+  return {
+    ...rest,
+    id: stringifyId(id)
+  };
+}
+
+function toTrimmedString(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim();
+}
+
+function normalizeContentHtml(value: string | null): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  return he.decode(trimmed);
+}
+
+function normalizeBlogDetail(detail: BlogPostDetail): NormalizedBlogPost | null {
+  if (!detail.isPublic) {
+    return null;
+  }
+  const slug = detail.slug.trim();
+  if (!slug) {
+    return null;
+  }
+  const title = toTrimmedString(detail.title ?? detail.slug);
+  const summary = toTrimmedString(detail.shortSummary);
+  const contentHtml = normalizeContentHtml(detail.contentHtml);
+  return {
+    slug,
+    title_h1: title || slug,
+    short_summary: summary,
+    content_html: contentHtml,
+    cover_image_url: toTrimmedString(detail.coverImageUrl),
+    category_slug: detail.categorySlug ?? null,
+    product_slugs: detail.productSlugs,
+    cta_lead_url: toTrimmedString(detail.ctaLeadUrl),
+    cta_affiliate_url: toTrimmedString(detail.ctaAffiliateUrl),
+    cta_lead_label: toTrimmedString(detail.ctaLeadLabel),
+    cta_affiliate_label: toTrimmedString(detail.ctaAffiliateLabel),
+    cta_stripe_url: toTrimmedString(detail.ctaStripeUrl),
+    cta_stripe_label: toTrimmedString(detail.ctaStripeLabel),
+    cta_paypal_url: toTrimmedString(detail.ctaPaypalUrl),
+    cta_paypal_label: toTrimmedString(detail.ctaPaypalLabel),
+    seo_title: toTrimmedString(detail.seoTitle),
+    seo_description: toTrimmedString(detail.seoDescription),
+    canonical_url: toTrimmedString(detail.canonicalUrl),
+    published_at: detail.publishedAt
   };
 }
 
@@ -527,8 +809,10 @@ async function loadBlogPostBySlug(
 ): Promise<BlogPostDetail | null> {
   const categorySelect = buildCategorySelect(schema);
   const sql = `SELECT posts.id, posts.slug, posts.title_h1, posts.short_summary, posts.content_html, posts.cover_image_url,
-      ${categorySelect}, posts.product_slugs_json, posts.cta_lead_url, posts.cta_affiliate_url, posts.seo_title,
-      posts.seo_description, posts.canonical_url, posts.is_published, posts.published_at, posts.last_tidb_update_at
+      ${categorySelect}, posts.product_slugs_json, posts.cta_lead_url, posts.cta_lead_label, posts.cta_affiliate_url,
+      posts.cta_affiliate_label, posts.cta_stripe_url, posts.cta_stripe_label, posts.cta_paypal_url, posts.cta_paypal_label,
+      posts.seo_title, posts.seo_description, posts.canonical_url, posts.is_published, posts.published_at,
+      posts.last_tidb_update_at
     FROM posts
     WHERE posts.slug = ?
     LIMIT 1`;
@@ -545,6 +829,52 @@ export async function findBlogPostBySlug(slug: string): Promise<BlogPostDetail |
   const pool = getPool();
   const schema = await getBlogSchema(pool);
   return loadBlogPostBySlug(slug, schema, pool);
+}
+
+interface BlogPostLoadOptions {
+  requestId?: string;
+  skipCache?: boolean;
+}
+
+export async function getNormalizedPublishedBlogPost(
+  slug: string,
+  options: BlogPostLoadOptions = {}
+): Promise<NormalizedBlogPostResult | null> {
+  const normalizedSlug = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
+  if (!normalizedSlug) {
+    return null;
+  }
+
+  const requestId = options.requestId;
+  if (!options.skipCache) {
+    const cached = readBlogPostCache(normalizedSlug, requestId);
+    if (cached) {
+      return cached;
+    }
+  }
+
+  try {
+    const detail = await findBlogPostBySlug(normalizedSlug);
+    if (!detail) {
+      console.log(`[blog-posts][${requestId ?? 'no-request'}] slug=${normalizedSlug} missing`);
+      return null;
+    }
+
+    const normalized = normalizeBlogDetail(detail);
+    if (!normalized) {
+      console.log(`[blog-posts][${requestId ?? 'no-request'}] slug=${normalizedSlug} not_public`);
+      return null;
+    }
+
+    const result: NormalizedBlogPostResult = { raw: detail, normalized };
+    if (!options.skipCache) {
+      writeBlogPostCache(normalizedSlug, result);
+    }
+    return result;
+  } catch (error) {
+    console.error('[blog-posts] load error', toDbErrorInfo(error));
+    return null;
+  }
 }
 
 export interface BlogPostWriteResult {
@@ -574,6 +904,20 @@ function normalizeSummaryText(value: unknown, maxLength: number): string | null 
   }
   if (trimmed.length > maxLength) {
     return trimmed.slice(0, maxLength);
+  }
+  return trimmed;
+}
+
+function normalizeCtaLabel(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.length > CTA_LABEL_MAX_LENGTH) {
+    return trimmed.slice(0, CTA_LABEL_MAX_LENGTH);
   }
   return trimmed;
 }
@@ -663,8 +1007,14 @@ export function normalizeBlogWritePayload(payload: Record<string, unknown>): Blo
   const coverImageUrl = normalizeUrl(payload.cover_image_url ?? payload.coverImageUrl);
   const categorySlug = normalizeCategorySlug(payload.category_slug ?? payload.categorySlug);
   const productSlugs = parseProductSlugs(payload.product_slugs_json ?? payload.product_slugs ?? payload.productSlugs);
+  const ctaLeadLabel = normalizeCtaLabel(payload.cta_lead_label ?? payload.ctaLeadLabel);
   const ctaLeadUrl = normalizeUrl(payload.cta_lead_url ?? payload.ctaLeadUrl);
+  const ctaAffiliateLabel = normalizeCtaLabel(payload.cta_affiliate_label ?? payload.ctaAffiliateLabel);
   const ctaAffiliateUrl = normalizeUrl(payload.cta_affiliate_url ?? payload.ctaAffiliateUrl);
+  const ctaStripeLabel = normalizeCtaLabel(payload.cta_stripe_label ?? payload.ctaStripeLabel);
+  const ctaStripeUrl = normalizeUrl(payload.cta_stripe_url ?? payload.ctaStripeUrl);
+  const ctaPaypalLabel = normalizeCtaLabel(payload.cta_paypal_label ?? payload.ctaPaypalLabel);
+  const ctaPaypalUrl = normalizeUrl(payload.cta_paypal_url ?? payload.ctaPaypalUrl);
   const seoTitle = normalizeSeoField(payload.seo_title ?? payload.seoTitle, SEO_TITLE_MAX_LENGTH);
   const seoDescription = normalizeSeoField(
     payload.seo_description ?? payload.seoDescription,
@@ -686,8 +1036,14 @@ export function normalizeBlogWritePayload(payload: Record<string, unknown>): Blo
     coverImageUrl,
     categorySlug,
     productSlugs,
+    ctaLeadLabel,
     ctaLeadUrl,
+    ctaAffiliateLabel,
     ctaAffiliateUrl,
+    ctaStripeLabel,
+    ctaStripeUrl,
+    ctaPaypalLabel,
+    ctaPaypalUrl,
     seoTitle,
     seoDescription,
     canonicalUrl,
@@ -707,7 +1063,10 @@ export async function insertBlogPost(payload: BlogPostWritePayload): Promise<Blo
 
       const created = await loadBlogPostBySlug(payload.slug, schema, connection);
       if (!created) {
-        throw new Error('load_failed');
+        console.warn('[blog-posts] insert succeeded but reload failed, using payload fallback', {
+          slug: payload.slug
+        });
+        return buildInsertedPostFallback(result.insertId, payload);
       }
 
       return created;
@@ -774,4 +1133,137 @@ export async function updateBlogPost(
     }
     return { ok: false, error: { code: 'sql_error', message: info.message, info } };
   }
+}
+
+export interface SitemapBlogPostRecord {
+  id: bigint;
+  slug: string;
+  last_tidb_update_at?: string | null;
+  published_at?: string | null;
+}
+
+export interface BlogSitemapQueryOptions {
+  requestId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface BlogSitemapQueryResult {
+  records: SitemapBlogPostRecord[];
+  hasMore: boolean;
+}
+
+const DEFAULT_BLOG_SITEMAP_LIMIT = 45000;
+
+function mapRowToBlogSitemapRecord(row: any): SitemapBlogPostRecord {
+  if (row.id === null || row.id === undefined) {
+    throw new Error('Sitemap row missing id');
+  }
+  const id = typeof row.id === 'bigint' ? row.id : BigInt(row.id);
+  return {
+    id,
+    slug: String(row.slug),
+    last_tidb_update_at: row.last_tidb_update_at ?? null,
+    published_at: row.published_at ?? null
+  };
+}
+
+export async function getPublishedBlogPostsForSitemap(
+  options: BlogSitemapQueryOptions = {}
+): Promise<BlogSitemapQueryResult> {
+  const pool = getPool();
+  const requestId = options.requestId;
+  const limit =
+    typeof options.limit === 'number' && Number.isFinite(options.limit)
+      ? Math.max(1, Math.floor(options.limit))
+      : DEFAULT_BLOG_SITEMAP_LIMIT;
+  const offset =
+    typeof options.offset === 'number' && Number.isFinite(options.offset)
+      ? Math.max(0, Math.floor(options.offset))
+      : 0;
+
+  const startedAt = Date.now();
+  const sql =
+    'SELECT id, slug, last_tidb_update_at, published_at FROM posts WHERE is_published = 1 AND published_at IS NOT NULL ORDER BY slug ASC, id ASC LIMIT ? OFFSET ?';
+  const limitPlusOne = limit + 1;
+  try {
+    const [rows] = await pool.query(sql, [limitPlusOne, offset]);
+    const duration = Date.now() - startedAt;
+    const count = Array.isArray(rows) ? rows.length : 0;
+    console.log(
+      `[blog-posts][sitemap] count=${count} limit=${limit} offset=${offset} (${duration}ms)${
+        requestId ? ` [${requestId}]` : ''
+      }`
+    );
+    if (!Array.isArray(rows)) {
+      return { records: [], hasMore: false };
+    }
+    const mapped = rows.map((row: any) => mapRowToBlogSitemapRecord(row));
+    let hasMore = false;
+    let records = mapped;
+    if (mapped.length > limit) {
+      hasMore = true;
+      records = mapped.slice(0, limit);
+    }
+    return { records, hasMore };
+  } catch (error) {
+    const duration = Date.now() - startedAt;
+    console.error(
+      `[blog-posts][sitemap-error] (${duration}ms)${requestId ? ` [${requestId}]` : ''}`,
+      toDbErrorInfo(error)
+    );
+    throw error;
+  }
+}
+
+export interface BlogSitemapBatchOptions {
+  requestId?: string;
+  pageSize: number;
+}
+
+export interface BlogSitemapBatchResult {
+  batches: SitemapBlogPostRecord[][];
+  totalCount: number;
+}
+
+export async function collectPublishedBlogPostsForSitemap(
+  options: BlogSitemapBatchOptions
+): Promise<BlogSitemapBatchResult> {
+  const batches: SitemapBlogPostRecord[][] = [];
+  let totalCount = 0;
+  let offset = 0;
+  for (let pageIndex = 0; pageIndex < 10000; pageIndex++) {
+    const { records, hasMore } = await getPublishedBlogPostsForSitemap({
+      requestId: options.requestId,
+      limit: options.pageSize,
+      offset
+    });
+    if (records.length === 0) {
+      break;
+    }
+    batches.push(records);
+    totalCount += records.length;
+    if (!hasMore) {
+      break;
+    }
+    offset += records.length;
+  }
+  return { batches, totalCount };
+}
+
+export async function getPublishedBlogPostsForSitemapPage(
+  pageNumber: number,
+  pageSize: number,
+  options: { requestId?: string } = {}
+): Promise<SitemapBlogPostRecord[]> {
+  if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+    return [];
+  }
+  const offset = (pageNumber - 1) * pageSize;
+  const { records } = await getPublishedBlogPostsForSitemap({
+    requestId: options.requestId,
+    limit: pageSize,
+    offset
+  });
+  return records;
 }
