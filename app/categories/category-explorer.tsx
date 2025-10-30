@@ -229,35 +229,109 @@ export function CategoryExplorer({
     });
   }, [categories, search]);
 
-  function updateQuery(next: Record<string, string | undefined>) {
-    const params = new URLSearchParams(searchParams.toString());
-    Object.entries(next).forEach(([key, value]) => {
-      if (!value) {
-        params.delete(key);
+  const categoryCards = useMemo(() =>
+    filteredCategories.map((category) => {
+      const href =
+        category.type === 'product'
+          ? `/categories/${category.slug}`
+          : `/bc/${category.slug}`;
+
+      return (
+        <article key={category.id} className={styles.card}>
+          <div className={styles.cardImageWrapper}>
+            {category.heroImageUrl ? (
+              <Image
+                src={category.heroImageUrl}
+                alt={category.name}
+                fill
+                className={styles.cardImage}
+                sizes="(max-width: 768px) 100vw, 320px"
+              />
+            ) : null}
+          </div>
+          <div className={styles.cardBody}>
+            <span className={styles.cardBadge}>{typeToBadge(category.type)}</span>
+            <h3 className={styles.cardTitle}>{category.name}</h3>
+            {category.shortDescription ? (
+              <p className={styles.cardDescription}>{category.shortDescription}</p>
+            ) : null}
+            <div className={styles.cardFooter}>
+              <Link className={styles.cardLink} href={href} prefetch>
+                View Details
+              </Link>
+            </div>
+          </div>
+        </article>
+      );
+    }),
+  [filteredCategories]
+  );
+
+  const updateQuery = useCallback(
+    (next: Record<string, string | undefined>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      Object.entries(next).forEach(([key, value]) => {
+        if (!value) {
+          params.delete(key);
+        } else {
+          params.set(key, value);
+        }
+      });
+      const query = params.toString();
+      startTransition(() => {
+        router.push(query ? `${pathname}?${query}` : pathname);
+      });
+    },
+    [pathname, router, searchParams, startTransition]
+  );
+
+  const handleTypeChange = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      const value = event.target.value as CategoryFilterType;
+      if (value === 'all') {
+        setTreeSelection([]);
       } else {
-        params.set(key, value);
+        setTreeSelection([`group:${value}`]);
       }
-    });
-    const query = params.toString();
-    startTransition(() => {
-      router.push(query ? `${pathname}?${query}` : pathname);
-    });
-  }
+      updateQuery({ type: value === 'all' ? undefined : value, page: '1' });
+    },
+    [updateQuery]
+  );
 
-  function handleTypeChange(event: ChangeEvent<HTMLSelectElement>) {
-    const value = event.target.value as CategoryFilterType;
-    if (value === 'all') {
-      setTreeSelection([]);
-    } else {
-      setTreeSelection([`group:${value}`]);
-    }
-    updateQuery({ type: value === 'all' ? undefined : value, page: '1' });
-  }
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      if (nextPage === page) {
+        return;
+      }
+      updateQuery({ page: nextPage > 1 ? String(nextPage) : undefined });
+    },
+    [page, updateQuery]
+  );
 
-  function handlePageChange(nextPage: number) {
-    if (nextPage === page) {
-      return;
-    }
+  const paginationButtons = useMemo(
+    () =>
+      Array.from({ length: totalPages }, (_, index) => {
+        const pageNumber = index + 1;
+        const isActive = pageNumber === page;
+        const className = isActive
+          ? `${styles.pageButton} ${styles.pageButtonActive}`
+          : styles.pageButton;
+
+        return (
+          <button
+            key={pageNumber}
+            type="button"
+            className={className}
+            onClick={() => handlePageChange(pageNumber)}
+            aria-current={isActive ? 'page' : undefined}
+            disabled={isPending && isActive}
+          >
+            {pageNumber}
+          </button>
+        );
+      }),
+    [handlePageChange, isPending, page, totalPages]
+  );
 
   const renderTreeNode = useCallback(
     ({ node, style }: NodeRendererProps<PickerTreeNode>) => {
@@ -381,64 +455,14 @@ export function CategoryExplorer({
           <div className={styles.emptyState}>No categories match your search.</div>
         ) : (
           <div className={styles.grid}>
-            {filteredCategories.map((category) => {
-              const href =
-                category.type === 'product'
-                  ? `/categories/${category.slug}`
-                  : `/bc/${category.slug}`;
-              return (
-                <article key={category.id} className={styles.card}>
-                  <div className={styles.cardImageWrapper}>
-                    {category.heroImageUrl ? (
-                      <Image
-                        src={category.heroImageUrl}
-                        alt={category.name}
-                        fill
-                        className={styles.cardImage}
-                        sizes="(max-width: 768px) 100vw, 320px"
-                      />
-                    ) : null}
-                  </div>
-                  <div className={styles.cardBody}>
-                    <span className={styles.cardBadge}>{typeToBadge(category.type)}</span>
-                    <h3 className={styles.cardTitle}>{category.name}</h3>
-                    {category.shortDescription ? (
-                      <p className={styles.cardDescription}>{category.shortDescription}</p>
-                    ) : null}
-                    <div className={styles.cardFooter}>
-                      <Link className={styles.cardLink} href={href} prefetch>
-                        View Details
-                      </Link>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+            {categoryCards}
           </div>
         )}
 
         {totalPages > 1 ? (
           <nav className={styles.pagination} aria-label="Pagination">
             <div className={styles.paginationList}>
-              {Array.from({ length: totalPages }, (_, index) => {
-                const pageNumber = index + 1;
-                const isActive = pageNumber === page;
-                const className = isActive
-                  ? `${styles.pageButton} ${styles.pageButtonActive}`
-                  : styles.pageButton;
-                return (
-                  <button
-                    key={pageNumber}
-                    type="button"
-                    className={className}
-                    onClick={() => handlePageChange(pageNumber)}
-                    aria-current={isActive ? 'page' : undefined}
-                    disabled={isPending && isActive}
-                  >
-                    {pageNumber}
-                  </button>
-                );
-              })}
+              {paginationButtons}
             </div>
           </nav>
         ) : null}
