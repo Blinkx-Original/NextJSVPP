@@ -158,16 +158,14 @@ export function CategoryExplorer({
     }));
   }, [categories, categoryPickerOptions]);
 
-  const pickerOptions = useMemo(() => {
-    if (categoryPickerOptions.length > 0) {
-      return categoryPickerOptions;
-    }
-    return categories.map((category) => ({
-      type: category.type,
-      slug: category.slug,
-      name: category.name
-    }));
-  }, [categories, categoryPickerOptions]);
+  const pickerOptions =
+    categoryPickerOptions.length > 0
+      ? categoryPickerOptions
+      : categories.map((category) => ({
+          type: category.type,
+          slug: category.slug,
+          name: category.name
+        }));
 
   const treeData = useMemo(() => {
     const groups: Record<CategoryGroup, CategoryPickerOption[]> = {
@@ -224,7 +222,7 @@ export function CategoryExplorer({
       }
       return [`group:${activeType}`];
     });
-  }, [activeType]);
+  }, [activeType, setTreeSelection]);
 
   const filteredCategories = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -306,40 +304,50 @@ export function CategoryExplorer({
     [updateQuery]
   );
 
-  const handlePageChange = useCallback(
-    (nextPage: number) => {
-      if (nextPage === page) {
-        return;
-      }
-      updateQuery({ page: nextPage > 1 ? String(nextPage) : undefined });
+      return (
+        <div style={style} className={className}>
+          <span className={styles.treeLabel}>{node.data.label}</span>
+          {node.data.kind === 'category' ? (
+            <span
+              className={`${styles.treeBadge} ${
+                node.data.type === 'product' ? styles.productBadge : styles.blogBadge
+              }`}
+            >
+              {node.data.type === 'product' ? 'Products' : 'Blog'}
+            </span>
+          ) : null}
+        </div>
+      );
     },
-    [page, updateQuery]
+    []
   );
 
-  const paginationButtons = useMemo(
-    () =>
-      Array.from({ length: totalPages }, (_, index) => {
-        const pageNumber = index + 1;
-        const isActive = pageNumber === page;
-        const className = isActive
-          ? `${styles.pageButton} ${styles.pageButtonActive}`
-          : styles.pageButton;
+  function handleTreeSelect(ids: Array<string | number>) {
+    const [id] = ids;
+    if (!id || typeof id !== 'string') {
+      return;
+    }
 
-        return (
-          <button
-            key={pageNumber}
-            type="button"
-            className={className}
-            onClick={() => handlePageChange(pageNumber)}
-            aria-current={isActive ? 'page' : undefined}
-            disabled={isPending && isActive}
-          >
-            {pageNumber}
-          </button>
-        );
-      }),
-    [handlePageChange, isPending, page, totalPages]
-  );
+  const paginationButtons = Array.from({ length: totalPages }, (_, index) => {
+    const pageNumber = index + 1;
+    const isActive = pageNumber === page;
+    const className = isActive
+      ? `${styles.pageButton} ${styles.pageButtonActive}`
+      : styles.pageButton;
+
+    return (
+      <button
+        key={pageNumber}
+        type="button"
+        className={className}
+        onClick={() => handlePageChange(pageNumber)}
+        aria-current={isActive ? 'page' : undefined}
+        disabled={isPending && isActive}
+      >
+        {pageNumber}
+      </button>
+    );
+  });
 
   const renderTreeNode = useCallback(
     ({ node, style }: NodeRendererProps<PickerTreeNode>) => {
