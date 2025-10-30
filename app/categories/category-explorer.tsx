@@ -1,10 +1,17 @@
 "use client";
 
-import * as React from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type ChangeEvent
+} from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Tree as ArboristTree, type NodeRendererProps, type TreeItem } from 'react-arborist';
+import { Tree as ArboristTree, type NodeRendererProps, type TreeItem } from '@/lib/react-arborist';
 import styles from './page.module.css';
 import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
 
@@ -134,9 +141,9 @@ export function CategoryExplorer({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [search, setSearch] = React.useState('');
-  const [isPending, startTransition] = React.useTransition();
-  const [treeSelection, setTreeSelection] = React.useState<string[]>(() =>
+  const [search, setSearch] = useState('');
+  const [isPending, startTransition] = useTransition();
+  const [treeSelection, setTreeSelection] = useState<string[]>(() =>
     activeType === 'all' ? [] : [`group:${activeType}`]
   );
 
@@ -151,7 +158,7 @@ export function CategoryExplorer({
     }));
   }, [categories, categoryPickerOptions]);
 
-  const pickerOptions = React.useMemo(() => {
+  const pickerOptions = useMemo(() => {
     if (categoryPickerOptions.length > 0) {
       return categoryPickerOptions;
     }
@@ -162,7 +169,7 @@ export function CategoryExplorer({
     }));
   }, [categories, categoryPickerOptions]);
 
-  const treeData = React.useMemo(() => {
+  const treeData = useMemo(() => {
     const groups: Record<CategoryGroup, CategoryPickerOption[]> = {
       product: [],
       blog: []
@@ -207,7 +214,7 @@ export function CategoryExplorer({
     return items;
   }, [pickerOptions]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setTreeSelection((current) => {
       if (current.length > 0 && current[0]?.startsWith('category:')) {
         return current;
@@ -219,7 +226,7 @@ export function CategoryExplorer({
     });
   }, [activeType]);
 
-  const filteredCategories = React.useMemo(() => {
+  const filteredCategories = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) {
       return categories;
@@ -230,7 +237,7 @@ export function CategoryExplorer({
     });
   }, [categories, search]);
 
-  const categoryCards = React.useMemo(() =>
+  const categoryCards = useMemo(() =>
     filteredCategories.map((category) => {
       const href =
         category.type === 'product'
@@ -268,7 +275,7 @@ export function CategoryExplorer({
     [filteredCategories]
   );
 
-  const updateQuery = React.useCallback(
+  const updateQuery = useCallback(
     (next: Record<string, string | undefined>) => {
       const params = new URLSearchParams(searchParams.toString());
       Object.entries(next).forEach(([key, value]) => {
@@ -286,8 +293,8 @@ export function CategoryExplorer({
     [pathname, router, searchParams, startTransition]
   );
 
-  const handleTypeChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleTypeChange = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
       const value = event.target.value as CategoryFilterType;
       if (value === 'all') {
         setTreeSelection([]);
@@ -299,7 +306,7 @@ export function CategoryExplorer({
     [updateQuery]
   );
 
-  const handlePageChange = React.useCallback(
+  const handlePageChange = useCallback(
     (nextPage: number) => {
       if (nextPage === page) {
         return;
@@ -309,7 +316,7 @@ export function CategoryExplorer({
     [page, updateQuery]
   );
 
-  const paginationButtons = React.useMemo(
+  const paginationButtons = useMemo(
     () =>
       Array.from({ length: totalPages }, (_, index) => {
         const pageNumber = index + 1;
@@ -334,7 +341,7 @@ export function CategoryExplorer({
     [handlePageChange, isPending, page, totalPages]
   );
 
-  const renderTreeNode = React.useCallback(
+  const renderTreeNode = useCallback(
     ({ node, style }: NodeRendererProps<PickerTreeNode>) => {
       const baseClassName =
         node.data.kind === 'group'
