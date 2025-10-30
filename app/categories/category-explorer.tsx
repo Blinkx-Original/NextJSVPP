@@ -1,11 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition, type ChangeEvent } from 'react';
+import * as React from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import Link from 'next/link';
-import { useMemo, useState, useTransition } from 'react';
 import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
 import styles from './page.module.css';
 import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
@@ -133,9 +131,12 @@ export function CategoryExplorer({
   initialTotalCount,
   productsPreviewLimit
 }: CategoryExplorerProps) {
-  const [search, setSearch] = useState('');
-  const [isPending, startTransition] = useTransition();
-  const [treeSelection, setTreeSelection] = useState<string[]>(() =>
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [search, setSearch] = React.useState('');
+  const [isPending, startTransition] = React.useTransition();
+  const [treeSelection, setTreeSelection] = React.useState<string[]>(() =>
     activeType === 'all' ? [] : [`group:${activeType}`]
   );
 
@@ -150,7 +151,7 @@ export function CategoryExplorer({
     }));
   }, [categories, categoryPickerOptions]);
 
-  const pickerSource = useMemo(() => {
+  const pickerSource = React.useMemo(() => {
     if (categoryPickerOptions.length > 0) {
       return categoryPickerOptions;
     }
@@ -161,7 +162,7 @@ export function CategoryExplorer({
     }));
   }, [categories, categoryPickerOptions]);
 
-  const treeData = useMemo(() => {
+  const treeData = React.useMemo(() => {
     const groups: Record<CategoryGroup, CategoryPickerOption[]> = {
       product: [],
       blog: []
@@ -206,7 +207,7 @@ export function CategoryExplorer({
     return items;
   }, [pickerSource]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     setTreeSelection((current) => {
       if (current.length > 0 && current[0]?.startsWith('category:')) {
         return current;
@@ -218,7 +219,7 @@ export function CategoryExplorer({
     });
   }, [activeType]);
 
-  const filteredCategories = useMemo(() => {
+  const filteredCategories = React.useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) {
       return categories;
@@ -229,7 +230,7 @@ export function CategoryExplorer({
     });
   }, [categories, search]);
 
-  const categoryCards = useMemo(() =>
+  const categoryCards = React.useMemo(() =>
     filteredCategories.map((category) => {
       const href =
         category.type === 'product'
@@ -264,10 +265,10 @@ export function CategoryExplorer({
         </article>
       );
     }),
-  [filteredCategories]
+    [filteredCategories]
   );
 
-  const updateQuery = useCallback(
+  const updateQuery = React.useCallback(
     (next: Record<string, string | undefined>) => {
       const params = new URLSearchParams(searchParams.toString());
       Object.entries(next).forEach(([key, value]) => {
@@ -285,8 +286,8 @@ export function CategoryExplorer({
     [pathname, router, searchParams, startTransition]
   );
 
-  const handleTypeChange = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => {
+  const handleTypeChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
       const value = event.target.value as CategoryFilterType;
       if (value === 'all') {
         setTreeSelection([]);
@@ -298,7 +299,7 @@ export function CategoryExplorer({
     [updateQuery]
   );
 
-  const handlePageChange = useCallback(
+  const handlePageChange = React.useCallback(
     (nextPage: number) => {
       if (nextPage === page) {
         return;
@@ -308,7 +309,7 @@ export function CategoryExplorer({
     [page, updateQuery]
   );
 
-  const paginationButtons = useMemo(
+  const paginationButtons = React.useMemo(
     () =>
       Array.from({ length: totalPages }, (_, index) => {
         const pageNumber = index + 1;
@@ -333,7 +334,7 @@ export function CategoryExplorer({
     [handlePageChange, isPending, page, totalPages]
   );
 
-  const renderTreeNode = useCallback(
+  const renderTreeNode = React.useCallback(
     ({ node, style }: NodeRendererProps<PickerTreeNode>) => {
       const baseClassName =
         node.data.kind === 'group'
