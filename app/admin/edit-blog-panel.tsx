@@ -640,6 +640,7 @@ export default function EditBlogPanel({
   const [assetUploadStatus, setAssetUploadStatus] = useState<'idle' | 'image' | 'pdf'>('idle');
   const isLoadingPost = loadStatus === 'loading';
   const isSaveDisabled = saveStatus === 'loading' || assetUploadStatus !== 'idle';
+  const previewSlug = slugInput || 'nuevo-post';
 
   const handleEditorImageUpload = useCallback(
     async (file: File) => {
