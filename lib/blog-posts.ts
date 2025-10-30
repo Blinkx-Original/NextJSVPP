@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { getPool, toDbErrorInfo } from './db';
 import { getBlogCategoryColumn, type BlogCategoryColumn } from './categories';
+import { sanitizeProductHtml } from './sanitize-html';
 
 const BLOG_POST_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SLUG_MAX_LENGTH = 160;
@@ -267,7 +268,7 @@ function buildInsertStatement(schema: BlogSchema, payload: BlogPostWritePayload)
     payload.slug,
     payload.title,
     payload.shortSummary,
-    payload.contentHtml,
+    payload.contentHtml ?? null,
     payload.coverImageUrl
   ];
 
@@ -361,7 +362,7 @@ function buildUpdateStatement(
     payload.slug,
     payload.title,
     payload.shortSummary,
-    payload.contentHtml,
+    payload.contentHtml ?? null,
     payload.coverImageUrl
   ];
 
@@ -575,7 +576,8 @@ function decodeContentHtml(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
   }
-  const trimmed = value.trim();
+  const sanitized = sanitizeProductHtml(value);
+  const trimmed = sanitized.trim();
   if (!trimmed) {
     return null;
   }
@@ -691,7 +693,8 @@ function normalizeContentHtml(value: string | null): string {
   if (typeof value !== 'string') {
     return '';
   }
-  const trimmed = value.trim();
+  const sanitized = sanitizeProductHtml(value);
+  const trimmed = sanitized.trim();
   if (!trimmed) {
     return '';
   }
@@ -1003,7 +1006,15 @@ export function normalizeBlogWritePayload(payload: Record<string, unknown>): Blo
   const slug = normalizeBlogSlug(payload.slug);
   const title = normalizeBlogTitle(payload.title_h1 ?? payload.title);
   const shortSummary = normalizeSummaryText(payload.short_summary ?? payload.shortSummary, SUMMARY_MAX_LENGTH);
-  const contentHtml = typeof payload.content_html === 'string' ? payload.content_html : typeof payload.contentHtml === 'string' ? payload.contentHtml : null;
+  const contentHtmlInput =
+    typeof payload.content_html === 'string'
+      ? payload.content_html
+      : typeof payload.contentHtml === 'string'
+        ? payload.contentHtml
+        : null;
+  const sanitizedContentHtml =
+    typeof contentHtmlInput === 'string' ? sanitizeProductHtml(contentHtmlInput) : '';
+  const contentHtml = sanitizedContentHtml.trim() ? sanitizedContentHtml : null;
   const coverImageUrl = normalizeUrl(payload.cover_image_url ?? payload.coverImageUrl);
   const categorySlug = normalizeCategorySlug(payload.category_slug ?? payload.categorySlug);
   const productSlugs = parseProductSlugs(payload.product_slugs_json ?? payload.product_slugs ?? payload.productSlugs);

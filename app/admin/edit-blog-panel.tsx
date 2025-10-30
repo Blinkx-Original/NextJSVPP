@@ -13,6 +13,7 @@ import TinyMceEditor, { type TinyMceEditorHandle } from './tinymce-editor';
 import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle, textareaStyle } from './panel-styles';
 import { createAdminApiClient } from './admin-api-client';
 import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
+import { sanitizeProductHtml } from '@/lib/sanitize-html';
 
 const labelStyle: React.CSSProperties = {
   fontSize: '0.85rem',
@@ -611,11 +612,21 @@ export default function EditBlogPanel({
         effectivePublishedAt = new Date().toISOString();
       }
 
+      let latestContent = editorRef.current?.getContent();
+      if (typeof latestContent !== 'string') {
+        latestContent = contentHtml;
+      }
+      const sanitizedContent = sanitizeProductHtml(latestContent || '');
+      const normalizedContentHtml = sanitizedContent.trim() ? sanitizedContent : '';
+      if (normalizedContentHtml !== contentHtml) {
+        setContentHtml(normalizedContentHtml);
+      }
+
       const payload = {
         slug: normalizedSlug,
         title_h1: title.trim(),
         short_summary: trimmedSummary,
-        content_html: contentHtml,
+        content_html: normalizedContentHtml,
         cover_image_url: trimmedCoverUrl,
         category_slug: categorySlug.trim() || null,
         product_slugs: parseProductSlugsInput(productSlugsInput),
