@@ -1,36 +1,65 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import Image from "next/image";
 import { headers } from "next/headers";
-import styles from "./page.module.css";
-import { CategoryExplorer, type CategoryCard, type CategoryFilterType } from "./category-explorer";
+// Importing notFound is unnecessary on this page because we do not
+// explicitly throw 404 errors in the categories hub.  Unknown
+// categories simply result in an empty state.
+import styles from "./catalog.module.css";
+import CategorySelect from "./CategorySelect";
 import {
   getPublishedCategories,
-  getPublishedCategoryPickerOptions,
-  type CategorySummary
+  getPublishedCategoryBySlug,
+  getPublishedProductsForCategory,
+  type CategorySummary,
+  type CategoryProductSummary
 } from "@/lib/categories";
 import { createRequestId } from "@/lib/request-id";
 import { buildCategoriesHubUrl } from "@/lib/urls";
 
-export const runtime = "nodejs";
-// Revalidate the categories hub periodically to refresh the list of
-// published categories.  A relatively short interval keeps the hub up to
-// date without forcing a rebuild on every request.
-export const revalidate = 600;
+// The number of products to display per page when viewing a selected
+// category.  This matches the PAGE_SIZE used by the category detail
+// pages to keep pagination consistent.
+const PAGE_SIZE = 10;
 
-// The number of categories to display per page.  Adjust this value to
-// control the length of each page; it should match the page size used
-// when fetching categories from the database.
-const PAGE_SIZE = 24;
+// Metadata for the categories landing page.  This page allows users
+// to select a category and browse its products.  The canonical URL
+// points to the root of the categories hub without any query
+// parameters.
+export async function generateMetadata(): Promise<Metadata> {
+  const host = headers().get("host") ?? undefined;
+  const canonical = buildCategoriesHubUrl(host);
+  const title = "Browse Product Categories | BlinkX Virtual Product Pages";
+  const description =
+    "Explore published product categories, select a category from the menu, and browse the curated products within.";
+  return {
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      title,
+      description,
+      url: canonical
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description
+    }
+  };
+}
 
-const PAGE_TITLE = "Browse Categories | BlinkX Virtual Product Pages";
-const PAGE_DESCRIPTION =
-  "Explore published product and blog categories, discover curated products, and jump directly into the BlinkX catalog.";
+interface PageProps {
+  searchParams?: { [key: string]: string | string[] | undefined };
+}
 
 /**
- * Resolve a query string value that might be provided as an array or a
- * string.  Next.js serialises duplicate query parameters into an array
- * which we normalise here by taking the first element.
+ * Resolve a query string value that may be supplied as an array or a
+ * string.  Next.js serialises duplicate parameters into arrays; we
+ * normalise by taking the first value.  Missing or empty values
+ * return undefined.
  */
-function resolveSearchParam(value: string | string[] | undefined): string | undefined {
+function resolveParam(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) {
     return value[0];
   }
@@ -53,111 +82,191 @@ function parsePage(value: string | undefined): number {
 }
 
 /**
- * Parse the type filter from the query string.  Only the strings
- * "product" and "blog" are considered valid; any other value falls
- * back to "all".
+ * Convert a CategoryProductSummary into a shape suitable for
+ * rendering.  The id is stringified for use as a React key; the
+ * primary image is extracted from the array of images returned by the
+ * database.
  */
-function parseType(value: string | undefined): CategoryFilterType {
-  if (!value) {
-    return "all";
+function toProductCards(products: CategoryProductSummary[]) {
+  return products.map((product) => ({
+    id: product.id.toString(),
+    slug: product.slug,
+    title: product.title,
+    shortSummary: product.shortSummary,
+    price: product.price,
+    primaryImage: product.primaryImage
+  }));
+}
+
+/**
+ * Build a URL for navigating to a page of products for the selected
+ * category.  The slug is included as the `category` query
+ * parameter.  Only the `page` parameter is added when greater than 1.
+ */
+function buildPageHref(slug: string, page: number): string {
+  const params = new URLSearchParams();
+  params.set("category", slug);
+  if (page > 1) {
+    params.set("page", String(page));
   }
-  const lower = value.trim().toLowerCase();
-  if (lower === "product" || lower === "blog") {
-    return lower as CategoryFilterType;
-  }
-  return "all";
+  const query = params.toString();
+  return query ? `/categories?${query}` : "/categories";
 }
 
 /**
- * Convert a CategorySummary (returned from the database) into a
- * CategoryCard consumed by the CategoryExplorer client component.
- */
-function toCategoryCard(summary: CategorySummary): CategoryCard {
-  return {
-    id: summary.id.toString(),
-    type: summary.type === "blog" ? "blog" : "product",
-    slug: summary.slug,
-    name: summary.name,
-    shortDescription: summary.shortDescription,
-    heroImageUrl: summary.heroImageUrl
-  };
-}
-
-/**
- * Generate metadata for the categories hub.  The canonical URL is built
- * from the request host and points to the root of the categories hub.
- */
-export async function generateMetadata(): Promise<Metadata> {
-  const host = headers().get("host") ?? undefined;
-  const canonical = buildCategoriesHubUrl(host);
-  return {
-    title: PAGE_TITLE,
-    description: PAGE_DESCRIPTION,
-    alternates: { canonical },
-    openGraph: {
-      title: PAGE_TITLE,
-      description: PAGE_DESCRIPTION,
-      url: canonical
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: PAGE_TITLE,
-      description: PAGE_DESCRIPTION
-    }
-  };
-}
-
-interface PageProps {
-  searchParams?: { [key: string]: string | string[] | undefined };
-}
-
-/**
- * The main page of the categories hub.  It reads the current query
- * parameters, fetches the appropriate slice of categories and their total
- * count from the database, and passes them to the client component for
- * rendering.  This function runs on the server and is revalidated based
- * on the `revalidate` export above.
+ * The main categories page.  This server component fetches a list of
+ * published product categories to populate the drop‑down and, if a
+ * specific category is selected via the `category` query parameter,
+ * fetches the products for that category.  Pagination is supported
+ * through a `page` parameter.
  */
 export default async function CategoriesPage({ searchParams }: PageProps) {
   const requestId = createRequestId();
-  const pageParam = parsePage(resolveSearchParam(searchParams?.page));
-  const activeType = parseType(resolveSearchParam(searchParams?.type));
-  const offset = (pageParam - 1) * PAGE_SIZE;
+  // Extract the selected category slug and page number from the
+  // query string.  Missing values default to undefined for slug and
+  // 1 for page.
+  const slugParam = resolveParam(searchParams?.category);
+  const pageParam = parsePage(resolveParam(searchParams?.page));
 
-  // Fetch the current page of categories and total count from the
-  // database.  When the active type is "all" we do not include a type
-  // filter.  Otherwise we request only the selected type.
-  const { categories, totalCount } = await getPublishedCategories({
-    type: activeType === "all" ? undefined : activeType,
-    limit: PAGE_SIZE,
-    offset,
+  // Fetch all published product categories.  We request a large
+  // limit to ensure the selector includes every category; if there are
+  // more than 1000 categories this limit may need adjusting.
+  const { categories: categorySummaries } = await getPublishedCategories({
+    type: "product",
+    limit: 1000,
+    offset: 0,
     requestId
   });
+  // Convert to the simple objects expected by the CategorySelect
+  // component.  We intentionally omit category types here because
+  // only product categories are included.
+  const selectOptions = categorySummaries.map((c) => ({ slug: c.slug, name: c.name }));
 
-  // Convert the summaries into the shape expected by the client
-  // component.  Always create a new array to avoid mutating the source.
-  const cards: CategoryCard[] = categories.map(toCategoryCard);
+  // Resolve the selected category.  If a slug is provided but does
+  // not correspond to a published category we treat it as unknown.
+  let selectedCategory: CategorySummary | null = null;
+  if (slugParam) {
+    selectedCategory = await getPublishedCategoryBySlug(slugParam, { requestId });
+  }
+  let products: CategoryProductSummary[] = [];
+  let totalCount = 0;
+  let totalPages = 0;
+  let currentPage = pageParam;
+  if (selectedCategory) {
+    // Determine the offset based on the current page.  Page numbers are
+    // 1‑indexed so subtract 1 when computing the offset.
+    const offset = (pageParam - 1) * PAGE_SIZE;
+    const result = await getPublishedProductsForCategory(
+      { id: selectedCategory.id, slug: selectedCategory.slug, name: selectedCategory.name },
+      {
+        limit: PAGE_SIZE,
+        offset,
+        requestId
+      }
+    );
+    products = result.products;
+    totalCount = result.totalCount;
+    totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    // If the requested page exceeds the total pages but there are
+    // products, adjust to the last page and re‑fetch the products for
+    // that page.  This ensures deep links remain valid when items
+    // are removed from a category.
+    if (pageParam > totalPages && totalCount > 0) {
+      currentPage = totalPages;
+      const lastOffset = (totalPages - 1) * PAGE_SIZE;
+      const lastResult = await getPublishedProductsForCategory(
+        { id: selectedCategory.id, slug: selectedCategory.slug, name: selectedCategory.name },
+        {
+          limit: PAGE_SIZE,
+          offset: lastOffset,
+          requestId
+        }
+      );
+      products = lastResult.products;
+    }
+  }
 
-  // Fetch the full list of picker options once.  Even when filtering by
-  // type we still fetch all options so that the tree can show both
-  // product and blog groups when available.  This avoids confusing the
-  // user when switching filters.
-  const pickerOptions = await getPublishedCategoryPickerOptions({ requestId });
+  const cards = toProductCards(products);
+  const paginationPages = Array.from({ length: totalPages }, (_, index) => index + 1);
 
   return (
     <main className={styles.page}>
-      <section className={styles.hero}>
-        <h1 className={styles.heroTitle}>Discover Categories</h1>
-        <p className={styles.heroSubtitle}>{PAGE_DESCRIPTION}</p>
-      </section>
-      <CategoryExplorer
-        categories={cards}
-        totalCount={totalCount}
-        page={pageParam}
-        pageSize={PAGE_SIZE}
-        activeType={activeType}
-        categoryPickerOptions={pickerOptions}
-      />
+      {/* Top controls: category selector */}
+      <div className={styles.controls}>
+        <CategorySelect categories={selectOptions} selectedSlug={slugParam ?? undefined} />
+      </div>
+      {/* Display hero information for the selected category, if any */}
+      {selectedCategory ? (
+        <section className={styles.hero}>
+          <h1 className={styles.heroTitle}>{selectedCategory.name}</h1>
+          {selectedCategory.shortDescription ? (
+            <p className={styles.heroDescription}>{selectedCategory.shortDescription}</p>
+          ) : null}
+        </section>
+      ) : null}
+      {/* Render the product cards or an empty state if no products are found */}
+      {selectedCategory ? (
+        cards.length === 0 ? (
+          <div className={styles.emptyState}>No products found in this category.</div>
+        ) : (
+          <div className={styles.grid}>
+            {cards.map((product) => (
+              <article key={product.id} className={styles.card}>
+                <div className={styles.cardImageWrapper}>
+                  {product.primaryImage ? (
+                    <Image
+                      src={product.primaryImage}
+                      alt={product.title}
+                      fill
+                      className={styles.cardImage}
+                      sizes="(max-width: 768px) 100vw, 320px"
+                    />
+                  ) : null}
+                </div>
+                <div className={styles.cardBody}>
+                  <h3 className={styles.cardTitle}>{product.title}</h3>
+                  {product.shortSummary ? (
+                    <p className={styles.cardSummary}>{product.shortSummary}</p>
+                  ) : null}
+                  {product.price ? <div className={styles.cardPrice}>{product.price}</div> : null}
+                  <div className={styles.cardFooter}>
+                    <Link className={styles.cardLink} href={`/p/${product.slug}`} prefetch>
+                      View Details
+                    </Link>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )
+      ) : (
+        <div className={styles.emptyState}>Select a category to view products.</div>
+      )}
+      {/* Render pagination controls if there are multiple pages */}
+      {selectedCategory && totalPages > 1 ? (
+        <nav className={styles.pagination} aria-label="Pagination">
+          <div className={styles.paginationList}>
+            {paginationPages.map((pageNumber) => {
+              const href = buildPageHref(selectedCategory!.slug, pageNumber);
+              const isActive = pageNumber === currentPage;
+              const className = isActive
+                ? `${styles.pageLink} ${styles.pageLinkActive}`
+                : styles.pageLink;
+              return (
+                <Link
+                  key={pageNumber}
+                  className={className}
+                  href={href}
+                  aria-current={isActive ? "page" : undefined}
+                  prefetch
+                >
+                  {pageNumber}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      ) : null}
     </main>
   );
 }
