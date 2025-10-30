@@ -591,27 +591,47 @@ export default function EditBlogPanel({
       setSaveSuccess(null);
       setToast(null);
 
+      const publishForPreview = Boolean(options?.openPublicView);
+      const trimmedCanonicalUrl = canonicalUrl.trim() || null;
+      const trimmedCoverUrl = coverImageUrl.trim() || null;
+      const trimmedSummary = summary.trim() || null;
+      const trimmedSeoTitle = seoTitle.trim() || null;
+      const trimmedSeoDescription = seoDescription.trim() || null;
+      const trimmedLeadLabel = ctaLeadLabel.trim() || null;
+      const trimmedLeadUrl = ctaLeadUrl.trim() || null;
+      const trimmedAffiliateLabel = ctaAffiliateLabel.trim() || null;
+      const trimmedAffiliateUrl = ctaAffiliateUrl.trim() || null;
+      const trimmedStripeLabel = ctaStripeLabel.trim() || null;
+      const trimmedStripeUrl = ctaStripeUrl.trim() || null;
+      const trimmedPaypalLabel = ctaPaypalLabel.trim() || null;
+      const trimmedPaypalUrl = ctaPaypalUrl.trim() || null;
+      const effectiveIsPublished = publishForPreview ? true : isPublished;
+      let effectivePublishedAt = fromDatetimeLocalInput(publishedAtInput);
+      if (publishForPreview && !effectivePublishedAt) {
+        effectivePublishedAt = new Date().toISOString();
+      }
+
       const payload = {
         slug: normalizedSlug,
         title_h1: title.trim(),
-        short_summary: summary.trim() || null,
+        short_summary: trimmedSummary,
         content_html: contentHtml,
-        cover_image_url: coverImageUrl.trim() || null,
+        cover_image_url: trimmedCoverUrl,
         category_slug: categorySlug.trim() || null,
         product_slugs: parseProductSlugsInput(productSlugsInput),
-        cta_lead_label: ctaLeadLabel.trim() || null,
-        cta_lead_url: ctaLeadUrl.trim() || null,
-        cta_affiliate_label: ctaAffiliateLabel.trim() || null,
-        cta_affiliate_url: ctaAffiliateUrl.trim() || null,
-        cta_stripe_label: ctaStripeLabel.trim() || null,
-        cta_stripe_url: ctaStripeUrl.trim() || null,
-        cta_paypal_label: ctaPaypalLabel.trim() || null,
-        cta_paypal_url: ctaPaypalUrl.trim() || null,
-        seo_title: seoTitle.trim() || null,
-        seo_description: seoDescription.trim() || null,
-        canonical_url: canonicalUrl.trim() || null,
-        is_published: isPublished,
-        published_at: fromDatetimeLocalInput(publishedAtInput)
+        cta_lead_label: trimmedLeadLabel,
+        cta_lead_url: trimmedLeadUrl,
+        cta_affiliate_label: trimmedAffiliateLabel,
+        cta_affiliate_url: trimmedAffiliateUrl,
+        cta_stripe_label: trimmedStripeLabel,
+        cta_stripe_url: trimmedStripeUrl,
+        cta_paypal_label: trimmedPaypalLabel,
+        cta_paypal_url: trimmedPaypalUrl,
+        seo_title: trimmedSeoTitle,
+        seo_description: trimmedSeoDescription,
+        canonical_url: trimmedCanonicalUrl,
+        is_published: effectiveIsPublished,
+        published_at: effectivePublishedAt
       };
 
       const controller = new AbortController();
@@ -642,7 +662,7 @@ export default function EditBlogPanel({
         setSaveSuccess(successMessage);
         setToast({ type: 'success', message: successMessage });
         if (options?.openPublicView) {
-          const viewUrl = `/b/${data.post.slug}`;
+          const viewUrl = `/b/${data.post.slug}?v=${Date.now()}`;
           window.open(viewUrl, '_blank', 'noopener');
         }
       } catch (error) {
