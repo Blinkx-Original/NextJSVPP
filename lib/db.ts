@@ -1,6 +1,5 @@
 import mysql from 'mysql2/promise';
-import type { AppEnv } from './env';
-import { assertEnv } from './env';
+import { assertEnv, type AppEnv } from './env';
 
 const env = () => assertEnv();
 
