@@ -1,256 +1,386 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
-  padding: 2rem 1.5rem 3rem;
-  max-width: 1100px;
-  margin: 0 auto;
+  gap: 3rem;
+  padding: 4rem 1.5rem 5rem;
+  background: #f8fafc;
+  min-height: 100vh;
 }
 
 .hero {
+  text-align: center;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  text-align: center;
 }
 
 .heroTitle {
-  font-size: 2.5rem;
+  font-size: clamp(2.25rem, 4vw, 3rem);
   font-weight: 700;
   color: #0f172a;
 }
 
 .heroSubtitle {
-  font-size: 1.125rem;
+  font-size: 1.05rem;
   color: #475569;
-  max-width: 48rem;
+  max-width: 720px;
   margin: 0 auto;
 }
 
-.controls {
+.explorer {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr);
+  gap: 2.5rem;
+  width: min(1200px, 100%);
+  margin: 0 auto;
+}
+
+.sidebar {
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  padding: 1.75rem 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  align-items: stretch;
+  gap: 1.5rem;
+  box-shadow: 0 24px 40px -32px rgba(15, 23, 42, 0.2);
 }
 
-@media (min-width: 768px) {
-  .controls {
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-  }
-}
-
-.filterGroup {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.searchGroup {
+.sidebarHeader {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  align-items: stretch;
-  width: 100%;
 }
 
-@media (min-width: 768px) {
-  .searchGroup {
-    flex-direction: row;
-    justify-content: flex-end;
-    align-items: center;
-  }
-}
-
-.filterLabel {
-  font-size: 0.95rem;
-  color: #1f2937;
+.sidebarTitle {
+  font-size: 1.25rem;
   font-weight: 600;
-}
-
-.select {
-  appearance: none;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  padding: 0.65rem 2.5rem 0.65rem 0.85rem;
-  font-size: 0.95rem;
-  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
   color: #0f172a;
-  min-width: 10rem;
-  position: relative;
 }
 
-.categorySelect {
-  min-width: 14rem;
+.sidebarSubtitle {
+  font-size: 0.95rem;
+  color: #475569;
 }
 
 .searchInput {
-  width: 100%;
-  max-width: 22rem;
   padding: 0.65rem 0.85rem;
-  border-radius: 0.5rem;
-  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  border: 1px solid #cbd5f5;
   font-size: 0.95rem;
-  transition: border-color 0.2s ease;
+  color: #0f172a;
+  background: #f8fafc;
 }
 
 .searchInput:focus {
-  border-color: #2563eb;
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1.5rem;
-}
-
-@media (min-width: 640px) {
-  .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1024px) {
-  .grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-.card {
-  background: #ffffff;
-  border-radius: 1rem;
-  box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
-}
-
-.cardImageWrapper {
-  position: relative;
-  padding-top: 60%;
-  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
-  overflow: hidden;
-}
-
-.cardImage {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.cardBody {
-  display: flex;
-  flex-direction: column;
-  padding: 1.25rem;
-  gap: 0.75rem;
+.treeWrapper {
   flex: 1;
+  overflow: auto;
+  padding-right: 0.25rem;
 }
 
-.cardBadge {
-  align-self: flex-start;
-  background: rgba(37, 99, 235, 0.1);
+.emptyTreeState {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.treeGroup {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2563eb;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.treeNode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  color: #1e293b;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.treeNode:hover {
+  background: #e2e8f0;
+}
+
+.treeNodeSelected {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.treeNodeSelected .treeNodeMeta {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.treeNodeName {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.treeNodeMeta {
+  font-size: 0.8rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.detailsPanel {
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  padding: 2rem;
+  min-height: 520px;
+  box-shadow: 0 24px 40px -32px rgba(15, 23, 42, 0.18);
+  display: flex;
+  align-items: stretch;
+}
+
+.detailsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  width: 100%;
+}
+
+.detailsHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.categoryTypeBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: #e0e7ff;
   color: #1d4ed8;
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 0.35rem 0.65rem;
-  border-radius: 999px;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.08em;
 }
 
-.cardTitle {
-  font-size: 1.15rem;
+.categoryName {
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.categoryDescription {
+  font-size: 1rem;
+  color: #475569;
+  max-width: 680px;
+}
+
+.detailsActions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1.1rem;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: background 0.15s ease;
+}
+
+.primaryButton:hover {
+  background: #1d4ed8;
+}
+
+.heroImageWrapper {
+  position: relative;
+  width: 100%;
+  padding-bottom: 45%;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #e2e8f0;
+}
+
+.heroImage {
+  object-fit: cover;
+}
+
+.productsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.productsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+.productsHeader h3 {
+  font-size: 1.2rem;
   font-weight: 600;
   color: #0f172a;
 }
 
-.cardDescription {
-  font-size: 0.95rem;
+.loadingState,
+.errorState,
+.emptyProductsState,
+.blogCategoryNote,
+.placeholderState {
+  border-radius: 14px;
+  border: 1px dashed #cbd5f5;
+  background: #f8fafc;
+  padding: 1.75rem;
+  text-align: center;
   color: #475569;
-  line-height: 1.45;
 }
 
-.cardFooter {
-  margin-top: auto;
+.errorState {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
-.cardLink {
-  display: inline-flex;
+.productsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.25rem;
+}
+
+.productCard {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.productImageWrapper {
+  position: relative;
+  width: 100%;
+  padding-bottom: 65%;
+  background: #e2e8f0;
+}
+
+.productImage {
+  object-fit: cover;
+}
+
+.productImagePlaceholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0.6rem;
-  padding: 0.65rem 1.1rem;
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
-  color: #ffffff;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.productBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem 1.2rem;
+}
+
+.productTitle {
+  font-size: 1rem;
   font-weight: 600;
-  text-decoration: none;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  color: #0f172a;
 }
 
-.cardLink:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
-}
-
-.resultsMeta {
+.productSummary {
   font-size: 0.9rem;
   color: #475569;
 }
 
-.pagination {
+.productFooter {
+  margin-top: auto;
   display: flex;
-  justify-content: center;
-  margin-top: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
-.paginationList {
-  display: inline-flex;
-  gap: 0.35rem;
-  padding: 0.5rem;
-  background: rgba(15, 23, 42, 0.04);
-  border-radius: 999px;
-}
-
-.pageButton {
-  min-width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 999px;
-  border: none;
-  background: transparent;
-  color: #1f2937;
+.productPrice {
   font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  color: #0f172a;
 }
 
-.pageButtonActive {
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
+.secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.8rem;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #cbd5f5;
+  color: #1d4ed8;
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.secondaryButton:hover {
+  background: #1d4ed8;
   color: #ffffff;
 }
 
-.pageButton:hover {
-  background: rgba(37, 99, 235, 0.12);
+.blogCategoryNote {
+  border-style: solid;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
 }
 
-.emptyState {
-  text-align: center;
-  padding: 2rem 1rem;
-  border-radius: 1rem;
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0));
-  color: #1d4ed8;
-  font-weight: 500;
+.placeholderState {
+  align-self: center;
+  max-width: 420px;
+}
+
+@media (max-width: 1024px) {
+  .explorer {
+    grid-template-columns: 1fr;
+  }
+
+  .detailsPanel {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 3rem 1rem 4rem;
+  }
+
+  .sidebar {
+    padding: 1.5rem 1.25rem;
+  }
+
+  .detailsPanel {
+    padding: 1.5rem;
+  }
 }
