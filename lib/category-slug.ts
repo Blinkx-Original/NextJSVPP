@@ -43,3 +43,11 @@ export function ensureCategorySlug(value: unknown): string {
   }
   return normalized;
 }
+
+export function formatCategorySlugDisplay(slug: string): string {
+  return slug
+    .split('-')
+    .filter((part) => part.trim().length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}

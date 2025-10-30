@@ -1,5 +1,4 @@
-import { useMemo } from 'react';
-import type { CSSProperties, MouseEvent, ReactNode } from 'react';
+import { useMemo, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 
 type IdType = string | number;
 
