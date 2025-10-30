@@ -1,0 +1,220 @@
+/*
+ * Styles for the categories hub page with product listings.  The
+ * layout is flexible and responsive: a simple column on small
+ * screens and a multi‑column grid for the products on larger
+ * screens.  The category select drop‑down sits at the top of the
+ * page.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  padding: 2rem 1.5rem 3rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* Controls row containing the category selector.  On small
+   screens the controls stack; on wider screens they align side
+   by side. */
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+@media (min-width: 640px) {
+  .controls {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+/* Styling for the drop‑down.  Use a neutral background with
+   rounded corners and subtle border. */
+.categorySelect {
+  padding: 0.6rem 1rem;
+  font-size: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid #d1d5db;
+  color: #0f172a;
+  background-color: #ffffff;
+  min-width: 220px;
+  appearance: none;
+  background-image: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="%2363748b"%3E%3Cpath fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd"/%3E%3C/svg%3E');
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem 1rem;
+  /* Ensure the native select dropdown appears above overlapping elements */
+  position: relative;
+  z-index: 10;
+}
+
+/* Optional: add a subtle hover state for the selector */
+.categorySelect:hover {
+  border-color: #cbd5e1;
+}
+
+/* Hero section for the selected category name and description. */
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.heroTitle {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.heroDescription {
+  font-size: 1rem;
+  color: #475569;
+  max-width: 42rem;
+  margin: 0 auto;
+}
+
+/* Grid layout for product cards. */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Individual product card styling. */
+.card {
+  background: #ffffff;
+  border-radius: 1rem;
+  box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
+}
+
+.cardImageWrapper {
+  position: relative;
+  padding-top: 56%;
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  overflow: hidden;
+}
+
+.cardImage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem;
+  gap: 0.65rem;
+  flex: 1;
+}
+
+.cardTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.cardSummary {
+  font-size: 0.95rem;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.cardPrice {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.cardFooter {
+  margin-top: auto;
+}
+
+.cardLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  padding: 0.6rem 1.2rem;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  color: #ffffff;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cardLink:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
+}
+
+/* Pagination controls.  The list container uses flex layout to
+   center the page links. */
+.pagination {
+  display: flex;
+  justify-content: center;
+}
+
+.paginationList {
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  background: rgba(15, 23, 42, 0.04);
+  border-radius: 999px;
+}
+
+.pageLink {
+  min-width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  text-decoration: none;
+  color: #1f2937;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.pageLinkActive {
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  color: #ffffff;
+}
+
+.pageLink:hover {
+  background: rgba(37, 99, 235, 0.12);
+}
+
+/* Empty state message when no products are found or no category is selected. */
+.emptyState {
+  text-align: center;
+  padding: 2rem 1rem;
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0));
+  color: #1d4ed8;
+  font-weight: 500;
+}
