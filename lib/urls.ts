@@ -14,6 +14,10 @@ export function buildProductUrl(slug: string, headersHost?: string): string {
   return `${getSiteUrl(headersHost)}/p/${slug}`;
 }
 
+export function buildBlogPostUrl(slug: string, headersHost?: string): string {
+  return `${getSiteUrl(headersHost)}/b/${slug}`;
+}
+
 export function buildProductCategoryUrl(slug: string, headersHost?: string): string {
   return `${getSiteUrl(headersHost)}/c/${slug}`;
 }
