@@ -584,6 +584,62 @@ function normalizeDetail(record: BlogPostRow): BlogPostDetail {
   };
 }
 
+function calculatePayloadPublicState(payload: BlogPostWritePayload): boolean {
+  if (!payload.isPublished || !(payload.publishedAt instanceof Date)) {
+    return false;
+  }
+  const timestamp = payload.publishedAt.getTime();
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+  return timestamp <= Date.now();
+}
+
+function toBigIntId(value: number | string | bigint): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return BigInt(Math.trunc(value));
+  }
+  return BigInt(value);
+}
+
+function buildInsertedPostFallback(
+  insertId: number | string | bigint,
+  payload: BlogPostWritePayload
+): BlogPostDetail {
+  const publishedAtIso = payload.publishedAt instanceof Date ? payload.publishedAt.toISOString() : null;
+  const lastUpdatedAt = new Date().toISOString();
+  const productSlugs = Array.isArray(payload.productSlugs) ? [...payload.productSlugs] : [];
+
+  return {
+    id: toBigIntId(insertId),
+    slug: payload.slug,
+    title: payload.title,
+    shortSummary: payload.shortSummary ?? null,
+    categorySlug: payload.categorySlug ?? null,
+    isPublished: payload.isPublished,
+    publishedAt: publishedAtIso,
+    isPublic: calculatePayloadPublicState(payload),
+    lastUpdatedAt,
+    contentHtml: payload.contentHtml ?? null,
+    coverImageUrl: payload.coverImageUrl ?? null,
+    productSlugs,
+    ctaLeadUrl: payload.ctaLeadUrl ?? null,
+    ctaLeadLabel: payload.ctaLeadLabel ?? null,
+    ctaAffiliateUrl: payload.ctaAffiliateUrl ?? null,
+    ctaAffiliateLabel: payload.ctaAffiliateLabel ?? null,
+    ctaStripeUrl: payload.ctaStripeUrl ?? null,
+    ctaStripeLabel: payload.ctaStripeLabel ?? null,
+    ctaPaypalUrl: payload.ctaPaypalUrl ?? null,
+    ctaPaypalLabel: payload.ctaPaypalLabel ?? null,
+    seoTitle: payload.seoTitle ?? null,
+    seoDescription: payload.seoDescription ?? null,
+    canonicalUrl: payload.canonicalUrl ?? null
+  };
+}
+
 function toTrimmedString(value: unknown): string {
   if (typeof value !== 'string') {
     return '';
@@ -963,7 +1019,10 @@ export async function insertBlogPost(payload: BlogPostWritePayload): Promise<Blo
 
       const created = await loadBlogPostBySlug(payload.slug, schema, connection);
       if (!created) {
-        throw new Error('load_failed');
+        console.warn('[blog-posts] insert succeeded but reload failed, using payload fallback', {
+          slug: payload.slug
+        });
+        return buildInsertedPostFallback(result.insertId, payload);
       }
 
       return created;
