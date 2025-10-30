@@ -19,55 +19,59 @@ import {
 } from "@/lib/react-arborist";
 import styles from "./page.module.css";
 
+// The category page allows users to browse all published categories.  It
+// supports filtering by category type (product vs blog), searching by name
+// and description, jumping to a specific category via the tree in the left
+// panel, and paginating through the results.  This component is a
+// self‑contained client component that receives the list of categories and
+// associated metadata from the server.  It does not fetch any data on its
+// own – instead it pushes query string changes to the router which cause
+// Next.js to revalidate the page on the server.
+
 export type CategoryFilterType = "all" | "product" | "blog";
 
+/**
+ * Category groups mirror the underlying category `type` values.  A
+ * category is either a product or a blog category.  These strings are
+ * lowercased for safe comparison.
+ */
 type CategoryGroup = "product" | "blog";
 
-type PickerTreeNode =
-  | { kind: "group"; group: CategoryGroup; label: string }
-  | { kind: "category"; group: CategoryGroup; label: string; slug: string };
-
+/**
+ * CategoryCard describes the minimal information required to render a
+ * category card in the results grid.  The `id` is always a string to
+ * simplify key extraction in React lists.
+ */
 export interface CategoryCard {
   id: string;
   type: CategoryGroup;
   slug: string;
   name: string;
-  type: 'product' | 'blog';
   shortDescription: string | null;
   heroImageUrl: string | null;
-};
-
-export type ExplorerProductCard = {
-  id: string;
-  slug: string;
-  title: string;
-  shortSummary: string | null;
-  price: string | null;
-  primaryImage: string | null;
-  lastUpdatedAt: string | null;
-};
-
-interface CategoryExplorerProps {
-  productCategories: ExplorerCategory[];
-  blogCategories: ExplorerCategory[];
-  initialCategory: ExplorerCategory | null;
-  initialProducts: ExplorerProductCard[];
-  initialTotalCount: number;
-  productsPreviewLimit: number;
 }
 
-export interface CategoryPickerOption {
-  type: 'product' | 'blog';
-  slug: string;
-  name: string;
-}
-
+/**
+ * CategoryPickerOption describes a single item in the tree selector.  The
+ * `type` determines the group (product/blog) and the `slug` uniquely
+ * identifies the category itself.  The list of picker options is
+ * precomputed on the server for consistency.
+ */
 export interface CategoryPickerOption {
   type: CategoryGroup;
   slug: string;
   name: string;
 }
 
+/**
+ * Props accepted by the CategoryExplorer.  `categories` is the page of
+ * categories to display.  `totalCount` and `pageSize` are used to compute
+ * pagination.  `page` and `activeType` come from the URL query string and
+ * are passed through unchanged so the component can update them via the
+ * router.  `categoryPickerOptions` contains all available categories in
+ * the system for building the tree; if empty, the tree falls back to
+ * deriving from the current page of categories.
+ */
 export interface CategoryExplorerProps {
   categories: CategoryCard[];
   totalCount: number;
@@ -77,50 +81,73 @@ export interface CategoryExplorerProps {
   categoryPickerOptions: CategoryPickerOption[];
 }
 
+/**
+ * Labels for each category group used in the tree view.  These strings are
+ * intentionally verbose for accessibility and can be adjusted without
+ * modifying other parts of the component.
+ */
 const GROUP_LABELS: Record<CategoryGroup, string> = {
   product: "Product categories",
   blog: "Blog categories"
 };
 
+/**
+ * Badges shown on each category card to indicate whether it is a product or
+ * blog category.  These values should remain short to avoid wrapping.
+ */
 const GROUP_BADGES: Record<CategoryGroup, string> = {
   product: "Products",
   blog: "Blog"
 };
 
+/**
+ * Tree node type used by the Arborist tree component.  Each node is either
+ * a `group` (top level grouping of categories) or a `category` leaf.  The
+ * union is discriminated by the `kind` property.  See the Arborist
+ * documentation for details.
+ */
+type PickerTreeNode =
+  | { kind: "group"; group: CategoryGroup; label: string }
+  | { kind: "category"; group: CategoryGroup; label: string; slug: string };
+
+/**
+ * When building the category tree we first determine which options to use.
+ * If the server provided a list of picker options (covering every
+ * published category) then those are used.  Otherwise we derive options
+ * from the subset of categories on the current page.  This fallback keeps
+ * the tree operational even when the list of options is empty.
+ */
 function derivePickerOptions(
   categories: CategoryCard[],
   provided: CategoryPickerOption[]
 ): CategoryPickerOption[] {
-  if (provided.length > 0) {
-    return provided;
-  }
-
-  return categories.map((category) => ({
-    type: category.type,
-    slug: category.slug,
-    name: category.name
-  }));
+  return provided.length > 0
+    ? provided
+    : categories.map((category) => ({
+        type: category.type,
+        slug: category.slug,
+        name: category.name
+      }));
 }
 
+/**
+ * Build the tree data structure consumed by Arborist from an array of
+ * picker options.  Each option is grouped by its `type`, sorted
+ * alphabetically by name, and wrapped in a node with the required
+ * properties.  Groups without any options are omitted from the result.
+ */
 function buildTreeItems(
   options: CategoryPickerOption[]
 ): Array<TreeItem<PickerTreeNode>> {
-  const grouped: Record<CategoryGroup, CategoryPickerOption[]> = {
-    product: [],
-    blog: []
-  };
-
+  const grouped: Record<CategoryGroup, CategoryPickerOption[]> = { product: [], blog: [] };
   options.forEach((option) => {
     grouped[option.type].push(option);
   });
-
   const items: Array<TreeItem<PickerTreeNode>> = [];
-
   (Object.keys(grouped) as CategoryGroup[]).forEach((group) => {
     if (grouped[group].length === 0) {
       return;
     }
-
     const children = grouped[group]
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -133,7 +160,6 @@ function buildTreeItems(
           slug: option.slug
         }
       }));
-
     items.push({
       id: `group:${group}`,
       data: {
@@ -144,32 +170,37 @@ function buildTreeItems(
       children
     });
   });
-
   return items;
 }
 
-function filterCategories(
-  categories: CategoryCard[],
-  query: string
-): CategoryCard[] {
+/**
+ * Filter the list of categories based on a search query.  The query is
+ * normalised to lowercase and matched against both the name and the
+ * shortDescription (if present).  When the query is empty the original
+ * array is returned.
+ */
+function filterCategories(categories: CategoryCard[], query: string): CategoryCard[] {
   const value = query.trim().toLowerCase();
   if (!value) {
     return categories;
   }
-
   return categories.filter((category) => {
     const haystack = `${category.name} ${category.shortDescription ?? ""}`.toLowerCase();
     return haystack.includes(value);
   });
 }
 
+/**
+ * Render an array of category cards for the results grid.  Each card
+ * contains an image (if available), a badge indicating the group, and
+ * navigates to either `/categories/{slug}` or `/bc/{slug}` depending on
+ * whether it is a product or blog category.  The `key` prop uses the
+ * category ID to avoid collisions.
+ */
 function renderCategoryCards(categories: CategoryCard[]): ReactNode {
   return categories.map((category) => {
     const href =
-      category.type === "blog"
-        ? `/bc/${category.slug}`
-        : `/categories/${category.slug}`;
-
+      category.type === "blog" ? `/bc/${category.slug}` : `/categories/${category.slug}`;
     return (
       <article key={category.id} className={styles.card}>
         <div className={styles.cardImageWrapper}>
@@ -200,6 +231,12 @@ function renderCategoryCards(categories: CategoryCard[]): ReactNode {
   });
 }
 
+/**
+ * Build pagination buttons for the bottom of the page.  Each page number
+ * becomes a button that triggers the `handlePageChange` callback.  The
+ * current page is styled differently and disabled while a transition is
+ * pending.  When there is only one page the returned element is null.
+ */
 function buildPagination(
   totalPages: number,
   currentPage: number,
@@ -212,7 +249,6 @@ function buildPagination(
     const className = isActive
       ? `${styles.pageButton} ${styles.pageButtonActive}`
       : styles.pageButton;
-
     return (
       <button
         key={target}
@@ -228,153 +264,22 @@ function buildPagination(
   });
 }
 
-function derivePickerOptions(
-  categories: CategoryCard[],
-  provided: CategoryPickerOption[]
-): CategoryPickerOption[] {
-  if (provided.length > 0) {
-    return provided;
-  }
-  return categories.map((category) => ({
-    type: category.type,
-    slug: category.slug,
-    name: category.name
-  }));
-}
-
-function buildTreeData(
-  options: CategoryPickerOption[]
-): Array<TreeItem<PickerTreeNode>> {
-  const groups: Record<CategoryGroup, CategoryPickerOption[]> = {
-    product: [],
-    blog: []
-  };
-
-  options.forEach((option) => {
-    groups[option.type].push(option);
-  });
-
-  const rootLabels: Record<CategoryGroup, string> = {
-    product: 'Product categories',
-    blog: 'Blog categories'
-  };
-
-  const items: Array<TreeItem<PickerTreeNode>> = [];
-
-  (['product', 'blog'] as const).forEach((type) => {
-    if (groups[type].length === 0) {
-      return;
-    }
-
-    const children = groups[type]
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((option) => ({
-        id: `category:${type}:${option.slug}`,
-        data: {
-          kind: 'category' as const,
-          type,
-          label: option.name,
-          slug: option.slug
-        }
-      }));
-
-    items.push({
-      id: `group:${type}`,
-      data: { kind: 'group', type, label: rootLabels[type] },
-      children
-    });
-  });
-
-  return items;
-}
-
-function filterCategories(
-  categories: CategoryCard[],
-  search: string
-): CategoryCard[] {
-  const query = search.trim().toLowerCase();
-  if (!query) {
-    return categories;
-  }
-  return categories.filter((category) => {
-    const haystack = `${category.name} ${category.shortDescription ?? ''}`.toLowerCase();
-    return haystack.includes(query);
-  });
-}
-
-function buildCategoryCards(categories: CategoryCard[]): ReactNode[] {
-  return categories.map((category) => {
-    const href =
-      category.type === 'product'
-        ? `/categories/${category.slug}`
-        : `/bc/${category.slug}`;
-
-    return (
-      <article key={category.id} className={styles.card}>
-        <div className={styles.cardImageWrapper}>
-          {category.heroImageUrl ? (
-            <Image
-              src={category.heroImageUrl}
-              alt={category.name}
-              fill
-              className={styles.cardImage}
-              sizes="(max-width: 768px) 100vw, 320px"
-            />
-          ) : null}
-        </div>
-        <div className={styles.cardBody}>
-          <span className={styles.cardBadge}>{typeToBadge(category.type)}</span>
-          <h3 className={styles.cardTitle}>{category.name}</h3>
-          {category.shortDescription ? (
-            <p className={styles.cardDescription}>{category.shortDescription}</p>
-          ) : null}
-          <div className={styles.cardFooter}>
-            <Link className={styles.cardLink} href={href} prefetch>
-              View Details
-            </Link>
-          </div>
-        </div>
-      </article>
-    );
-  });
-}
-
-function buildPaginationButtons(
-  totalPages: number,
-  currentPage: number,
-  handlePageChange: (page: number) => void,
-  isPending: boolean
-): ReactNode[] {
-  return Array.from({ length: totalPages }, (_, index) => {
-    const pageNumber = index + 1;
-    const isActive = pageNumber === currentPage;
-    const className = isActive
-      ? `${styles.pageButton} ${styles.pageButtonActive}`
-      : styles.pageButton;
-
-    return (
-      <button
-        key={pageNumber}
-        type="button"
-        className={className}
-        onClick={() => handlePageChange(pageNumber)}
-        aria-current={isActive ? 'page' : undefined}
-        disabled={isPending && isActive}
-      >
-        {pageNumber}
-      </button>
-    );
-  });
-}
-
+/**
+ * The main CategoryExplorer component.  It controls the state of the
+ * category tree, search box, type filter and pagination.  It uses the
+ * Next.js navigation router to update the query string in response to
+ * user actions.  When the user selects a specific category from the tree
+ * the router navigates directly to that category's page.  Changes to
+ * filters and pagination cause the current page to be revalidated on the
+ * server.
+ */
 export function CategoryExplorer({
-  productCategories,
-  blogCategories,
-  initialCategory,
-  initialProducts,
-  initialTotalCount,
-  productsPreviewLimit
+  categories,
+  totalCount,
+  page,
+  pageSize,
+  activeType,
+  categoryPickerOptions
 }: CategoryExplorerProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -385,37 +290,51 @@ export function CategoryExplorer({
     activeType === "all" ? [] : [`group:${activeType}`]
   );
 
+  // Determine the list of picker options.  If the server provided a
+  // complete list this is used, otherwise derive from the current page.
   const pickerOptions = useMemo(
     () => derivePickerOptions(categories, categoryPickerOptions),
     [categories, categoryPickerOptions]
   );
 
+  // Build the tree structure from the picker options.
   const treeItems = useMemo(() => buildTreeItems(pickerOptions), [pickerOptions]);
 
+  // Filter the categories in memory based on the search query.  This does
+  // not affect the total count since that comes from the server.
   const filteredCategories = useMemo(
     () => filterCategories(categories, search),
     [categories, search]
   );
 
+  // Compute the total number of pages based on the total count from the
+  // server and the fixed page size.
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(totalCount / pageSize)),
-    [pageSize, totalCount]
+    [totalCount, pageSize]
   );
 
+  // Whenever the activeType changes ensure that the selection reflects the
+  // group.  If the user previously selected a leaf node then keep that
+  // selection until they change filters.
   useEffect(() => {
     setSelection((current) => {
-      if (current.length > 0 && current[0]?.startsWith("category:")) {
+      if (current.length > 0 && (current[0] as string).startsWith("category:")) {
         return current;
       }
-
       if (activeType === "all") {
         return [];
       }
-
       return [`group:${activeType}`];
     });
   }, [activeType]);
 
+  /**
+   * Update the URL query string in response to filter or pagination
+   * changes.  Keys with an undefined value are removed from the query.
+   * The router push is wrapped in a transition to avoid showing a
+   * loading state on the current page.
+   */
   const updateQuery = useCallback(
     (next: Record<string, string | undefined>) => {
       const params = new URLSearchParams(searchParams.toString());
@@ -426,7 +345,6 @@ export function CategoryExplorer({
           params.set(key, value);
         }
       });
-
       const queryString = params.toString();
       startTransition(() => {
         router.push(queryString ? `${pathname}?${queryString}` : pathname);
@@ -435,6 +353,11 @@ export function CategoryExplorer({
     [pathname, router, searchParams, startTransition]
   );
 
+  /**
+   * Handle changes to the type filter drop down.  Selecting "all" clears
+   * the group selection, while selecting a specific type selects that
+   * group.  The page number is reset to 1 on type changes.
+   */
   const handleTypeChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
       const value = event.target.value as CategoryFilterType;
@@ -448,6 +371,11 @@ export function CategoryExplorer({
     [updateQuery]
   );
 
+  /**
+   * Handle clicking on a page number.  If the user clicks the current
+   * page we do nothing.  Otherwise update the page query parameter.  The
+   * offset is computed on the server so we only pass the page number.
+   */
   const handlePageChange = useCallback(
     (nextPage: number) => {
       if (nextPage === page) {
@@ -458,6 +386,8 @@ export function CategoryExplorer({
     [page, updateQuery]
   );
 
+  // Build the pagination buttons on demand.  If there is only one page
+  // nothing is rendered.
   const pagination = useMemo(
     () =>
       totalPages > 1
@@ -466,26 +396,24 @@ export function CategoryExplorer({
     [handlePageChange, isPending, page, totalPages]
   );
 
+  /**
+   * Render a node in the Arborist tree.  Groups and leaves are styled
+   * differently and include a badge for the category type on leaves.
+   */
   const renderTreeNode = useCallback(
     ({ node, style }: NodeRendererProps<PickerTreeNode>) => {
       const baseClass =
         node.data.kind === "group"
           ? `${styles.treeNode} ${styles.treeGroup}`
           : `${styles.treeNode} ${styles.treeLeaf}`;
-
-      const className = node.isSelected
-        ? `${baseClass} ${styles.treeNodeActive}`
-        : baseClass;
-
+      const className = node.isSelected ? `${baseClass} ${styles.treeNodeActive}` : baseClass;
       return (
         <div style={style} className={className}>
           <span className={styles.treeLabel}>{node.data.label}</span>
           {node.data.kind === "category" ? (
             <span
               className={`${styles.treeBadge} ${
-                node.data.group === "product"
-                  ? styles.productBadge
-                  : styles.blogBadge
+                node.data.group === "product" ? styles.productBadge : styles.blogBadge
               }`}
             >
               {GROUP_BADGES[node.data.group]}
@@ -497,13 +425,16 @@ export function CategoryExplorer({
     []
   );
 
+  /**
+   * Handle selection in the tree.  Group selections update the type
+   * filter.  Category selections navigate directly to the category page.
+   */
   const handleTreeSelect = useCallback(
     (ids: Array<string | number>) => {
       const [id] = ids;
       if (!id || typeof id !== "string") {
         return;
       }
-
       if (id.startsWith("group:")) {
         const [, group] = id.split(":");
         if (group === "product" || group === "blog") {
@@ -515,13 +446,11 @@ export function CategoryExplorer({
         }
         return;
       }
-
       if (id.startsWith("category:")) {
         const [, group, slug] = id.split(":");
         if (!group || !slug) {
           return;
         }
-
         setSelection([id]);
         const href = group === "blog" ? `/bc/${slug}` : `/categories/${slug}`;
         startTransition(() => {
@@ -533,10 +462,7 @@ export function CategoryExplorer({
   );
 
   const resultsText = `${filteredCategories.length} of ${totalCount} categories`;
-  const categoryCards = useMemo(
-    () => renderCategoryCards(filteredCategories),
-    [filteredCategories]
-  );
+  const categoryCards = useMemo(() => renderCategoryCards(filteredCategories), [filteredCategories]);
 
   return (
     <div className={styles.layout}>
@@ -589,15 +515,12 @@ export function CategoryExplorer({
             />
           </div>
         </div>
-
         <p className={styles.resultsMeta}>{resultsText}</p>
-
         {filteredCategories.length === 0 ? (
           <div className={styles.emptyState}>No categories match your search.</div>
         ) : (
           <div className={styles.grid}>{categoryCards}</div>
         )}
-
         {pagination ? (
           <nav className={styles.pagination} aria-label="Pagination">
             <div className={styles.paginationList}>{pagination}</div>
