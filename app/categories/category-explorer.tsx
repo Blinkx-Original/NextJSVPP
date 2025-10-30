@@ -218,17 +218,14 @@ export function CategoryExplorer({
     });
   }, [activeType]);
 
-  function handleSelect(ids: Array<string | number>) {
-    const id = ids[0];
-    if (!id || typeof id !== 'string') {
-      return;
+  const filteredCategories = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      return categories;
     }
-    const value = search.trim().toLowerCase();
     return categories.filter((category) => {
-      const haystack = [category.name, category.shortDescription || '']
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(value);
+      const haystack = `${category.name} ${category.shortDescription ?? ''}`.toLowerCase();
+      return haystack.includes(query);
     });
   }, [categories, search]);
 

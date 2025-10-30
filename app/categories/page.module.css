@@ -205,7 +205,8 @@
   border: 1px solid #cbd5f5;
   font-size: 0.95rem;
   color: #0f172a;
-  background: #f8fafc;
+  min-width: 10rem;
+  position: relative;
 }
 
 .searchInput {
