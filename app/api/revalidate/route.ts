@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { clearProductCache } from '@/lib/products';
+import { clearBlogPostCache } from '@/lib/blog-posts';
 import { clearSitemapCache } from '@/lib/sitemap-cache';
 import { createRequestId } from '@/lib/request-id';
 
 interface RequestBody {
   slug?: string;
+  type?: 'product' | 'blog';
 }
 
 type RevalidateTarget =
   | { type: 'product'; slug: string; paths: string[] }
+  | { type: 'blog'; slug: string; paths: string[] }
   | { type: 'sitemap'; paths: string[] };
 
 export const runtime = 'nodejs';
@@ -43,7 +46,11 @@ export async function POST(request: NextRequest) {
   try {
     if (typeof body.slug === 'string' && body.slug.trim()) {
       const slug = body.slug.trim();
-      target = { type: 'product', slug, paths: [`/p/${slug}`] };
+      const targetType = body.type === 'blog' ? 'blog' : 'product';
+      target =
+        targetType === 'blog'
+          ? { type: 'blog' as const, slug, paths: [`/b/${slug}`] }
+          : { type: 'product' as const, slug, paths: [`/p/${slug}`] };
     } else {
       target = {
         type: 'sitemap',
@@ -59,6 +66,12 @@ export async function POST(request: NextRequest) {
 
     if (target.type === 'product') {
       clearProductCache(target.slug);
+      clearSitemapCache();
+      paths.add('/sitemap.xml');
+      paths.add('/sitemap_index.xml');
+      paths.add('/sitemaps/[sitemap]');
+    } else if (target.type === 'blog') {
+      clearBlogPostCache(target.slug);
       clearSitemapCache();
       paths.add('/sitemap.xml');
       paths.add('/sitemap_index.xml');
