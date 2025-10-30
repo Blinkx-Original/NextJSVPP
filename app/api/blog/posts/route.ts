@@ -8,9 +8,11 @@ import {
   insertBlogPost,
   SEO_DESCRIPTION_MAX_LENGTH,
   SEO_TITLE_MAX_LENGTH,
-  type BlogPostSummary,
-  type BlogPostDetail,
-  clearBlogPostCache
+  clearBlogPostCache,
+  serializeBlogPostSummary,
+  serializeBlogPostDetail,
+  type BlogPostSummaryJson,
+  type BlogPostDetailJson
 } from '@/lib/blog-posts';
 import { categoryExistsByType } from '@/lib/categories';
 
@@ -38,13 +40,13 @@ type ErrorCode =
 
 interface BlogPostsListResponse {
   ok: true;
-  posts: BlogPostSummary[];
+  posts: BlogPostSummaryJson[];
   next_cursor: number | null;
 }
 
 interface BlogPostCreateResponse {
   ok: true;
-  post: BlogPostDetail;
+  post: BlogPostDetailJson;
 }
 
 interface ErrorResponse {
@@ -136,10 +138,11 @@ export async function GET(request: NextRequest): Promise<NextResponse<BlogPostsL
   }
 
   const result = await queryBlogPosts({ cursor, limit, query, category });
+  const posts = result.posts.map(serializeBlogPostSummary);
   return NextResponse.json(
     {
       ok: true,
-      posts: result.posts,
+      posts,
       next_cursor: result.nextCursor
     },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
@@ -227,16 +230,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<BlogPostC
     return buildErrorResponse('sql_error', { status: 500, message: 'Unable to load created post' });
   }
 
-  clearBlogPostCache(result.post.slug);
-  revalidatePath(`/b/${result.post.slug}`);
-  if (result.post.categorySlug) {
-    revalidatePath(`/bc/${result.post.categorySlug}`);
+  const post = result.post;
+
+  clearBlogPostCache(post.slug);
+  revalidatePath(`/b/${post.slug}`);
+  if (post.categorySlug) {
+    revalidatePath(`/bc/${post.categorySlug}`);
   }
 
   return NextResponse.json(
     {
       ok: true,
-      post: result.post
+      post: serializeBlogPostDetail(post)
     },
     { status: 201 }
   );

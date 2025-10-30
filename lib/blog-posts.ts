@@ -114,6 +114,14 @@ export interface NormalizedBlogPostResult {
   normalized: NormalizedBlogPost;
 }
 
+export interface BlogPostSummaryJson extends Omit<BlogPostSummary, 'id'> {
+  id: string;
+}
+
+export interface BlogPostDetailJson extends Omit<BlogPostDetail, 'id'> {
+  id: string;
+}
+
 const BLOG_POST_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface CachedBlogPostEntry {
@@ -637,6 +645,26 @@ function buildInsertedPostFallback(
     seoTitle: payload.seoTitle ?? null,
     seoDescription: payload.seoDescription ?? null,
     canonicalUrl: payload.canonicalUrl ?? null
+  };
+}
+
+function stringifyId(id: bigint): string {
+  return id.toString(10);
+}
+
+export function serializeBlogPostSummary(summary: BlogPostSummary): BlogPostSummaryJson {
+  const { id, ...rest } = summary;
+  return {
+    ...rest,
+    id: stringifyId(id)
+  };
+}
+
+export function serializeBlogPostDetail(detail: BlogPostDetail): BlogPostDetailJson {
+  const { id, ...rest } = detail;
+  return {
+    ...rest,
+    id: stringifyId(id)
   };
 }
 
