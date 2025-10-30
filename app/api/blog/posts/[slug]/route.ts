@@ -1,3 +1,4 @@
+import { revalidatePath } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { safeGetEnv } from '@/lib/env';
 import { requireAdminAuth } from '@/lib/basic-auth';
@@ -7,7 +8,9 @@ import {
   updateBlogPost,
   SEO_DESCRIPTION_MAX_LENGTH,
   SEO_TITLE_MAX_LENGTH,
-  type BlogPostDetail
+  clearBlogPostCache,
+  serializeBlogPostDetail,
+  type BlogPostDetailJson
 } from '@/lib/blog-posts';
 import { categoryExistsByType } from '@/lib/categories';
 
@@ -33,7 +36,7 @@ type ErrorCode =
 
 interface BlogPostResponse {
   ok: true;
-  post: BlogPostDetail;
+  post: BlogPostDetailJson;
 }
 
 interface ErrorResponse {
@@ -103,7 +106,7 @@ export async function GET(
     return buildErrorResponse('post_not_found', { status: 404, message: 'Post not found' });
   }
 
-  return NextResponse.json({ ok: true, post });
+  return NextResponse.json({ ok: true, post: serializeBlogPostDetail(post) });
 }
 
 export async function PUT(
@@ -190,7 +193,22 @@ export async function PUT(
     return buildErrorResponse('sql_error', { status: 500, message: 'Unable to load updated post' });
   }
 
-  return NextResponse.json({ ok: true, post: result.post });
+  clearBlogPostCache(existing.slug);
+  if (result.post.slug !== existing.slug) {
+    clearBlogPostCache(result.post.slug);
+  }
+  revalidatePath(`/b/${result.post.slug}`);
+  if (result.post.slug !== existing.slug) {
+    revalidatePath(`/b/${existing.slug}`);
+  }
+  if (result.post.categorySlug) {
+    revalidatePath(`/bc/${result.post.categorySlug}`);
+  }
+  if (existing.categorySlug && existing.categorySlug !== result.post.categorySlug) {
+    revalidatePath(`/bc/${existing.categorySlug}`);
+  }
+
+  return NextResponse.json({ ok: true, post: serializeBlogPostDetail(result.post) });
 }
 
 export async function DELETE(): Promise<NextResponse<ErrorResponse>> {
