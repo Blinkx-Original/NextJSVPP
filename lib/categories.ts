@@ -1,6 +1,7 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { z } from 'zod';
 import { getPool, toDbErrorInfo } from './db';
+import { slugifyCategoryName, slugifyCategoryName as formatCategorySlug } from './category-slug';
 
 // -- Category type helpers --------------------------------------------------
 
@@ -76,14 +77,6 @@ export async function getBlogCategoryColumn(client?: SqlClient): Promise<BlogCat
   }
   const pool = client ?? getPool();
   return detectBlogCategoryColumn(pool);
-}
-
-function normalizeCategoryValue(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const trimmed = value.trim().toLowerCase();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 function normalizeCount(value: unknown): number {
@@ -191,6 +184,12 @@ export interface CategoryPickerOptions {
   requestId?: string;
 }
 
+export interface AllCategoriesQueryOptions {
+  type?: CategoryType;
+  batchSize?: number;
+  requestId?: string;
+}
+
 function buildCategoryWhereClause(options: { type?: CategoryType }): { where: string; params: unknown[] } {
   const where: string[] = ['is_published = 1'];
   const params: unknown[] = [];
@@ -243,6 +242,36 @@ export async function getPublishedCategories(options: CategoryQueryOptions = {})
     console.error('[categories] published categories query failed', info, options.requestId ? { requestId: options.requestId } : undefined);
     return { categories: [], totalCount: 0 };
   }
+}
+
+export async function getAllPublishedCategories(
+  options: AllCategoriesQueryOptions = {}
+): Promise<CategorySummary[]> {
+  const batchSize = options.batchSize && options.batchSize > 0 ? Math.min(options.batchSize, 500) : 200;
+  const categories: CategorySummary[] = [];
+  let offset = 0;
+
+  while (true) {
+    const { categories: pageCategories, totalCount } = await getPublishedCategories({
+      type: options.type,
+      limit: batchSize,
+      offset,
+      requestId: options.requestId
+    });
+
+    if (pageCategories.length === 0) {
+      break;
+    }
+
+    categories.push(...pageCategories);
+    offset += pageCategories.length;
+
+    if (offset >= totalCount || pageCategories.length < batchSize) {
+      break;
+    }
+  }
+
+  return categories;
 }
 
 export async function getPublishedCategoryPickerOptions(
@@ -402,39 +431,103 @@ function normalizeProductRecord(record: z.infer<typeof categoryProductRecordSche
 }
 
 // Build a robust match fragment for category columns, including JSON arrays or CSV text in `categories`.
+interface CategoryMatchData {
+  normalizedValues: string[];
+  jsonValues: string[];
+  csvTokens: string[];
+}
+
+function createCategoryMatchData(
+  category: Pick<CategorySummary, 'slug' | 'name'>
+): CategoryMatchData {
+  const normalizedValues = new Set<string>();
+  const jsonValues = new Set<string>();
+  const csvTokens = new Set<string>();
+
+  function registerCandidate(value: string | null | undefined) {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    jsonValues.add(trimmed);
+
+    const normalized = trimmed.toLowerCase();
+    jsonValues.add(normalized);
+    normalizedValues.add(normalized);
+
+    const csv = normalized.replace(/\s+/g, '');
+    if (csv) {
+      csvTokens.add(csv);
+    }
+  }
+
+  registerCandidate(category.slug);
+  registerCandidate(category.name);
+
+  if (typeof category.name === 'string' && category.name.trim()) {
+    registerCandidate(formatCategorySlug(category.name));
+  }
+
+  return {
+    normalizedValues: Array.from(normalizedValues),
+    jsonValues: Array.from(jsonValues),
+    csvTokens: Array.from(csvTokens)
+  };
+}
+
 function buildCategoryMatchFragments(
   columns: ProductCategoryColumn[],
-  normalizedSlug: string
+  match: CategoryMatchData
 ): { where: string; params: unknown[] } {
   const pieces: string[] = [];
   const params: unknown[] = [];
 
+  // Determine whether there are any variant values to match
+  const hasVariants =
+    match.normalizedValues.length > 0 || match.jsonValues.length > 0 || match.csvTokens.length > 0;
+
+  if (columns.length === 0 || !hasVariants) {
+    return { where: '0', params };
+  }
+
   for (const column of columns) {
-    if (column === 'category' || column === 'category_slug') {
-      pieces.push('LOWER(TRIM(??)) = ?');
-      params.push(column, normalizedSlug);
-    } else if (column === 'categories') {
-      // Support both JSON arrays and CSV-like text lists.
+    if ((column === 'category' || column === 'category_slug') && match.normalizedValues.length > 0) {
+      const equality = match.normalizedValues.map(() => 'LOWER(TRIM(??)) = ?').join(' OR ');
+      pieces.push(`(${equality})`);
+      for (const value of match.normalizedValues) {
+        params.push(column, value);
+      }
+    } else if (column === 'categories' && (match.jsonValues.length > 0 || match.csvTokens.length > 0)) {
+      const jsonFragments: string[] = [];
+      const jsonParams: unknown[] = [];
+      for (const value of match.jsonValues) {
+        jsonFragments.push('JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))');
+        jsonParams.push(column, value);
+      }
+
+      const csvFragments: string[] = [];
+      const csvParams: unknown[] = [];
+      for (const token of match.csvTokens) {
+        csvFragments.push(`FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', '')) > 0`);
+        csvParams.push(token, column);
+        csvFragments.push(`CONCAT(',', REPLACE(LOWER(TRIM(??)), ' ', ''), ',') LIKE ?`);
+        csvParams.push(column, `%,${token},%`);
+      }
+
+      const jsonClause = jsonFragments.length > 0 ? jsonFragments.join(' OR ') : '0';
+      const csvClause = csvFragments.length > 0 ? csvFragments.join(' OR ') : '0';
+
       pieces.push(`(
-        (JSON_VALID(??) AND JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?)))
+        (JSON_VALID(??) AND (${jsonClause}))
         OR
-        (NOT JSON_VALID(??) AND (
-            FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', '')) > 0
-            OR
-            CONCAT(',', LOWER(REPLACE(TRIM(??), ' ', '')), ',') LIKE ?
-        ))
+        (NOT JSON_VALID(??) AND (${csvClause}))
       )`);
-      // order of params for the above expression:
-      // JSON_VALID(??)
-      params.push(column);
-      // JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))
-      params.push(column, normalizedSlug);
-      // NOT JSON_VALID(??)
-      params.push(column);
-      // FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', ''))
-      params.push(normalizedSlug, column);
-      // CONCAT(... LIKE ?)
-      params.push(column, `%,${normalizedSlug},%`);
+
+      params.push(column, ...jsonParams, column, ...csvParams);
     }
   }
 
@@ -443,16 +536,25 @@ function buildCategoryMatchFragments(
 }
 
 async function countProductsForCategory(
-  slug: string,
-  columns: ProductCategoryColumn[]
+  category: Pick<CategorySummary, 'slug' | 'name'>,
+  columns: ProductCategoryColumn[],
+  match?: CategoryMatchData
 ): Promise<number> {
-  const normalized = normalizeCategoryValue(slug);
-  if (!normalized || columns.length === 0) {
+  if (columns.length === 0) {
+    return 0;
+  }
+
+  const categoryMatch = match ?? createCategoryMatchData(category);
+  if (
+    categoryMatch.normalizedValues.length === 0 &&
+    categoryMatch.jsonValues.length === 0 &&
+    categoryMatch.csvTokens.length === 0
+  ) {
     return 0;
   }
 
   const pool = getPool();
-  const { where, params } = buildCategoryMatchFragments(columns, normalized);
+  const { where, params } = buildCategoryMatchFragments(columns, categoryMatch);
 
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
@@ -479,13 +581,15 @@ export async function getPublishedProductsForCategory(
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
   const columns = await getProductCategoryColumns(pool);
-  const normalizedSlug = normalizeCategoryValue(category.slug);
-
-  if (!normalizedSlug || columns.length === 0) {
+  if (columns.length === 0) {
+    return { products: [], totalCount: 0 };
+  }
+  const match = createCategoryMatchData({ slug: category.slug, name: category.name });
+  if (match.normalizedValues.length === 0 && match.jsonValues.length === 0 && match.csvTokens.length === 0) {
     return { products: [], totalCount: 0 };
   }
 
-  const { where, params } = buildCategoryMatchFragments(columns, normalizedSlug);
+  const { where, params } = buildCategoryMatchFragments(columns, match);
 
   try {
     const [rows] = await pool.query(
@@ -506,7 +610,7 @@ export async function getPublishedProductsForCategory(
     }
 
     const products = parsed.data.map(normalizeProductRecord);
-    const totalCount = await countProductsForCategory(category.slug, columns);
+    const totalCount = await countProductsForCategory({ slug: category.slug, name: category.name }, columns, match);
 
     return { products, totalCount };
   } catch (error) {
