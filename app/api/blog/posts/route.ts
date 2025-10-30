@@ -1,3 +1,4 @@
+import { revalidatePath } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { safeGetEnv } from '@/lib/env';
 import { requireAdminAuth } from '@/lib/basic-auth';
@@ -8,7 +9,8 @@ import {
   SEO_DESCRIPTION_MAX_LENGTH,
   SEO_TITLE_MAX_LENGTH,
   type BlogPostSummary,
-  type BlogPostDetail
+  type BlogPostDetail,
+  clearBlogPostCache
 } from '@/lib/blog-posts';
 import { categoryExistsByType } from '@/lib/categories';
 
@@ -223,6 +225,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<BlogPostC
 
   if (!result.post) {
     return buildErrorResponse('sql_error', { status: 500, message: 'Unable to load created post' });
+  }
+
+  clearBlogPostCache(result.post.slug);
+  revalidatePath(`/b/${result.post.slug}`);
+  if (result.post.categorySlug) {
+    revalidatePath(`/bc/${result.post.categorySlug}`);
   }
 
   return NextResponse.json(

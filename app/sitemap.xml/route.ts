@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createRequestId } from '@/lib/request-id';
 import { collectPublishedProductsForSitemap } from '@/lib/products';
+import { collectPublishedBlogPostsForSitemap } from '@/lib/blog-posts';
 import { getSiteUrl } from '@/lib/urls';
 import { getCachedSitemap, setCachedSitemap } from '@/lib/sitemap-cache';
 import {
   SITEMAP_PAGE_SIZE,
   computeChunkLastModified,
+  computeBlogChunkLastModified,
   renderSitemapIndexXml,
   type SitemapIndexEntry
 } from '@/lib/sitemaps';
@@ -30,10 +32,16 @@ async function generateSitemapIndex(path: string): Promise<Response> {
 
   const startedAt = Date.now();
   try {
-    const { batches, totalCount } = await collectPublishedProductsForSitemap({
-      requestId,
-      pageSize: SITEMAP_PAGE_SIZE
-    });
+    const [productCollection, blogCollection] = await Promise.all([
+      collectPublishedProductsForSitemap({
+        requestId,
+        pageSize: SITEMAP_PAGE_SIZE
+      }),
+      collectPublishedBlogPostsForSitemap({
+        requestId,
+        pageSize: SITEMAP_PAGE_SIZE
+      })
+    ]);
 
     const staticLastMod = new Date().toISOString();
     const staticEntries: SitemapIndexEntry[] = [
@@ -42,18 +50,25 @@ async function generateSitemapIndex(path: string): Promise<Response> {
       { loc: `${siteUrl}/sitemaps/blog-categories.xml`, lastmod: staticLastMod }
     ];
 
-    const dynamicEntries: SitemapIndexEntry[] = batches.map((records, index) => ({
+    const productEntries: SitemapIndexEntry[] = productCollection.batches.map((records, index) => ({
       loc: `${siteUrl}/sitemaps/sitemap-${index + 1}.xml`,
       lastmod: computeChunkLastModified(records)
     }));
 
-    const entries: SitemapIndexEntry[] = [...staticEntries, ...dynamicEntries];
+    const blogEntries: SitemapIndexEntry[] = blogCollection.batches.map((records, index) => ({
+      loc: `${siteUrl}/sitemaps/blog-${index + 1}.xml`,
+      lastmod: computeBlogChunkLastModified(records)
+    }));
+
+    const entries: SitemapIndexEntry[] = [...staticEntries, ...productEntries, ...blogEntries];
 
     const xml = renderSitemapIndexXml(entries);
     setCachedSitemap(siteUrl, path, xml);
     const duration = Date.now() - startedAt;
     console.log(
-      `[sitemap-index][${requestId}] entries=${entries.length} total=${totalCount} generated (${duration}ms)`
+      `[sitemap-index][${requestId}] entries=${entries.length} total=${
+        productCollection.totalCount + blogCollection.totalCount
+      } generated (${duration}ms)`
     );
     return new Response(xml, {
       headers: {
