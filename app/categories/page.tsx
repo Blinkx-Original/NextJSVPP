@@ -128,19 +128,22 @@ export default async function CategoriesPage({ searchParams }: PageProps) {
   const slugParam = resolveParam(searchParams?.category);
   const pageParam = parsePage(resolveParam(searchParams?.page));
 
-  // Fetch all published product categories.  We request a large
-  // limit to ensure the selector includes every category; if there are
-  // more than 1000 categories this limit may need adjusting.
-  const { categories: categorySummaries } = await getPublishedCategories({
-    type: "product",
+  // Fetch all published categories without filtering by type.  Some databases
+  // may contain inconsistent `type` values (e.g. trailing whitespace or
+  // plural forms).  The normalization performed by `getPublishedCategories`
+  // ensures the returned records have a consistent `type` field of either
+  // "product" or "blog".  We filter to product categories after fetching.
+  const { categories: allCategories } = await getPublishedCategories({
+    // Do not specify a type here; instead filter the normalized results.
     limit: 1000,
     offset: 0,
     requestId
   });
-  // Convert to the simple objects expected by the CategorySelect
-  // component.  We intentionally omit category types here because
-  // only product categories are included.
-  const selectOptions = categorySummaries.map((c) => ({ slug: c.slug, name: c.name }));
+  // Filter to only product categories.  The `type` field on CategorySummary is
+  // normalised by the library so any unrecognised values become "product".
+  const productCategories = allCategories.filter((c) => c.type === "product");
+  // Map to the simple objects expected by the CategorySelect component.
+  const selectOptions = productCategories.map((c) => ({ slug: c.slug, name: c.name }));
 
   // Resolve the selected category.  If a slug is provided but does
   // not correspond to a published category we treat it as unknown.
