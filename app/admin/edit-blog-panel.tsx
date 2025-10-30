@@ -12,7 +12,7 @@ import React, {
 import TinyMceEditor, { type TinyMceEditorHandle } from './tinymce-editor';
 import { buttonStyle, cardStyle, disabledButtonStyle, inputStyle, textareaStyle } from './panel-styles';
 import { createAdminApiClient } from './admin-api-client';
-import { resolveCtaLabel } from '@/lib/product-cta';
+import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
 
 const labelStyle: React.CSSProperties = {
   fontSize: '0.85rem',
@@ -89,8 +89,12 @@ const previewPlaceholderStyle: React.CSSProperties = {
   background: '#f1f5f9'
 };
 
+const BLOG_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+type PreviewCtaType = keyof typeof CTA_DEFAULT_LABELS;
+
 interface PreviewCta {
-  type: 'lead' | 'affiliate';
+  type: PreviewCtaType;
   url: string;
   label: string;
 }
@@ -104,7 +108,13 @@ interface BlogPostDetail {
   categorySlug: string | null;
   productSlugs: string[];
   ctaLeadUrl: string | null;
+  ctaLeadLabel: string | null;
   ctaAffiliateUrl: string | null;
+  ctaAffiliateLabel: string | null;
+  ctaStripeUrl: string | null;
+  ctaStripeLabel: string | null;
+  ctaPaypalUrl: string | null;
+  ctaPaypalLabel: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   canonicalUrl: string | null;
@@ -181,7 +191,7 @@ interface EditBlogPanelProps {
 }
 
 function normalizeSlugInput(value: string): string {
-  return value.trim().toLowerCase();
+  return sanitizeSlugCandidate(value) ?? '';
 }
 
 function toDatetimeLocalInput(value: string | null): string {
@@ -236,16 +246,23 @@ export default function EditBlogPanel({
     () => createAdminApiClient({ authHeader, adminToken }),
     [authHeader, adminToken]
   );
-  const [slugInput, setSlugInput] = useState<string>(initialSlug ? normalizeSlugInput(initialSlug) : '');
-  const [loadedSlug, setLoadedSlug] = useState<string>(initialSlug ? normalizeSlugInput(initialSlug) : '');
+  const initialNormalizedSlug = initialSlug ? normalizeSlugInput(initialSlug) : '';
+  const [slugInput, setSlugInput] = useState<string>(initialNormalizedSlug);
+  const [loadedSlug, setLoadedSlug] = useState<string>(initialNormalizedSlug);
   const [title, setTitle] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
   const [categorySlug, setCategorySlug] = useState<string>('');
   const [publishedAtInput, setPublishedAtInput] = useState<string>('');
   const [isPublished, setIsPublished] = useState<boolean>(false);
   const [coverImageUrl, setCoverImageUrl] = useState<string>('');
+  const [ctaLeadLabel, setCtaLeadLabel] = useState<string>('');
   const [ctaLeadUrl, setCtaLeadUrl] = useState<string>('');
+  const [ctaAffiliateLabel, setCtaAffiliateLabel] = useState<string>('');
   const [ctaAffiliateUrl, setCtaAffiliateUrl] = useState<string>('');
+  const [ctaStripeLabel, setCtaStripeLabel] = useState<string>('');
+  const [ctaStripeUrl, setCtaStripeUrl] = useState<string>('');
+  const [ctaPaypalLabel, setCtaPaypalLabel] = useState<string>('');
+  const [ctaPaypalUrl, setCtaPaypalUrl] = useState<string>('');
   const [seoTitle, setSeoTitle] = useState<string>('');
   const [seoDescription, setSeoDescription] = useState<string>('');
   const [canonicalUrl, setCanonicalUrl] = useState<string>('');
@@ -291,16 +308,23 @@ export default function EditBlogPanel({
   }, [resetMessages]);
 
   const applyPostData = useCallback((post: BlogPostDetail) => {
-    setLoadedSlug(post.slug);
-    setSlugInput(post.slug);
+    const normalizedSlug = normalizeSlugInput(post.slug ?? '');
+    setLoadedSlug(normalizedSlug);
+    setSlugInput(normalizedSlug);
     setTitle(post.title ?? '');
     setSummary(post.shortSummary ?? '');
     setCategorySlug(post.categorySlug ?? '');
     setPublishedAtInput(toDatetimeLocalInput(post.publishedAt));
     setIsPublished(Boolean(post.isPublished));
     setCoverImageUrl(post.coverImageUrl ?? '');
+    setCtaLeadLabel(post.ctaLeadLabel ?? '');
     setCtaLeadUrl(post.ctaLeadUrl ?? '');
+    setCtaAffiliateLabel(post.ctaAffiliateLabel ?? '');
     setCtaAffiliateUrl(post.ctaAffiliateUrl ?? '');
+    setCtaStripeLabel(post.ctaStripeLabel ?? '');
+    setCtaStripeUrl(post.ctaStripeUrl ?? '');
+    setCtaPaypalLabel(post.ctaPaypalLabel ?? '');
+    setCtaPaypalUrl(post.ctaPaypalUrl ?? '');
     setSeoTitle(post.seoTitle ?? '');
     setSeoDescription(post.seoDescription ?? '');
     setCanonicalUrl(post.canonicalUrl ?? '');
@@ -470,8 +494,14 @@ export default function EditBlogPanel({
     setPublishedAtInput('');
     setIsPublished(false);
     setCoverImageUrl('');
+    setCtaLeadLabel('');
     setCtaLeadUrl('');
+    setCtaAffiliateLabel('');
     setCtaAffiliateUrl('');
+    setCtaStripeLabel('');
+    setCtaStripeUrl('');
+    setCtaPaypalLabel('');
+    setCtaPaypalUrl('');
     setSeoTitle('');
     setSeoDescription('');
     setCanonicalUrl('');
@@ -569,8 +599,14 @@ export default function EditBlogPanel({
         cover_image_url: coverImageUrl.trim() || null,
         category_slug: categorySlug.trim() || null,
         product_slugs: parseProductSlugsInput(productSlugsInput),
+        cta_lead_label: ctaLeadLabel.trim() || null,
         cta_lead_url: ctaLeadUrl.trim() || null,
+        cta_affiliate_label: ctaAffiliateLabel.trim() || null,
         cta_affiliate_url: ctaAffiliateUrl.trim() || null,
+        cta_stripe_label: ctaStripeLabel.trim() || null,
+        cta_stripe_url: ctaStripeUrl.trim() || null,
+        cta_paypal_label: ctaPaypalLabel.trim() || null,
+        cta_paypal_url: ctaPaypalUrl.trim() || null,
         seo_title: seoTitle.trim() || null,
         seo_description: seoDescription.trim() || null,
         canonical_url: canonicalUrl.trim() || null,
@@ -630,8 +666,14 @@ export default function EditBlogPanel({
       coverImageUrl,
       categorySlug,
       productSlugsInput,
+      ctaLeadLabel,
       ctaLeadUrl,
+      ctaAffiliateLabel,
       ctaAffiliateUrl,
+      ctaStripeLabel,
+      ctaStripeUrl,
+      ctaPaypalLabel,
+      ctaPaypalUrl,
       seoTitle,
       seoDescription,
       canonicalUrl,
@@ -651,9 +693,11 @@ export default function EditBlogPanel({
   const summaryPreview = summary.trim();
   const coverPreviewUrl = coverImageUrl.trim();
   const previewCtas = useMemo<PreviewCta[]>(() => {
-    const config: Array<{ type: PreviewCta['type']; url: string }> = [
-      { type: 'lead', url: ctaLeadUrl },
-      { type: 'affiliate', url: ctaAffiliateUrl }
+    const config: Array<{ type: PreviewCtaType; url: string; label: string }> = [
+      { type: 'lead', url: ctaLeadUrl, label: ctaLeadLabel },
+      { type: 'affiliate', url: ctaAffiliateUrl, label: ctaAffiliateLabel },
+      { type: 'stripe', url: ctaStripeUrl, label: ctaStripeLabel },
+      { type: 'paypal', url: ctaPaypalUrl, label: ctaPaypalLabel }
     ];
     return config
       .map((item) => {
@@ -664,11 +708,11 @@ export default function EditBlogPanel({
         return {
           type: item.type,
           url: trimmedUrl,
-          label: resolveCtaLabel(item.type, null)
+          label: resolveCtaLabel(item.type, item.label)
         } satisfies PreviewCta;
       })
       .filter((cta): cta is PreviewCta => cta !== null);
-  }, [ctaAffiliateUrl, ctaLeadUrl]);
+  }, [ctaAffiliateLabel, ctaAffiliateUrl, ctaLeadLabel, ctaLeadUrl, ctaPaypalLabel, ctaPaypalUrl, ctaStripeLabel, ctaStripeUrl]);
   const primaryCtaType = previewCtas[0]?.type;
 
   const handleEditorImageUpload = useCallback(
@@ -886,31 +930,111 @@ export default function EditBlogPanel({
             {categoriesStatus === 'loading' ? <p style={helperTextStyle}>Cargando categorías…</p> : null}
             {categoriesStatus === 'error' && categoriesError ? <p style={errorTextStyle}>{categoriesError}</p> : null}
 
-            <label style={{ display: 'grid', gap: 4 }}>
-              <span style={{ fontWeight: 600 }}>CTA Lead URL</span>
-              <input
-                value={ctaLeadUrl}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                  setCtaLeadUrl(event.target.value);
-                  markDirty();
-                }}
-                placeholder="https://..."
-                style={inputStyle}
-              />
-            </label>
-
-            <label style={{ display: 'grid', gap: 4 }}>
-              <span style={{ fontWeight: 600 }}>CTA Affiliate URL</span>
-              <input
-                value={ctaAffiliateUrl}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                  setCtaAffiliateUrl(event.target.value);
-                  markDirty();
-                }}
-                placeholder="https://..."
-                style={inputStyle}
-              />
-            </label>
+            <div style={{ display: 'grid', gap: '0.75rem' }}>
+              <h3 style={{ margin: '0.5rem 0 0', fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                Call to actions
+              </h3>
+              <div
+                style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+              >
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Lead Label</span>
+                  <input
+                    value={ctaLeadLabel}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaLeadLabel(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder={CTA_DEFAULT_LABELS.lead}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Lead URL</span>
+                  <input
+                    value={ctaLeadUrl}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaLeadUrl(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="https://..."
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Affiliate Label</span>
+                  <input
+                    value={ctaAffiliateLabel}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaAffiliateLabel(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder={CTA_DEFAULT_LABELS.affiliate}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Affiliate URL</span>
+                  <input
+                    value={ctaAffiliateUrl}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaAffiliateUrl(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="https://..."
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Stripe Label</span>
+                  <input
+                    value={ctaStripeLabel}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaStripeLabel(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder={CTA_DEFAULT_LABELS.stripe}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA Stripe URL</span>
+                  <input
+                    value={ctaStripeUrl}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaStripeUrl(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="https://..."
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA PayPal Label</span>
+                  <input
+                    value={ctaPaypalLabel}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaPaypalLabel(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder={CTA_DEFAULT_LABELS.paypal}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>CTA PayPal URL</span>
+                  <input
+                    value={ctaPaypalUrl}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      setCtaPaypalUrl(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="https://..."
+                    style={inputStyle}
+                  />
+                </label>
+              </div>
+            </div>
 
             <div style={{ display: 'grid', gap: 4 }}>
               <span style={{ fontWeight: 600 }}>Publicación</span>
@@ -1161,4 +1285,76 @@ export default function EditBlogPanel({
       </section>
     </section>
   );
+}
+
+function sanitizeSlugCandidate(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const url = tryParseUrl(trimmed);
+  const input = url ? url.pathname : trimmed;
+  const normalizedPath = stripQueryAndHash(input);
+  const cleanedPath = normalizedPath
+    .split(/[\\/]+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (cleanedPath.length > 0 && (cleanedPath[0].toLowerCase() === 'b' || cleanedPath[0].toLowerCase() === 'blog')) {
+    cleanedPath.shift();
+  }
+
+  const candidate = cleanedPath[0] ?? trimmed;
+  const normalized = removeAccents(candidate.toLowerCase())
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (!BLOG_SLUG_REGEX.test(normalized)) {
+    return normalized
+      .split('-')
+      .filter(Boolean)
+      .map((segment) => segment.replace(/[^a-z0-9]+/g, ''))
+      .filter(Boolean)
+      .join('-');
+  }
+
+  return normalized;
+}
+
+function stripQueryAndHash(value: string): string {
+  const queryIndex = value.indexOf('?');
+  const hashIndex = value.indexOf('#');
+  let end = value.length;
+  if (queryIndex >= 0) {
+    end = Math.min(end, queryIndex);
+  }
+  if (hashIndex >= 0) {
+    end = Math.min(end, hashIndex);
+  }
+  return value.slice(0, end);
+}
+
+function tryParseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    try {
+      return new URL(value, 'https://example.com');
+    } catch {
+      return null;
+    }
+  }
+}
+
+function removeAccents(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }

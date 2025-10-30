@@ -81,7 +81,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 const CTA_CONFIG = [
   { type: 'lead', urlKey: 'cta_lead_url', labelKey: 'cta_lead_label' },
-  { type: 'affiliate', urlKey: 'cta_affiliate_url', labelKey: 'cta_affiliate_label' }
+  { type: 'affiliate', urlKey: 'cta_affiliate_url', labelKey: 'cta_affiliate_label' },
+  { type: 'stripe', urlKey: 'cta_stripe_url', labelKey: 'cta_stripe_label' },
+  { type: 'paypal', urlKey: 'cta_paypal_url', labelKey: 'cta_paypal_label' }
 ] as const;
 
 function truncateSummary(summary: string, maxLength = 160): string {

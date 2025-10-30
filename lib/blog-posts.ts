@@ -11,6 +11,7 @@ const SUMMARY_MAX_LENGTH = 160;
 const URL_MAX_LENGTH = 2048;
 export const SEO_TITLE_MAX_LENGTH = 60;
 export const SEO_DESCRIPTION_MAX_LENGTH = 160;
+const CTA_LABEL_MAX_LENGTH = 120;
 
 const bigintLike = z.union([z.bigint(), z.number(), z.string()]);
 
@@ -26,7 +27,13 @@ const blogPostRowSchema = z.object({
   category_slug: z.string().nullable().optional(),
   product_slugs_json: z.any().nullable().optional(),
   cta_lead_url: z.string().nullable().optional(),
+  cta_lead_label: z.string().nullable().optional(),
   cta_affiliate_url: z.string().nullable().optional(),
+  cta_affiliate_label: z.string().nullable().optional(),
+  cta_stripe_url: z.string().nullable().optional(),
+  cta_stripe_label: z.string().nullable().optional(),
+  cta_paypal_url: z.string().nullable().optional(),
+  cta_paypal_label: z.string().nullable().optional(),
   seo_title: z.string().nullable().optional(),
   seo_description: z.string().nullable().optional(),
   canonical_url: z.string().nullable().optional(),
@@ -68,7 +75,13 @@ export interface BlogPostDetail extends BlogPostSummary {
   coverImageUrl: string | null;
   productSlugs: string[];
   ctaLeadUrl: string | null;
+  ctaLeadLabel: string | null;
   ctaAffiliateUrl: string | null;
+  ctaAffiliateLabel: string | null;
+  ctaStripeUrl: string | null;
+  ctaStripeLabel: string | null;
+  ctaPaypalUrl: string | null;
+  ctaPaypalLabel: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   canonicalUrl: string | null;
@@ -86,6 +99,10 @@ export interface NormalizedBlogPost {
   cta_affiliate_url: string;
   cta_lead_label: string;
   cta_affiliate_label: string;
+  cta_stripe_url: string;
+  cta_stripe_label: string;
+  cta_paypal_url: string;
+  cta_paypal_label: string;
   seo_title: string;
   seo_description: string;
   canonical_url: string;
@@ -158,7 +175,13 @@ export interface BlogPostWritePayload {
   categorySlug: string | null;
   productSlugs: string[];
   ctaLeadUrl: string | null;
+  ctaLeadLabel: string | null;
   ctaAffiliateUrl: string | null;
+  ctaAffiliateLabel: string | null;
+  ctaStripeUrl: string | null;
+  ctaStripeLabel: string | null;
+  ctaPaypalUrl: string | null;
+  ctaPaypalLabel: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   canonicalUrl: string | null;
@@ -253,9 +276,33 @@ function buildInsertStatement(schema: BlogSchema, payload: BlogPostWritePayload)
   placeholders.push('?');
   values.push(payload.ctaLeadUrl);
 
+  columns.push('cta_lead_label');
+  placeholders.push('?');
+  values.push(payload.ctaLeadLabel);
+
   columns.push('cta_affiliate_url');
   placeholders.push('?');
   values.push(payload.ctaAffiliateUrl);
+
+  columns.push('cta_affiliate_label');
+  placeholders.push('?');
+  values.push(payload.ctaAffiliateLabel);
+
+  columns.push('cta_stripe_url');
+  placeholders.push('?');
+  values.push(payload.ctaStripeUrl);
+
+  columns.push('cta_stripe_label');
+  placeholders.push('?');
+  values.push(payload.ctaStripeLabel);
+
+  columns.push('cta_paypal_url');
+  placeholders.push('?');
+  values.push(payload.ctaPaypalUrl);
+
+  columns.push('cta_paypal_label');
+  placeholders.push('?');
+  values.push(payload.ctaPaypalLabel);
 
   columns.push('seo_title');
   placeholders.push('?');
@@ -320,8 +367,26 @@ function buildUpdateStatement(
   assignments.push('cta_lead_url = ?');
   values.push(payload.ctaLeadUrl);
 
+  assignments.push('cta_lead_label = ?');
+  values.push(payload.ctaLeadLabel);
+
   assignments.push('cta_affiliate_url = ?');
   values.push(payload.ctaAffiliateUrl);
+
+  assignments.push('cta_affiliate_label = ?');
+  values.push(payload.ctaAffiliateLabel);
+
+  assignments.push('cta_stripe_url = ?');
+  values.push(payload.ctaStripeUrl);
+
+  assignments.push('cta_stripe_label = ?');
+  values.push(payload.ctaStripeLabel);
+
+  assignments.push('cta_paypal_url = ?');
+  values.push(payload.ctaPaypalUrl);
+
+  assignments.push('cta_paypal_label = ?');
+  values.push(payload.ctaPaypalLabel);
 
   assignments.push('seo_title = ?');
   values.push(payload.seoTitle);
@@ -506,7 +571,13 @@ function normalizeDetail(record: BlogPostRow): BlogPostDetail {
     coverImageUrl: record.cover_image_url ?? null,
     productSlugs,
     ctaLeadUrl: record.cta_lead_url ?? null,
+    ctaLeadLabel: record.cta_lead_label ?? null,
     ctaAffiliateUrl: record.cta_affiliate_url ?? null,
+    ctaAffiliateLabel: record.cta_affiliate_label ?? null,
+    ctaStripeUrl: record.cta_stripe_url ?? null,
+    ctaStripeLabel: record.cta_stripe_label ?? null,
+    ctaPaypalUrl: record.cta_paypal_url ?? null,
+    ctaPaypalLabel: record.cta_paypal_label ?? null,
     seoTitle: record.seo_title ?? null,
     seoDescription: record.seo_description ?? null,
     canonicalUrl: record.canonical_url ?? null
@@ -548,8 +619,12 @@ function normalizeBlogDetail(detail: BlogPostDetail): NormalizedBlogPost | null 
     product_slugs: detail.productSlugs,
     cta_lead_url: toTrimmedString(detail.ctaLeadUrl),
     cta_affiliate_url: toTrimmedString(detail.ctaAffiliateUrl),
-    cta_lead_label: '',
-    cta_affiliate_label: '',
+    cta_lead_label: toTrimmedString(detail.ctaLeadLabel),
+    cta_affiliate_label: toTrimmedString(detail.ctaAffiliateLabel),
+    cta_stripe_url: toTrimmedString(detail.ctaStripeUrl),
+    cta_stripe_label: toTrimmedString(detail.ctaStripeLabel),
+    cta_paypal_url: toTrimmedString(detail.ctaPaypalUrl),
+    cta_paypal_label: toTrimmedString(detail.ctaPaypalLabel),
     seo_title: toTrimmedString(detail.seoTitle),
     seo_description: toTrimmedString(detail.seoDescription),
     canonical_url: toTrimmedString(detail.canonicalUrl),
@@ -634,8 +709,10 @@ async function loadBlogPostBySlug(
 ): Promise<BlogPostDetail | null> {
   const categorySelect = buildCategorySelect(schema);
   const sql = `SELECT posts.id, posts.slug, posts.title_h1, posts.short_summary, posts.content_html, posts.cover_image_url,
-      ${categorySelect}, posts.product_slugs_json, posts.cta_lead_url, posts.cta_affiliate_url, posts.seo_title,
-      posts.seo_description, posts.canonical_url, posts.is_published, posts.published_at, posts.last_tidb_update_at
+      ${categorySelect}, posts.product_slugs_json, posts.cta_lead_url, posts.cta_lead_label, posts.cta_affiliate_url,
+      posts.cta_affiliate_label, posts.cta_stripe_url, posts.cta_stripe_label, posts.cta_paypal_url, posts.cta_paypal_label,
+      posts.seo_title, posts.seo_description, posts.canonical_url, posts.is_published, posts.published_at,
+      posts.last_tidb_update_at
     FROM posts
     WHERE posts.slug = ?
     LIMIT 1`;
@@ -731,6 +808,20 @@ function normalizeSummaryText(value: unknown, maxLength: number): string | null 
   return trimmed;
 }
 
+function normalizeCtaLabel(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.length > CTA_LABEL_MAX_LENGTH) {
+    return trimmed.slice(0, CTA_LABEL_MAX_LENGTH);
+  }
+  return trimmed;
+}
+
 export function normalizeBlogSlug(value: unknown): string {
   if (typeof value !== 'string') {
     throw new Error('invalid_slug');
@@ -816,8 +907,14 @@ export function normalizeBlogWritePayload(payload: Record<string, unknown>): Blo
   const coverImageUrl = normalizeUrl(payload.cover_image_url ?? payload.coverImageUrl);
   const categorySlug = normalizeCategorySlug(payload.category_slug ?? payload.categorySlug);
   const productSlugs = parseProductSlugs(payload.product_slugs_json ?? payload.product_slugs ?? payload.productSlugs);
+  const ctaLeadLabel = normalizeCtaLabel(payload.cta_lead_label ?? payload.ctaLeadLabel);
   const ctaLeadUrl = normalizeUrl(payload.cta_lead_url ?? payload.ctaLeadUrl);
+  const ctaAffiliateLabel = normalizeCtaLabel(payload.cta_affiliate_label ?? payload.ctaAffiliateLabel);
   const ctaAffiliateUrl = normalizeUrl(payload.cta_affiliate_url ?? payload.ctaAffiliateUrl);
+  const ctaStripeLabel = normalizeCtaLabel(payload.cta_stripe_label ?? payload.ctaStripeLabel);
+  const ctaStripeUrl = normalizeUrl(payload.cta_stripe_url ?? payload.ctaStripeUrl);
+  const ctaPaypalLabel = normalizeCtaLabel(payload.cta_paypal_label ?? payload.ctaPaypalLabel);
+  const ctaPaypalUrl = normalizeUrl(payload.cta_paypal_url ?? payload.ctaPaypalUrl);
   const seoTitle = normalizeSeoField(payload.seo_title ?? payload.seoTitle, SEO_TITLE_MAX_LENGTH);
   const seoDescription = normalizeSeoField(
     payload.seo_description ?? payload.seoDescription,
@@ -839,8 +936,14 @@ export function normalizeBlogWritePayload(payload: Record<string, unknown>): Blo
     coverImageUrl,
     categorySlug,
     productSlugs,
+    ctaLeadLabel,
     ctaLeadUrl,
+    ctaAffiliateLabel,
     ctaAffiliateUrl,
+    ctaStripeLabel,
+    ctaStripeUrl,
+    ctaPaypalLabel,
+    ctaPaypalUrl,
     seoTitle,
     seoDescription,
     canonicalUrl,
