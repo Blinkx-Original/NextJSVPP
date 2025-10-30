@@ -1,7 +1,9 @@
 'use client';
 
-import type { CSSProperties } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
+import type { CategoryProductSummary } from '@/lib/categories';
 import { CATEGORY_SLUG_REGEX, slugifyCategoryName } from '@/lib/category-slug';
 
 type CategoryType = 'product' | 'blog';
@@ -17,6 +19,7 @@ type AdminCategory = {
   long_description: string | null;
   is_published: boolean;
   updated_at: string | null;
+  products_count: number;
 };
 
 interface CategoriesPanelProps {
@@ -41,6 +44,20 @@ type ModalState = {
   originalSlug?: string;
   originalType?: CategoryType;
 };
+
+type CategoryProductsResponse =
+  | {
+      ok: true;
+      products: CategoryProductSummary[];
+      totalCount: number;
+      limit: number;
+      offset: number;
+    }
+  | { ok: false; error_code: string; message?: string };
+
+type CategoryTreeNodeData =
+  | { kind: 'root'; type: CategoryType; label: string }
+  | { kind: 'category'; type: CategoryType; label: string; category: AdminCategory };
 
 const panelStyle: CSSProperties = {
   display: 'flex',
@@ -80,6 +97,13 @@ const filterSelectStyle: CSSProperties = {
   background: '#fff'
 };
 
+const searchInputStyle: CSSProperties = {
+  padding: '0.5rem 0.75rem',
+  borderRadius: 8,
+  border: '1px solid #cbd5f5',
+  minWidth: '220px'
+};
+
 const buttonStyle: CSSProperties = {
   padding: '0.55rem 1.1rem',
   borderRadius: 8,
@@ -101,35 +125,6 @@ const dangerButtonStyle: CSSProperties = {
   ...buttonStyle,
   borderColor: '#fecaca',
   color: '#dc2626'
-};
-
-const tableWrapperStyle: CSSProperties = {
-  width: '100%',
-  overflowX: 'auto'
-};
-
-const tableStyle: CSSProperties = {
-  width: '100%',
-  borderCollapse: 'collapse',
-  minWidth: 720
-};
-
-const thStyle: CSSProperties = {
-  textAlign: 'left',
-  padding: '0.75rem 0.5rem',
-  borderBottom: '1px solid #e2e8f0',
-  fontSize: '0.8rem',
-  letterSpacing: '0.05em',
-  textTransform: 'uppercase',
-  color: '#475569'
-};
-
-const tdStyle: CSSProperties = {
-  padding: '0.75rem 0.5rem',
-  borderBottom: '1px solid #f1f5f9',
-  verticalAlign: 'top',
-  fontSize: '0.95rem',
-  color: '#0f172a'
 };
 
 const feedbackStyle: CSSProperties = {
@@ -204,6 +199,93 @@ const modalActionsStyle: CSSProperties = {
   flexWrap: 'wrap'
 };
 
+const contentLayoutStyle: CSSProperties = {
+  display: 'flex',
+  gap: '1.5rem',
+  flexWrap: 'wrap'
+};
+
+const treePanelStyle: CSSProperties = {
+  flex: '1 1 280px',
+  minWidth: '260px',
+  maxWidth: '360px',
+  border: '1px solid #e2e8f0',
+  borderRadius: 12,
+  padding: '1rem',
+  background: '#f8fafc',
+  maxHeight: '540px',
+  overflowY: 'auto'
+};
+
+const detailsPanelStyle: CSSProperties = {
+  flex: '2 1 420px',
+  border: '1px solid #e2e8f0',
+  borderRadius: 12,
+  padding: '1.25rem',
+  minHeight: '360px'
+};
+
+const treeNodeBaseStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.25rem',
+  padding: '0.5rem 0.75rem',
+  borderRadius: 8,
+  marginBottom: '0.25rem',
+  transition: 'background 0.2s ease'
+};
+
+const productsHeaderStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: '0.5rem'
+};
+
+const productsGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+  gap: '1rem',
+  marginTop: '1rem'
+};
+
+const productCardStyle: CSSProperties = {
+  border: '1px solid #e2e8f0',
+  borderRadius: 12,
+  padding: '0.75rem',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.5rem',
+  background: '#fff',
+  minHeight: '200px'
+};
+
+const productImageWrapperStyle: CSSProperties = {
+  width: '100%',
+  paddingTop: '56.25%',
+  position: 'relative',
+  borderRadius: 8,
+  overflow: 'hidden',
+  background: '#f1f5f9'
+};
+
+const productImageStyle: CSSProperties = {
+  position: 'absolute' as const,
+  inset: 0,
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover'
+};
+
+const productEmptyStateStyle: CSSProperties = {
+  border: '1px dashed #cbd5f5',
+  borderRadius: 12,
+  padding: '1.5rem',
+  textAlign: 'center',
+  color: '#64748b'
+};
+
 function formatDate(value: string | null): string {
   if (!value) {
     return '—';
@@ -240,6 +322,81 @@ function parseResponseCategories(value: unknown): AdminCategory[] {
   return [];
 }
 
+function getRootNodeId(type: CategoryType): string {
+  return `root:${type}`;
+}
+
+function getCategoryNodeId(type: CategoryType, slug: string): string {
+  return `category:${type}:${slug}`;
+}
+
+function buildTreeData(
+  categories: AdminCategory[],
+  filterType: 'all' | CategoryType
+): Array<TreeItem<CategoryTreeNodeData>> {
+  const roots: Array<TreeItem<CategoryTreeNodeData>> = [];
+  const includeProduct = filterType === 'all' || filterType === 'product';
+  const includeBlog = filterType === 'all' || filterType === 'blog';
+
+  if (includeProduct) {
+    roots.push({
+      id: getRootNodeId('product'),
+      data: { kind: 'root', type: 'product', label: 'Product Categories' },
+      children: categories
+        .filter((category) => category.type === 'product')
+        .map((category) => ({
+          id: getCategoryNodeId(category.type, category.slug),
+          data: { kind: 'category', type: 'product', label: category.name, category }
+        }))
+    });
+  }
+
+  if (includeBlog) {
+    roots.push({
+      id: getRootNodeId('blog'),
+      data: { kind: 'root', type: 'blog', label: 'Blog Categories' },
+      children: categories
+        .filter((category) => category.type === 'blog')
+        .map((category) => ({
+          id: getCategoryNodeId(category.type, category.slug),
+          data: { kind: 'category', type: 'blog', label: category.name, category }
+        }))
+    });
+  }
+
+  return roots;
+}
+
+function collectNodeIds(nodes: Array<TreeItem<CategoryTreeNodeData>>, target: Set<string>): void {
+  for (const node of nodes) {
+    target.add(String(node.id));
+    if (node.children && node.children.length > 0) {
+      collectNodeIds(node.children, target);
+    }
+  }
+}
+
+function findTreeNode(
+  nodes: Array<TreeItem<CategoryTreeNodeData>>,
+  id: string | null
+): TreeItem<CategoryTreeNodeData> | null {
+  if (!id) {
+    return null;
+  }
+  for (const node of nodes) {
+    if (String(node.id) === id) {
+      return node;
+    }
+    if (node.children) {
+      const found = findTreeNode(node.children, id);
+      if (found) {
+        return found;
+      }
+    }
+  }
+  return null;
+}
+
 export default function CategoriesPanel({ initialType }: CategoriesPanelProps): JSX.Element {
   const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [loading, setLoading] = useState(false);
@@ -249,6 +406,12 @@ export default function CategoriesPanel({ initialType }: CategoriesPanelProps): 
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [filterType, setFilterType] = useState<'all' | CategoryType>(initialType ?? 'all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
+  const [categoryProducts, setCategoryProducts] = useState<CategoryProductSummary[]>([]);
+  const [productsTotal, setProductsTotal] = useState(0);
 
   const loadCategories = useCallback(async () => {
     setLoading(true);
@@ -292,29 +455,141 @@ export default function CategoriesPanel({ initialType }: CategoriesPanelProps): 
     }
   }, [initialType]);
 
-  const visibleCategories = useMemo(() => {
-    if (filterType === 'all') {
-      return categories;
-    }
-    return categories.filter((category) => category.type === filterType);
-  }, [categories, filterType]);
-
-  const openCreateModal = useCallback(() => {
-    setFeedback(null);
-    setFormError(null);
-    setModalState({
-      mode: 'create',
-      form: {
-        type: initialType ?? 'product',
-        name: '',
-        slug: '',
-        shortDescription: '',
-        longDescription: '',
-        isPublished: true
-      },
-      slugDirty: false
+  const filteredCategories = useMemo(() => {
+    const value = searchTerm.trim().toLowerCase();
+    return categories.filter((category) => {
+      if (filterType !== 'all' && category.type !== filterType) {
+        return false;
+      }
+      if (!value) {
+        return true;
+      }
+      const haystack = [
+        category.name,
+        category.slug,
+        category.short_description ?? '',
+        category.long_description ?? ''
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(value);
     });
-  }, [initialType]);
+  }, [categories, filterType, searchTerm]);
+
+  const treeData = useMemo(
+    () => buildTreeData(filteredCategories, filterType),
+    [filteredCategories, filterType]
+  );
+
+  useEffect(() => {
+    const idSet = new Set<string>();
+    collectNodeIds(treeData, idSet);
+    if (idSet.size === 0) {
+      setSelectedNodeId(null);
+      return;
+    }
+    if (selectedNodeId && idSet.has(selectedNodeId)) {
+      return;
+    }
+    if (filterType === 'product') {
+      const productRoot = getRootNodeId('product');
+      if (idSet.has(productRoot)) {
+        setSelectedNodeId(productRoot);
+        return;
+      }
+    }
+    if (filterType === 'blog') {
+      const blogRoot = getRootNodeId('blog');
+      if (idSet.has(blogRoot)) {
+        setSelectedNodeId(blogRoot);
+        return;
+      }
+    }
+    const firstId = idSet.values().next().value ?? null;
+    setSelectedNodeId(firstId);
+  }, [treeData, selectedNodeId, filterType]);
+
+  const selectedTreeNode = useMemo(
+    () => findTreeNode(treeData, selectedNodeId),
+    [treeData, selectedNodeId]
+  );
+
+  const selectedCategory =
+    selectedTreeNode && selectedTreeNode.data.kind === 'category' ? selectedTreeNode.data.category : null;
+  const selectedRootType =
+    selectedTreeNode && selectedTreeNode.data.kind === 'root' ? selectedTreeNode.data.type : null;
+
+  useEffect(() => {
+    if (!selectedCategory) {
+      setCategoryProducts([]);
+      setProductsTotal(0);
+      setProductsError(null);
+      setProductsLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setProductsLoading(true);
+    setProductsError(null);
+
+    const load = async () => {
+      try {
+        const response = await fetch(
+          `/api/admin/categories/${encodeURIComponent(selectedCategory.slug)}/products?type=${selectedCategory.type}`,
+          { signal: controller.signal }
+        );
+        const data = (await response.json().catch(() => ({}))) as CategoryProductsResponse;
+        if (!response.ok || !data || data.ok !== true) {
+          const message = (data as { message?: string }).message;
+          throw new Error(message || 'Unable to load products for category.');
+        }
+        if (!controller.signal.aborted) {
+          setCategoryProducts(data.products);
+          setProductsTotal(data.totalCount);
+        }
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') {
+          return;
+        }
+        if (!controller.signal.aborted) {
+          setProductsError((err as Error)?.message || 'Unable to load products for this category.');
+          setCategoryProducts([]);
+          setProductsTotal(0);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setProductsLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedCategory]);
+
+  const openCreateModal = useCallback(
+    (typeOverride?: CategoryType) => {
+      setFeedback(null);
+      setFormError(null);
+      const effectiveType = typeOverride ?? initialType ?? 'product';
+      setModalState({
+        mode: 'create',
+        form: {
+          type: effectiveType,
+          name: '',
+          slug: '',
+          shortDescription: '',
+          longDescription: '',
+          isPublished: true
+        },
+        slugDirty: false
+      });
+    },
+    [initialType]
+  );
 
   const openEditModal = useCallback((category: AdminCategory) => {
     setFeedback(null);
@@ -500,6 +775,7 @@ export default function CategoriesPanel({ initialType }: CategoriesPanelProps): 
       }
 
       await loadCategories();
+      setSelectedNodeId(getCategoryNodeId(form.type, trimmedSlug));
       closeModal();
       setFeedback({ type: 'success', message: successMessage });
     } catch (error) {
@@ -528,14 +804,61 @@ export default function CategoriesPanel({ initialType }: CategoriesPanelProps): 
           const message = (data as { message?: string }).message;
           throw new Error(message || 'Unable to delete category.');
         }
-        setCategories((prev) => prev.filter((item) => item.slug !== category.slug || item.type !== category.type));
+        await loadCategories();
+        setSelectedNodeId(getRootNodeId(category.type));
         setFeedback({ type: 'success', message: 'Category deleted successfully.' });
-      } catch (error) {
-        setFeedback({ type: 'error', message: (error as Error)?.message || 'Unable to delete category.' });
+      } catch (err) {
+        setFeedback({ type: 'error', message: (err as Error)?.message || 'Unable to delete category.' });
       }
+    },
+    [loadCategories]
+  );
+
+  const renderTreeNode = useCallback(
+    ({ node, style }: NodeRendererProps<CategoryTreeNodeData>) => {
+      const isSelected = node.isSelected;
+      const background = isSelected ? '#e0e7ff' : 'transparent';
+      const border = isSelected ? '1px solid #c7d2fe' : '1px solid transparent';
+      const data = node.data;
+      return (
+        <div
+          style={{
+            ...treeNodeBaseStyle,
+            ...style,
+            background,
+            border,
+            color: '#0f172a'
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>{data.label}</span>
+          {data.kind === 'category' ? (
+            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+              {data.category.slug} · {data.category.is_published ? 'Published' : 'Draft'} ·{' '}
+              {data.category.products_count} products
+            </span>
+          ) : (
+            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+              {data.type === 'product' ? 'Product categories' : 'Blog categories'}
+            </span>
+          )}
+        </div>
+      );
     },
     []
   );
+
+  const defaultCreateType: CategoryType = useMemo(() => {
+    if (selectedCategory) {
+      return selectedCategory.type;
+    }
+    if (selectedRootType) {
+      return selectedRootType;
+    }
+    if (filterType !== 'all') {
+      return filterType;
+    }
+    return initialType ?? 'product';
+  }, [filterType, initialType, selectedCategory, selectedRootType]);
 
   return (
     <section style={panelStyle}>
@@ -561,11 +884,18 @@ export default function CategoriesPanel({ initialType }: CategoriesPanelProps): 
             <option value="product">Product</option>
             <option value="blog">Blog</option>
           </select>
+          <input
+            type="search"
+            placeholder="Search categories"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            style={searchInputStyle}
+          />
           <button type="button" style={buttonStyle} onClick={() => void loadCategories()}>
             Refresh
           </button>
         </div>
-        <button type="button" style={primaryButtonStyle} onClick={openCreateModal}>
+        <button type="button" style={primaryButtonStyle} onClick={() => openCreateModal(defaultCreateType)}>
           + New Category
         </button>
       </div>
@@ -573,59 +903,128 @@ export default function CategoriesPanel({ initialType }: CategoriesPanelProps): 
       {feedback ? <div style={feedback.type === 'error' ? errorStyle : successStyle}>{feedback.message}</div> : null}
       {error ? <div style={errorStyle}>{error}</div> : null}
 
-      <div style={tableWrapperStyle}>
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={thStyle}>Name</th>
-              <th style={thStyle}>Slug</th>
-              <th style={thStyle}>Type</th>
-              <th style={thStyle}>Published</th>
-              <th style={thStyle}>Updated</th>
-              <th style={thStyle}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td style={{ ...tdStyle, textAlign: 'center' }} colSpan={6}>
-                  Loading categories…
-                </td>
-              </tr>
-            ) : visibleCategories.length === 0 ? (
-              <tr>
-                <td style={{ ...tdStyle, textAlign: 'center' }} colSpan={6}>
-                  No categories found.
-                </td>
-              </tr>
-            ) : (
-              visibleCategories.map((category) => (
-                <tr key={`${category.type}-${category.id}`}>
-                  <td style={tdStyle}>
-                    <strong style={{ display: 'block' }}>{category.name}</strong>
-                    {category.short_description ? (
-                      <span style={{ display: 'block', fontSize: '0.85rem', color: '#64748b' }}>
-                        {category.short_description}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td style={tdStyle}>{category.slug}</td>
-                  <td style={tdStyle}>{category.type === 'product' ? 'Product' : 'Blog'}</td>
-                  <td style={tdStyle}>{category.is_published ? '✅' : '❌'}</td>
-                  <td style={tdStyle}>{formatDate(category.updated_at)}</td>
-                  <td style={{ ...tdStyle, display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    <button type="button" style={buttonStyle} onClick={() => openEditModal(category)}>
-                      Edit
-                    </button>
-                    <button type="button" style={dangerButtonStyle} onClick={() => void handleDelete(category)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div style={contentLayoutStyle}>
+        <aside style={treePanelStyle}>
+          {loading ? (
+            <p style={{ margin: 0, color: '#475569' }}>Loading categories…</p>
+          ) : treeData.length === 0 ? (
+            <p style={{ margin: 0, color: '#64748b' }}>No categories found.</p>
+          ) : (
+            <Tree
+              data={treeData}
+              renderNode={renderTreeNode}
+              selection={selectedNodeId ? [selectedNodeId] : []}
+              onSelect={(ids) => {
+                const [id] = ids;
+                setSelectedNodeId(id ? String(id) : null);
+              }}
+            />
+          )}
+        </aside>
+
+        <div style={detailsPanelStyle}>
+          {selectedCategory ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>{selectedCategory.name}</h3>
+                  <p style={{ margin: '0.25rem 0 0', color: '#64748b' }}>
+                    Slug: <code>{selectedCategory.slug}</code>
+                  </p>
+                  <p style={{ margin: '0.25rem 0 0', color: '#64748b' }}>
+                    Type: {selectedCategory.type === 'product' ? 'Product' : 'Blog'} ·{' '}
+                    {selectedCategory.is_published ? 'Published' : 'Draft'}
+                  </p>
+                  <p style={{ margin: '0.25rem 0 0', color: '#94a3b8' }}>
+                    Last updated: {formatDate(selectedCategory.updated_at)}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button type="button" style={buttonStyle} onClick={() => openEditModal(selectedCategory)}>
+                    Edit
+                  </button>
+                  <button type="button" style={dangerButtonStyle} onClick={() => void handleDelete(selectedCategory)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              {selectedCategory.short_description ? (
+                <p style={{ margin: 0, color: '#475569' }}>{selectedCategory.short_description}</p>
+              ) : null}
+              {selectedCategory.long_description ? (
+                <p style={{ margin: 0, color: '#475569' }}>{selectedCategory.long_description}</p>
+              ) : null}
+
+              <div style={productsHeaderStyle}>
+                <h4 style={{ margin: 0, color: '#0f172a' }}>Products</h4>
+                <span style={{ color: '#64748b' }}>
+                  {productsLoading ? 'Loading…' : `${productsTotal} product${productsTotal === 1 ? '' : 's'}`}
+                </span>
+              </div>
+
+              {productsError ? <div style={errorStyle}>{productsError}</div> : null}
+
+              {productsLoading ? (
+                <p style={{ margin: 0, color: '#475569' }}>Fetching products for this category…</p>
+              ) : categoryProducts.length === 0 ? (
+                <div style={productEmptyStateStyle}>No products found in this category.</div>
+              ) : (
+                <div style={productsGridStyle}>
+                  {categoryProducts.map((product) => (
+                    <article key={String(product.id)} style={productCardStyle}>
+                      <div style={productImageWrapperStyle}>
+                        {product.primaryImage ? (
+                          <Image
+                            src={product.primaryImage}
+                            alt={product.title}
+                            fill
+                            sizes="(max-width: 768px) 100vw, 240px"
+                            style={productImageStyle}
+                          />
+                        ) : null}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        <h5 style={{ margin: 0, fontSize: '1.05rem', color: '#0f172a' }}>{product.title}</h5>
+                        {product.shortSummary ? (
+                          <p style={{ margin: 0, color: '#475569', fontSize: '0.9rem' }}>{product.shortSummary}</p>
+                        ) : null}
+                        {product.price ? (
+                          <p style={{ margin: 0, color: '#2563eb', fontWeight: 600 }}>{product.price}</p>
+                        ) : null}
+                        <a
+                          href={`/p/${product.slug}`}
+                          style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}
+                        >
+                          View product
+                        </a>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : selectedRootType ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.5rem', color: '#0f172a' }}>
+                {selectedRootType === 'product' ? 'Product categories' : 'Blog categories'}
+              </h3>
+              <p style={{ margin: 0, color: '#475569' }}>
+                Select an existing category to view its details, or create a new one for the
+                {selectedRootType === 'product' ? ' product catalog.' : ' blog.'}
+              </p>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={() => openCreateModal(selectedRootType)}
+              >
+                Create {selectedRootType === 'product' ? 'product' : 'blog'} category
+              </button>
+            </div>
+          ) : (
+            <p style={{ margin: 0, color: '#64748b' }}>Select a category from the tree to view details.</p>
+          )}
+        </div>
       </div>
 
       {modalState ? (
@@ -737,3 +1136,4 @@ export default function CategoriesPanel({ initialType }: CategoriesPanelProps): 
     </section>
   );
 }
+
