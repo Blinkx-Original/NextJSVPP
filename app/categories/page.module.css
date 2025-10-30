@@ -27,12 +27,148 @@
   margin: 0 auto;
 }
 
-.explorer {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr);
-  gap: 2.5rem;
-  width: min(1200px, 100%);
-  margin: 0 auto;
+.layout {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+@media (min-width: 1024px) {
+  .layout {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+}
+
+.treePanel {
+  flex: 0 0 100%;
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+@media (min-width: 1024px) {
+  .treePanel {
+    flex: 0 0 300px;
+    max-height: 640px;
+    position: sticky;
+    top: 6rem;
+  }
+}
+
+.treeHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.treeTitle {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.treeDescription {
+  font-size: 0.9rem;
+  color: #475569;
+  margin: 0;
+}
+
+.treeContainer {
+  background: #ffffff;
+  border-radius: 0.9rem;
+  border: 1px solid #dbeafe;
+  padding: 0.75rem 0.25rem;
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.treeNode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 0.65rem;
+  transition: all 0.2s ease;
+}
+
+.treeGroup {
+  font-weight: 600;
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.treeLeaf {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #0f172a;
+}
+
+.treeLeaf:hover {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.treeNodeActive {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.treeLabel {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: inherit;
+}
+
+.treeBadge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.productBadge {
+  background: rgba(16, 185, 129, 0.18);
+  color: #047857;
+}
+
+.blogBadge {
+  background: rgba(59, 130, 246, 0.18);
+  color: #1d4ed8;
+}
+
+.treeEmpty {
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.resultsPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+@media (min-width: 768px) {
+  .controls {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
 }
 
 .sidebar {
@@ -72,21 +208,12 @@
   background: #f8fafc;
 }
 
-.searchInput:focus {
-  outline: 2px solid #2563eb;
-  outline-offset: 1px;
-}
-
-.treeWrapper {
-  flex: 1;
-  overflow: auto;
-  padding-right: 0.25rem;
-}
-
-.emptyTreeState {
-  padding: 2rem 1rem;
-  text-align: center;
-  color: #64748b;
+.searchInput {
+  width: 100%;
+  max-width: 22rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid #d1d5db;
   font-size: 0.95rem;
 }
 
