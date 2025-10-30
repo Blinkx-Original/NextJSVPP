@@ -17,16 +17,34 @@ import {
   type TreeItem
 } from '@/lib/react-arborist';
 import styles from './page.module.css';
+import { Tree, type NodeRendererProps, type TreeItem } from 'react-arborist';
 
-export type CategoryFilterType = 'all' | 'product' | 'blog';
-
-export interface CategoryCard {
+export type ExplorerCategory = {
   id: string;
-  type: 'product' | 'blog';
   slug: string;
   name: string;
+  type: 'product' | 'blog';
   shortDescription: string | null;
   heroImageUrl: string | null;
+};
+
+export type ExplorerProductCard = {
+  id: string;
+  slug: string;
+  title: string;
+  shortSummary: string | null;
+  price: string | null;
+  primaryImage: string | null;
+  lastUpdatedAt: string | null;
+};
+
+interface CategoryExplorerProps {
+  productCategories: ExplorerCategory[];
+  blogCategories: ExplorerCategory[];
+  initialCategory: ExplorerCategory | null;
+  initialProducts: ExplorerProductCard[];
+  initialTotalCount: number;
+  productsPreviewLimit: number;
 }
 
 export interface CategoryPickerOption {
@@ -195,12 +213,12 @@ function buildPaginationButtons(
 }
 
 export function CategoryExplorer({
-  categories,
-  totalCount,
-  page,
-  pageSize,
-  activeType,
-  categoryPickerOptions
+  productCategories,
+  blogCategories,
+  initialCategory,
+  initialProducts,
+  initialTotalCount,
+  productsPreviewLimit
 }: CategoryExplorerProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -211,7 +229,15 @@ export function CategoryExplorer({
     activeType === 'all' ? [] : [`group:${activeType}`]
   );
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const treeData = useMemo(() => {
+    const options =
+      categoryPickerOptions.length > 0
+        ? categoryPickerOptions
+        : categories.map((category) => ({
+            type: category.type,
+            slug: category.slug,
+            name: category.name
+          }));
 
   const pickerOptions = derivePickerOptions(categories, categoryPickerOptions);
   const treeData = buildTreeData(pickerOptions);
@@ -339,7 +365,10 @@ export function CategoryExplorer({
     [router, startTransition, updateQuery]
   );
 
-  const resultsText = `${filteredCategories.length} of ${totalCount} categories`;
+  const activeProducts = fetchState.products;
+  const activeTotal = fetchState.totalCount;
+  const isLoading = fetchState.status === 'loading' || isPending;
+  const hasActiveProducts = activeProducts.length > 0;
 
   return (
     <div className={styles.layout}>
