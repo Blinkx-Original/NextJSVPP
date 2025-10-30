@@ -1,48 +1,8 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
-import {
-  getCategoryTypeSynonyms,
-  getProductCategoryColumns,
-  type ProductCategoryColumn
-} from '@/lib/categories';
-import { toDbErrorInfo } from '@/lib/db';
+import { getBlogCategoryColumn, getCategoryTypeSynonyms, getProductCategoryColumns } from '@/lib/categories';
+import type { ProductCategoryColumn, BlogCategoryColumn } from '@/lib/categories';
 
 type CategoryType = 'product' | 'blog';
-
-export type BlogCategoryColumn = 'category_slug' | 'category';
-
-let cachedBlogCategoryColumn: BlogCategoryColumn | null | undefined;
-
-async function detectBlogCategoryColumn(
-  client: Pool | PoolConnection
-): Promise<BlogCategoryColumn | null> {
-  if (cachedBlogCategoryColumn !== undefined) {
-    return cachedBlogCategoryColumn;
-  }
-
-  const candidates: BlogCategoryColumn[] = ['category_slug', 'category'];
-
-  for (const column of candidates) {
-    try {
-      const [rows] = await client.query<RowDataPacket[]>(`SHOW COLUMNS FROM posts LIKE ?`, [column]);
-      if (Array.isArray(rows) && rows.length > 0) {
-        cachedBlogCategoryColumn = column;
-        return column;
-      }
-    } catch (error) {
-      const info = toDbErrorInfo(error);
-      console.warn('[admin/categories] failed to inspect blog posts column', info);
-    }
-  }
-
-  cachedBlogCategoryColumn = null;
-  return null;
-}
-
-export async function getBlogCategoryColumn(
-  client: Pool | PoolConnection
-): Promise<BlogCategoryColumn | null> {
-  return detectBlogCategoryColumn(client);
-}
 
 export interface AdminCategoryRow {
   id: string;
