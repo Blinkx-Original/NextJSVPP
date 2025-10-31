@@ -644,11 +644,12 @@ function buildCategoryMatchFragments(
   }
 
   for (const column of columns) {
+    const columnRef = `\`${column}\``;
     if ((column === 'category' || column === 'category_slug') && match.normalizedValues.length > 0) {
-      const equality = match.normalizedValues.map(() => 'LOWER(TRIM(??)) = ?').join(' OR ');
+      const equality = match.normalizedValues.map(() => `LOWER(TRIM(${columnRef})) = ?`).join(' OR ');
       pieces.push(`(${equality})`);
       for (const value of match.normalizedValues) {
-        params.push(column, value);
+        params.push(value);
       }
     } else if (
       (column === 'categories' || column === 'category_slugs' || column === 'category_slugs_json') &&
@@ -657,31 +658,31 @@ function buildCategoryMatchFragments(
       const jsonFragments: string[] = [];
       const jsonParams: unknown[] = [];
       for (const value of match.jsonValues) {
-        jsonFragments.push('JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))');
-        jsonParams.push(column, value);
-        jsonFragments.push("JSON_SEARCH(CAST(?? AS JSON), 'one', ?, NULL, '$') IS NOT NULL");
-        jsonParams.push(column, value);
+        jsonFragments.push(`JSON_CONTAINS(CAST(${columnRef} AS JSON), JSON_QUOTE(?))`);
+        jsonParams.push(value);
+        jsonFragments.push(`JSON_SEARCH(CAST(${columnRef} AS JSON), 'one', ?, NULL, '$') IS NOT NULL`);
+        jsonParams.push(value);
       }
 
       const csvFragments: string[] = [];
       const csvParams: unknown[] = [];
       for (const token of match.csvTokens) {
-        csvFragments.push(`FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', '')) > 0`);
-        csvParams.push(token, column);
-        csvFragments.push(`CONCAT(',', REPLACE(LOWER(TRIM(??)), ' ', ''), ',') LIKE ?`);
-        csvParams.push(column, `%,${token},%`);
+        csvFragments.push(`FIND_IN_SET(?, REPLACE(LOWER(TRIM(${columnRef})), ' ', '')) > 0`);
+        csvParams.push(token);
+        csvFragments.push(`CONCAT(',', REPLACE(LOWER(TRIM(${columnRef})), ' ', ''), ',') LIKE ?`);
+        csvParams.push(`%,${token},%`);
       }
 
       const jsonClause = jsonFragments.length > 0 ? jsonFragments.join(' OR ') : '0';
       const csvClause = csvFragments.length > 0 ? csvFragments.join(' OR ') : '0';
 
       pieces.push(`(
-        (JSON_VALID(??) AND (${jsonClause}))
+        (JSON_VALID(${columnRef}) AND (${jsonClause}))
         OR
-        (NOT JSON_VALID(??) AND (${csvClause}))
+        (NOT JSON_VALID(${columnRef}) AND (${csvClause}))
       )`);
 
-      params.push(column, ...jsonParams, column, ...csvParams);
+      params.push(...jsonParams, ...csvParams);
     }
   }
 
