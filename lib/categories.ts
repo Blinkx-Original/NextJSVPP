@@ -244,7 +244,7 @@ export async function resolveProductCategoryBySlugOrName(
     hintName ? formatCategorySlug(hintName) : null
   ]);
 
-  for (const candidate of slugCandidates) {
+  for (const candidate of Array.from(slugCandidates.values())) {
     const category = await getPublishedCategoryBySlug(candidate, { requestId });
     if (category && category.type === 'product') {
       return category;
@@ -273,7 +273,7 @@ export async function resolveProductCategoryBySlugOrName(
       return category;
     }
 
-    for (const candidate of nameCandidates) {
+    for (const candidate of Array.from(nameCandidates.values())) {
       if (!candidate) {
         continue;
       }
