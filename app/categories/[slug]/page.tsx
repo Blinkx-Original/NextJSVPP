@@ -7,6 +7,7 @@ import {
   getPublishedCategoryBySlug,
   getPublishedProductsForCategory,
   createVirtualProductCategoryFromSlug,
+  resolveProductCategoryBySlugOrName,
   type CategoryProductSummary
 } from "@/lib/categories";
 import { createRequestId } from "@/lib/request-id";
@@ -45,17 +46,26 @@ function toProductCards(products: CategoryProductSummary[]) {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const requestId = createRequestId();
   const category = await getPublishedCategoryBySlug(params.slug, { requestId });
+  const productCategory =
+    category && category.type === "product"
+      ? category
+      : await resolveProductCategoryBySlugOrName(params.slug, {
+          requestId,
+          hintName: category?.name ?? null
+        });
   const host = headers().get("host") ?? undefined;
   const canonical = `${buildCategoriesHubUrl(host)}/${params.slug}`;
   const resolvedCategory =
-    category ?? createVirtualProductCategoryFromSlug(params.slug);
+    productCategory ?? category ?? createVirtualProductCategoryFromSlug(params.slug);
   const isBlog = resolvedCategory.type === "blog";
-  const title = `${resolvedCategory.name} | ${isBlog ? "Blog Category" : "Product Category"}`;
+  const displayName = category?.name?.trim() ? category.name : resolvedCategory.name;
   const description =
     resolvedCategory.shortDescription ||
+    (resolvedCategory !== category ? category?.shortDescription : null) ||
     (isBlog
       ? "Stories, news, and insights curated for this BlinkX blog category."
       : "Discover published products curated for this category on BlinkX Virtual Product Pages.");
+  const title = `${displayName} | ${isBlog ? "Blog Category" : "Product Category"}`;
   return {
     title,
     description,
@@ -84,9 +94,20 @@ function buildPageHref(slug: string, page: number): string {
 export default async function CategoryPage({ params, searchParams }: PageProps) {
   const requestId = createRequestId();
   const pageParam = parsePageParam(resolveSearchParam(searchParams?.page));
+  const matchedCategory = await getPublishedCategoryBySlug(params.slug, { requestId });
+  const productCategory =
+    matchedCategory && matchedCategory.type === "product"
+      ? matchedCategory
+      : await resolveProductCategoryBySlugOrName(params.slug, {
+          requestId,
+          hintName: matchedCategory?.name ?? null
+        });
   const category =
-    (await getPublishedCategoryBySlug(params.slug, { requestId })) ??
-    createVirtualProductCategoryFromSlug(params.slug);
+    productCategory ?? matchedCategory ?? createVirtualProductCategoryFromSlug(params.slug);
+  const displayName = matchedCategory?.name?.trim() ? matchedCategory.name : category.name;
+  const displayDescription =
+    category.shortDescription ||
+    (category !== matchedCategory ? matchedCategory?.shortDescription : null);
   // Determine pagination offsets.
   const offset = (pageParam - 1) * PAGE_SIZE;
   let { products, totalCount } = await getPublishedProductsForCategory(
@@ -119,9 +140,9 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
-        <h1 className={styles.heroTitle}>{category.name}</h1>
-        {category.shortDescription ? (
-          <p className={styles.heroDescription}>{category.shortDescription}</p>
+        <h1 className={styles.heroTitle}>{displayName}</h1>
+        {displayDescription ? (
+          <p className={styles.heroDescription}>{displayDescription}</p>
         ) : null}
       </section>
       {/* Render the product cards or an empty state if no products are found */}

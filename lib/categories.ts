@@ -179,6 +179,118 @@ export function createVirtualProductCategoryFromSlug(slug: string): CategorySumm
   };
 }
 
+interface ProductCategoryListCacheEntry {
+  categories: CategorySummary[];
+  expiresAt: number;
+}
+
+const PRODUCT_CATEGORY_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+let cachedProductCategoryList: ProductCategoryListCacheEntry | null = null;
+
+async function loadProductCategoryList(requestId?: string): Promise<CategorySummary[]> {
+  if (cachedProductCategoryList && cachedProductCategoryList.expiresAt > Date.now()) {
+    return cachedProductCategoryList.categories;
+  }
+
+  const categories = await getAllPublishedCategories({ type: 'product', requestId });
+  cachedProductCategoryList = {
+    categories,
+    expiresAt: Date.now() + PRODUCT_CATEGORY_LIST_CACHE_TTL_MS
+  };
+  return categories;
+}
+
+function buildCandidateSet(values: Array<string | null | undefined>): Set<string> {
+  const set = new Set<string>();
+  values.forEach((value) => {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+    set.add(trimmed);
+    set.add(trimmed.toLowerCase());
+  });
+  return set;
+}
+
+export interface ProductCategoryResolutionOptions {
+  requestId?: string;
+  hintName?: string | null;
+}
+
+export async function resolveProductCategoryBySlugOrName(
+  identifier: string,
+  options: ProductCategoryResolutionOptions = {}
+): Promise<CategorySummary | null> {
+  if (typeof identifier !== 'string') {
+    return null;
+  }
+
+  const trimmedIdentifier = identifier.trim();
+  if (!trimmedIdentifier) {
+    return null;
+  }
+
+  const requestId = options.requestId;
+  const slugifiedIdentifier = formatCategorySlug(trimmedIdentifier);
+  const hintName = options.hintName ?? null;
+  const slugCandidates = buildCandidateSet([
+    trimmedIdentifier,
+    slugifiedIdentifier,
+    hintName,
+    hintName ? formatCategorySlug(hintName) : null
+  ]);
+
+  for (const candidate of slugCandidates) {
+    const category = await getPublishedCategoryBySlug(candidate, { requestId });
+    if (category && category.type === 'product') {
+      return category;
+    }
+  }
+
+  const nameCandidates = buildCandidateSet([
+    trimmedIdentifier,
+    formatCategoryNameFromSlug(trimmedIdentifier),
+    hintName,
+    hintName ? formatCategoryNameFromSlug(hintName) : null
+  ]);
+
+  const categories = await loadProductCategoryList(requestId);
+  for (const category of categories) {
+    const normalizedSlug = category.slug.toLowerCase();
+    const normalizedName = category.name.toLowerCase();
+    const slugFromName = formatCategorySlug(category.name).toLowerCase();
+    const nameFromSlug = formatCategoryNameFromSlug(category.slug).toLowerCase();
+
+    if (
+      slugCandidates.has(category.slug) ||
+      slugCandidates.has(normalizedSlug) ||
+      slugCandidates.has(slugFromName)
+    ) {
+      return category;
+    }
+
+    for (const candidate of nameCandidates) {
+      if (!candidate) {
+        continue;
+      }
+      if (
+        candidate === normalizedName ||
+        candidate === normalizedSlug ||
+        candidate === slugFromName ||
+        candidate === nameFromSlug
+      ) {
+        return category;
+      }
+    }
+  }
+
+  return null;
+}
+
 function normalizeCategoryRecord(record: CategoryRecord): CategorySummary {
   const typeValue = record.type?.toLowerCase() === 'blog' ? 'blog' : 'product';
   const lastUpdated = record.updated_at || record.last_tidb_update_at || null;

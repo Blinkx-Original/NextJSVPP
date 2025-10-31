@@ -17,6 +17,7 @@ import {
   createVirtualProductCategoryFromSlug,
   getPublishedCategoryBySlug,
   getPublishedProductsForCategory,
+  resolveProductCategoryBySlugOrName,
   type CategoryProductSummary
 } from '@/lib/categories';
 import { getPublishedProductsBySlugs, type NormalizedProductResult } from '@/lib/products';
@@ -390,9 +391,17 @@ async function loadCategoryListing(options: CategoryListingOptions): Promise<Pro
     return null;
   }
 
-  const category =
-    (await getPublishedCategoryBySlug(trimmedSlug, { requestId })) ??
-    createVirtualProductCategoryFromSlug(trimmedSlug);
+  const matchedCategory = await getPublishedCategoryBySlug(trimmedSlug, { requestId });
+  const productCategory =
+    matchedCategory && matchedCategory.type === 'product'
+      ? matchedCategory
+      : await resolveProductCategoryBySlugOrName(trimmedSlug, {
+          requestId,
+          hintName: matchedCategory?.name ?? null
+        });
+
+  const category = productCategory ?? matchedCategory ?? createVirtualProductCategoryFromSlug(trimmedSlug);
+  const subtitle = matchedCategory?.name?.trim() ? matchedCategory.name : category.name;
 
   const offset = (pageParam - 1) * PAGE_SIZE;
   let { products, totalCount } = await getPublishedProductsForCategory(
@@ -431,7 +440,7 @@ async function loadCategoryListing(options: CategoryListingOptions): Promise<Pro
   return {
     key: `category-${category.slug}`,
     heading: 'Productos relacionados',
-    subtitle: category.name,
+    subtitle,
     cards,
     viewAllHref: `/categories/${category.slug}`,
     pagination:
