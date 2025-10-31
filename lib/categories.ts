@@ -91,6 +91,10 @@ export async function getBlogCategoryColumn(client?: SqlClient): Promise<BlogCat
 }
 
 function normalizeCount(value: unknown): number {
+  if (typeof value === 'bigint') {
+    const coerced = Number(value);
+    return Number.isFinite(coerced) ? coerced : 0;
+  }
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
