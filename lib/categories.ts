@@ -91,6 +91,10 @@ export async function getBlogCategoryColumn(client?: SqlClient): Promise<BlogCat
 }
 
 function normalizeCount(value: unknown): number {
+  if (typeof value === 'bigint') {
+    const coerced = Number(value);
+    return Number.isFinite(coerced) ? coerced : 0;
+  }
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
@@ -155,6 +159,140 @@ export interface CategorySummary {
   longDescription: string | null;
   heroImageUrl: string | null;
   lastUpdatedAt: string | null;
+}
+
+export function formatCategoryNameFromSlug(slug: string): string {
+  return slug
+    .split('-')
+    .filter((part) => part.trim().length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+export function createVirtualProductCategoryFromSlug(slug: string): CategorySummary {
+  const fallbackName = formatCategoryNameFromSlug(slug) || slug;
+  return {
+    id: BigInt(0),
+    type: 'product',
+    slug,
+    name: fallbackName,
+    shortDescription: null,
+    longDescription: null,
+    heroImageUrl: null,
+    lastUpdatedAt: null
+  };
+}
+
+interface ProductCategoryListCacheEntry {
+  categories: CategorySummary[];
+  expiresAt: number;
+}
+
+const PRODUCT_CATEGORY_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+let cachedProductCategoryList: ProductCategoryListCacheEntry | null = null;
+
+async function loadProductCategoryList(requestId?: string): Promise<CategorySummary[]> {
+  if (cachedProductCategoryList && cachedProductCategoryList.expiresAt > Date.now()) {
+    return cachedProductCategoryList.categories;
+  }
+
+  const categories = await getAllPublishedCategories({ type: 'product', requestId });
+  cachedProductCategoryList = {
+    categories,
+    expiresAt: Date.now() + PRODUCT_CATEGORY_LIST_CACHE_TTL_MS
+  };
+  return categories;
+}
+
+function buildCandidateSet(values: Array<string | null | undefined>): Set<string> {
+  const set = new Set<string>();
+  values.forEach((value) => {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+    set.add(trimmed);
+    set.add(trimmed.toLowerCase());
+  });
+  return set;
+}
+
+export interface ProductCategoryResolutionOptions {
+  requestId?: string;
+  hintName?: string | null;
+}
+
+export async function resolveProductCategoryBySlugOrName(
+  identifier: string,
+  options: ProductCategoryResolutionOptions = {}
+): Promise<CategorySummary | null> {
+  if (typeof identifier !== 'string') {
+    return null;
+  }
+
+  const trimmedIdentifier = identifier.trim();
+  if (!trimmedIdentifier) {
+    return null;
+  }
+
+  const requestId = options.requestId;
+  const slugifiedIdentifier = formatCategorySlug(trimmedIdentifier);
+  const hintName = options.hintName ?? null;
+  const slugCandidates = buildCandidateSet([
+    trimmedIdentifier,
+    slugifiedIdentifier,
+    hintName,
+    hintName ? formatCategorySlug(hintName) : null
+  ]);
+
+  for (const candidate of Array.from(slugCandidates.values())) {
+    const category = await getPublishedCategoryBySlug(candidate, { requestId });
+    if (category && category.type === 'product') {
+      return category;
+    }
+  }
+
+  const nameCandidates = buildCandidateSet([
+    trimmedIdentifier,
+    formatCategoryNameFromSlug(trimmedIdentifier),
+    hintName,
+    hintName ? formatCategoryNameFromSlug(hintName) : null
+  ]);
+
+  const categories = await loadProductCategoryList(requestId);
+  for (const category of categories) {
+    const normalizedSlug = category.slug.toLowerCase();
+    const normalizedName = category.name.toLowerCase();
+    const slugFromName = formatCategorySlug(category.name).toLowerCase();
+    const nameFromSlug = formatCategoryNameFromSlug(category.slug).toLowerCase();
+
+    if (
+      slugCandidates.has(category.slug) ||
+      slugCandidates.has(normalizedSlug) ||
+      slugCandidates.has(slugFromName)
+    ) {
+      return category;
+    }
+
+    for (const candidate of Array.from(nameCandidates.values())) {
+      if (!candidate) {
+        continue;
+      }
+      if (
+        candidate === normalizedName ||
+        candidate === normalizedSlug ||
+        candidate === slugFromName ||
+        candidate === nameFromSlug
+      ) {
+        return category;
+      }
+    }
+  }
+
+  return null;
 }
 
 function normalizeCategoryRecord(record: CategoryRecord): CategorySummary {
@@ -506,11 +644,12 @@ function buildCategoryMatchFragments(
   }
 
   for (const column of columns) {
+    const columnRef = `\`${column}\``;
     if ((column === 'category' || column === 'category_slug') && match.normalizedValues.length > 0) {
-      const equality = match.normalizedValues.map(() => 'LOWER(TRIM(??)) = ?').join(' OR ');
+      const equality = match.normalizedValues.map(() => `LOWER(TRIM(${columnRef})) = ?`).join(' OR ');
       pieces.push(`(${equality})`);
       for (const value of match.normalizedValues) {
-        params.push(column, value);
+        params.push(value);
       }
     } else if (
       (column === 'categories' || column === 'category_slugs' || column === 'category_slugs_json') &&
@@ -519,31 +658,31 @@ function buildCategoryMatchFragments(
       const jsonFragments: string[] = [];
       const jsonParams: unknown[] = [];
       for (const value of match.jsonValues) {
-        jsonFragments.push('JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))');
-        jsonParams.push(column, value);
-        jsonFragments.push("JSON_SEARCH(CAST(?? AS JSON), 'one', ?, NULL, '$') IS NOT NULL");
-        jsonParams.push(column, value);
+        jsonFragments.push(`JSON_CONTAINS(CAST(${columnRef} AS JSON), JSON_QUOTE(?))`);
+        jsonParams.push(value);
+        jsonFragments.push(`JSON_SEARCH(CAST(${columnRef} AS JSON), 'one', ?, NULL, '$') IS NOT NULL`);
+        jsonParams.push(value);
       }
 
       const csvFragments: string[] = [];
       const csvParams: unknown[] = [];
       for (const token of match.csvTokens) {
-        csvFragments.push(`FIND_IN_SET(?, REPLACE(LOWER(TRIM(??)), ' ', '')) > 0`);
-        csvParams.push(token, column);
-        csvFragments.push(`CONCAT(',', REPLACE(LOWER(TRIM(??)), ' ', ''), ',') LIKE ?`);
-        csvParams.push(column, `%,${token},%`);
+        csvFragments.push(`FIND_IN_SET(?, REPLACE(LOWER(TRIM(${columnRef})), ' ', '')) > 0`);
+        csvParams.push(token);
+        csvFragments.push(`CONCAT(',', REPLACE(LOWER(TRIM(${columnRef})), ' ', ''), ',') LIKE ?`);
+        csvParams.push(`%,${token},%`);
       }
 
       const jsonClause = jsonFragments.length > 0 ? jsonFragments.join(' OR ') : '0';
       const csvClause = csvFragments.length > 0 ? csvFragments.join(' OR ') : '0';
 
       pieces.push(`(
-        (JSON_VALID(??) AND (${jsonClause}))
+        (JSON_VALID(${columnRef}) AND (${jsonClause}))
         OR
-        (NOT JSON_VALID(??) AND (${csvClause}))
+        (NOT JSON_VALID(${columnRef}) AND (${csvClause}))
       )`);
 
-      params.push(column, ...jsonParams, column, ...csvParams);
+      params.push(...jsonParams, ...csvParams);
     }
   }
 
