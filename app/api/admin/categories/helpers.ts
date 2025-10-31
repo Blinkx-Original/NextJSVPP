@@ -27,14 +27,41 @@ function buildProductStatsJoin(columns: ProductCategoryColumn[]): string {
     return '';
   }
 
-  const subqueries = columns.map(
-    (column) => `SELECT LOWER(TRIM(\`${column}\`)) AS slug, COUNT(*) AS total
+  const scalarColumns = columns.filter((column) =>
+    column === 'category' || column === 'category_slug' || column === 'category_slugs'
+  );
+  const jsonColumns = columns.filter((column) => column === 'categories' || column === 'category_slugs_json');
+
+  const subqueries: string[] = [];
+
+  for (const column of scalarColumns) {
+    subqueries.push(`SELECT LOWER(TRIM(\`${column}\`)) AS slug, COUNT(*) AS total
         FROM products
         WHERE is_published = 1
           AND \`${column}\` IS NOT NULL
           AND TRIM(\`${column}\`) <> ''
-        GROUP BY LOWER(TRIM(\`${column}\`))`
-  );
+        GROUP BY LOWER(TRIM(\`${column}\`))`);
+  }
+
+  for (const column of jsonColumns) {
+    subqueries.push(`SELECT LOWER(TRIM(COALESCE(jt.slug_object, jt.slug_value))) AS slug, COUNT(*) AS total
+        FROM products
+        JOIN JSON_TABLE(
+          IF(JSON_VALID(\`${column}\`), \`${column}\`, JSON_ARRAY()),
+          '$[*]' COLUMNS(
+            slug_value VARCHAR(255) PATH '$',
+            slug_object VARCHAR(255) PATH '$.slug'
+          )
+        ) AS jt
+        WHERE is_published = 1
+          AND COALESCE(jt.slug_object, jt.slug_value) IS NOT NULL
+          AND TRIM(COALESCE(jt.slug_object, jt.slug_value)) <> ''
+        GROUP BY LOWER(TRIM(COALESCE(jt.slug_object, jt.slug_value)))`);
+  }
+
+  if (subqueries.length === 0) {
+    return '';
+  }
 
   return `LEFT JOIN (
     SELECT slug, SUM(total) AS total
