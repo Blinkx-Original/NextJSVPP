@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import { headers } from "next/headers";
-import { notFound } from "next/navigation";
 import styles from "./page.module.css";
 import {
   getPublishedCategoryBySlug,
   getPublishedProductsForCategory,
-  type CategoryProductSummary
+  type CategoryProductSummary,
+  type CategorySummary
 } from "@/lib/categories";
 import { createRequestId } from "@/lib/request-id";
 import { buildCategoriesHubUrl } from "@/lib/urls";
@@ -15,8 +15,8 @@ import { buildCategoriesHubUrl } from "@/lib/urls";
 // This page is statically generated at runtime using server side data
 // fetching.  It renders a list of products associated with a given
 // category slug.  If the slug does not correspond to a published
-// category then a 404 is returned.  Categories that exist but have no
-// products return a 200 with an empty state.
+// category, the page still renders a virtual category so that legacy
+// product records that only reference a slug continue to work.
 
 export const runtime = "nodejs";
 export const revalidate = 600;
@@ -58,9 +58,7 @@ function toProductCards(products: CategoryProductSummary[]) {
 }
 
 // Format a slug into a human‑friendly category name.  e.g.
-// "latest-category" -> "Latest Category".  This is used for fallback
-// metadata only; the actual page will not use it when the category is
-// unknown.
+// "latest-category" -> "Latest Category".
 function formatSlugName(slug: string): string {
   return slug
     .split("-")
@@ -69,40 +67,30 @@ function formatSlugName(slug: string): string {
     .join(" ");
 }
 
+function createVirtualCategoryFromSlug(slug: string): CategorySummary {
+  const fallbackName = formatSlugName(slug) || slug;
+  return {
+    id: BigInt(0),
+    type: "product",
+    slug,
+    name: fallbackName,
+    shortDescription: null,
+    longDescription: null,
+    heroImageUrl: null,
+    lastUpdatedAt: null
+  };
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  // Generate page metadata based on the category.  If the category does not
-  // exist, still return reasonable metadata using the slug as a fallback
-  // name.  The page component itself will return a 404 for unknown
-  // categories.
   const requestId = createRequestId();
   const category = await getPublishedCategoryBySlug(params.slug, { requestId });
   const host = headers().get("host") ?? undefined;
   const canonical = `${buildCategoriesHubUrl(host)}/${params.slug}`;
-  if (!category) {
-    const fallbackName = formatSlugName(params.slug);
-    const title = `${fallbackName} | Product Category`;
-    const description =
-      "Discover published products curated for this category on BlinkX Virtual Product Pages.";
-    return {
-      title,
-      description,
-      alternates: { canonical },
-      openGraph: {
-        title,
-        description,
-        url: canonical
-      },
-      twitter: {
-        card: "summary_large_image",
-        title,
-        description
-      }
-    };
-  }
-  const isBlog = category.type === "blog";
-  const title = `${category.name} | ${isBlog ? "Blog Category" : "Product Category"}`;
+  const resolvedCategory = category ?? createVirtualCategoryFromSlug(params.slug);
+  const isBlog = resolvedCategory.type === "blog";
+  const title = `${resolvedCategory.name} | ${isBlog ? "Blog Category" : "Product Category"}`;
   const description =
-    category.shortDescription ||
+    resolvedCategory.shortDescription ||
     (isBlog
       ? "Stories, news, and insights curated for this BlinkX blog category."
       : "Discover published products curated for this category on BlinkX Virtual Product Pages.");
@@ -134,16 +122,13 @@ function buildPageHref(slug: string, page: number): string {
 export default async function CategoryPage({ params, searchParams }: PageProps) {
   const requestId = createRequestId();
   const pageParam = parsePage(resolveSearchParam(searchParams?.page));
-  const category = await getPublishedCategoryBySlug(params.slug, { requestId });
-  // If the category does not exist at all, return a 404 instead of
-  // fabricating a virtual category.  See the categories specification.
-  if (!category) {
-    notFound();
-  }
+  const category =
+    (await getPublishedCategoryBySlug(params.slug, { requestId })) ??
+    createVirtualCategoryFromSlug(params.slug);
   // Determine pagination offsets.
   const offset = (pageParam - 1) * PAGE_SIZE;
   let { products, totalCount } = await getPublishedProductsForCategory(
-    { id: category!.id, slug: category!.slug, name: category!.name },
+    { id: category.id, slug: category.slug, name: category.name },
     {
       limit: PAGE_SIZE,
       offset,
@@ -159,7 +144,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
     currentPage = totalPages;
     const lastOffset = (totalPages - 1) * PAGE_SIZE;
     ({ products } = await getPublishedProductsForCategory(
-      { id: category!.id, slug: category!.slug, name: category!.name },
+      { id: category.id, slug: category.slug, name: category.name },
       {
         limit: PAGE_SIZE,
         offset: lastOffset,
@@ -172,9 +157,9 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
-        <h1 className={styles.heroTitle}>{category!.name}</h1>
-        {category!.shortDescription ? (
-          <p className={styles.heroDescription}>{category!.shortDescription}</p>
+        <h1 className={styles.heroTitle}>{category.name}</h1>
+        {category.shortDescription ? (
+          <p className={styles.heroDescription}>{category.shortDescription}</p>
         ) : null}
       </section>
       {/* Render the product cards or an empty state if no products are found */}
@@ -216,7 +201,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
         <nav className={styles.pagination} aria-label="Pagination">
           <div className={styles.paginationList}>
             {paginationPages.map((pageNumber) => {
-              const href = buildPageHref(category!.slug, pageNumber);
+              const href = buildPageHref(category.slug, pageNumber);
               const isActive = pageNumber === currentPage;
               const className = isActive
                 ? `${styles.pageLink} ${styles.pageLinkActive}`
