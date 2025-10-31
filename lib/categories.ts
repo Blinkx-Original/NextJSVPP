@@ -14,7 +14,16 @@ export type ProductCategoryColumn =
   | 'category_slug'
   | 'categories'
   | 'category_slugs'
-  | 'category_slugs_json';
+  | 'category_slugs_json'
+  | 'categoria'
+  | 'categoria_slug'
+  | 'categorias'
+  | 'categorias_slug'
+  | 'categorias_slugs'
+  | 'categorias_slugs_json'
+  | 'categoria_slugs_json'
+  | 'categoria_json'
+  | 'categorias_json';
 export type BlogCategoryColumn = 'category_slug' | 'category';
 
 let cachedProductCategoryColumns: ProductCategoryColumn[] | undefined;
@@ -31,7 +40,16 @@ async function detectProductCategoryColumns(client: SqlClient): Promise<ProductC
     'category_slug',
     'categories',
     'category_slugs',
-    'category_slugs_json'
+    'category_slugs_json',
+    'categoria',
+    'categoria_slug',
+    'categorias',
+    'categorias_slug',
+    'categorias_slugs',
+    'categorias_slugs_json',
+    'categoria_slugs_json',
+    'categoria_json',
+    'categorias_json'
   ];
 
   for (const column of candidates) {
@@ -645,14 +663,32 @@ function buildCategoryMatchFragments(
 
   for (const column of columns) {
     const columnRef = `\`${column}\``;
-    if ((column === 'category' || column === 'category_slug') && match.normalizedValues.length > 0) {
+    const normalizedColumn = column.toLowerCase() as ProductCategoryColumn;
+    const isScalarColumn =
+      normalizedColumn === 'category' ||
+      normalizedColumn === 'category_slug' ||
+      normalizedColumn === 'categoria' ||
+      normalizedColumn === 'categoria_slug';
+    const isCollectionColumn =
+      normalizedColumn === 'categories' ||
+      normalizedColumn === 'category_slugs' ||
+      normalizedColumn === 'category_slugs_json' ||
+      normalizedColumn === 'categorias' ||
+      normalizedColumn === 'categorias_slug' ||
+      normalizedColumn === 'categorias_slugs' ||
+      normalizedColumn === 'categorias_slugs_json' ||
+      normalizedColumn === 'categoria_slugs_json' ||
+      normalizedColumn === 'categoria_json' ||
+      normalizedColumn === 'categorias_json';
+
+    if (isScalarColumn && match.normalizedValues.length > 0) {
       const equality = match.normalizedValues.map(() => `LOWER(TRIM(${columnRef})) = ?`).join(' OR ');
       pieces.push(`(${equality})`);
       for (const value of match.normalizedValues) {
         params.push(value);
       }
     } else if (
-      (column === 'categories' || column === 'category_slugs' || column === 'category_slugs_json') &&
+      isCollectionColumn &&
       (match.jsonValues.length > 0 || match.csvTokens.length > 0)
     ) {
       const jsonFragments: string[] = [];

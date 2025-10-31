@@ -14,23 +14,23 @@ import {
   type NormalizedBlogPost,
   type NormalizedBlogPostResult
 } from '@/lib/blog-posts';
-import {
-  createVirtualProductCategoryFromSlug,
-  getPublishedCategoryBySlug,
-  getPublishedProductsForCategory,
-  resolveProductCategoryBySlugOrName,
-  type CategoryProductSummary
-} from '@/lib/categories';
-import { getPublishedProductsBySlugs, type NormalizedProductResult } from '@/lib/products';
+import { createVirtualProductCategoryFromSlug } from '@/lib/categories';
 import { createRequestId } from '@/lib/request-id';
 import { buildBlogPostUrl } from '@/lib/urls';
 import { buildBlogSeo, buildBlogMetaTitle } from '@/lib/blog-seo';
 import { parsePageParam, resolveSearchParam } from '@/lib/search-params';
+import {
+  extractProductListingPlaceholders,
+  loadCategoryListing,
+  loadManualListing,
+  type ProductCard,
+  type ProductListingPlaceholder,
+  type ProductListingRenderData,
+  type ProductListingRequest
+} from './product-listing';
 
 export const runtime = 'nodejs';
 export const revalidate = 300;
-
-const PAGE_SIZE = 10;
 
 interface PageProps {
   params: { slug: string };
@@ -38,65 +38,6 @@ interface PageProps {
 }
 
 type SearchParamsMap = PageProps['searchParams'];
-
-interface ProductCard {
-  id: string;
-  slug: string;
-  title: string;
-  shortSummary: string | null;
-  price: string | null;
-  primaryImage: string | null;
-}
-
-interface ProductListingRenderData {
-  key: string;
-  heading: string;
-  subtitle?: string;
-  cards: ProductCard[];
-  viewAllHref?: string;
-  pagination?: {
-    pageKey: string;
-    currentPage: number;
-    totalPages: number;
-  };
-}
-
-type ProductListingType = 'category' | 'manual';
-
-interface ProductListingConfig {
-  type: ProductListingType;
-  slug: string | null;
-}
-
-interface ProductListingPlaceholder {
-  config: ProductListingConfig;
-  marker: string;
-}
-
-interface ProductListingRequest {
-  config: ProductListingConfig;
-  pageKey: string;
-}
-
-interface CategoryListingOptions {
-  slug: string;
-  pageParam: number;
-  pageKey: string;
-  requestId: string;
-}
-
-const MANUAL_LISTING_KEYWORDS = new Set([
-  'manual',
-  'products',
-  'productslugs',
-  'product_slugs',
-  'manualproducts',
-  'manual-listing',
-  'manualproductslisting',
-  'productlistingmanual',
-  'productos',
-  'lista-manual'
-]);
 
 function truncateDescription(text: string, maxLength = 160): string {
   if (text.length <= maxLength) {
@@ -168,183 +109,6 @@ function truncateSummary(summary: string, maxLength = 160): string {
   return truncateDescription(summary, maxLength);
 }
 
-function toCategoryProductCards(products: CategoryProductSummary[]): ProductCard[] {
-  return products.map((product) => ({
-    id: product.id.toString(),
-    slug: product.slug,
-    title: product.title,
-    shortSummary: product.shortSummary,
-    price: product.price,
-    primaryImage: product.primaryImage
-  }));
-}
-
-function normalizeId(value: unknown, fallback: string): string {
-  if (typeof value === 'bigint') {
-    return value.toString(10);
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.trunc(value).toString(10);
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (trimmed) {
-      return trimmed;
-    }
-  }
-  return fallback;
-}
-
-function toManualProductCards(results: NormalizedProductResult[]): ProductCard[] {
-  return results
-    .map((result) => {
-      const slug = result.normalized.slug;
-      if (!slug) {
-        return null;
-      }
-      const id = normalizeId((result.raw as { id?: unknown })?.id, slug);
-      const images = Array.isArray(result.normalized.images) ? result.normalized.images : [];
-      const primaryImage = images.length > 0 ? images[0]! : null;
-      const title = result.normalized.title_h1 || slug;
-      const shortSummary = result.normalized.short_summary || null;
-      const price = result.normalized.price || null;
-      return {
-        id,
-        slug,
-        title,
-        shortSummary,
-        price,
-        primaryImage
-      } satisfies ProductCard;
-    })
-    .filter((card): card is ProductCard => card !== null);
-}
-
-function sanitizeSlugCandidate(value: string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const normalized = trimmed.toLowerCase().replace(/[_\s]+/g, '-');
-  const sanitized = normalized.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  return sanitized || null;
-}
-
-function convertIndicatorSyntax(html: string): string {
-  const toComment = (descriptor?: string) => {
-    const normalizedDescriptor = typeof descriptor === 'string' ? descriptor.trim() : '';
-    return `<!-- product-listing${normalizedDescriptor ? ` ${normalizedDescriptor}` : ''} -->`;
-  };
-
-  return html
-    .replace(/\[\[\s*product[\s_-]*listing(?:\s*(?::|=|\s+)\s*([^\]]+))?\s*\]\]/gi, (_, descriptor) => toComment(descriptor))
-    .replace(/\{\{\s*product[\s_-]*listing(?:\s*(?::|=|\s+)\s*([^}]+))?\s*\}\}/gi, (_, descriptor) => toComment(descriptor))
-    .replace(/%%\s*product[\s_-]*listing(?:\s*(?::|=|\s+)([^%]+))?%%/gi, (_, descriptor) => toComment(descriptor))
-    .replace(/\[\s*product[\s_-]*listing(?:\s*(?::|=|\s+)\s*([^\]]+))?\s*\]/gi, (_, descriptor) => toComment(descriptor));
-}
-
-function parseProductListingConfig(details: string | null | undefined): ProductListingConfig {
-  const defaultConfig: ProductListingConfig = { type: 'category', slug: null };
-  if (!details) {
-    return defaultConfig;
-  }
-
-  const trimmed = details.replace(/-->/g, '').trim();
-  if (!trimmed) {
-    return defaultConfig;
-  }
-
-  const collapsed = trimmed.replace(/\s+/g, '').toLowerCase();
-  if (MANUAL_LISTING_KEYWORDS.has(collapsed)) {
-    return { type: 'manual', slug: null };
-  }
-
-  const manualAttrMatch = trimmed.match(/(?:type|source|mode)\s*(?::|=)\s*(?:"([^"]+)"|'([^']+)'|([^\s]+))/i);
-  if (manualAttrMatch) {
-    const candidate = (manualAttrMatch[1] ?? manualAttrMatch[2] ?? manualAttrMatch[3] ?? '')
-      .replace(/\s+/g, '')
-      .toLowerCase();
-    if (MANUAL_LISTING_KEYWORDS.has(candidate)) {
-      return { type: 'manual', slug: null };
-    }
-  }
-
-  const slugAttrMatch = trimmed.match(/(?:category|slug|categoria|cat)\s*(?::|=)\s*(?:"([^"]+)"|'([^']+)'|([^\s]+))/i);
-  if (slugAttrMatch) {
-    const slugCandidate = slugAttrMatch[1] ?? slugAttrMatch[2] ?? slugAttrMatch[3];
-    const slug = sanitizeSlugCandidate(slugCandidate);
-    if (slug) {
-      return { type: 'category', slug };
-    }
-  }
-
-  const tokens = trimmed.split(/\s+/);
-  for (const token of tokens) {
-    const [rawKey, rawValue] = token.split(/[:=]/, 2);
-    if (rawValue !== undefined) {
-      const value = rawValue.trim();
-      const normalizedValue = value.replace(/\s+/g, '').toLowerCase();
-      if (['type', 'source', 'mode'].includes(rawKey.trim().toLowerCase())) {
-        if (MANUAL_LISTING_KEYWORDS.has(normalizedValue)) {
-          return { type: 'manual', slug: null };
-        }
-        continue;
-      }
-      if (['slug', 'category', 'categoria', 'cat'].includes(rawKey.trim().toLowerCase())) {
-        const slug = sanitizeSlugCandidate(value);
-        if (slug) {
-          return { type: 'category', slug };
-        }
-      }
-      continue;
-    }
-
-    const normalizedToken = token.replace(/\s+/g, '').toLowerCase();
-    if (MANUAL_LISTING_KEYWORDS.has(normalizedToken)) {
-      return { type: 'manual', slug: null };
-    }
-    const slug = sanitizeSlugCandidate(token);
-    if (slug) {
-      return { type: 'category', slug };
-    }
-  }
-
-  const slug = sanitizeSlugCandidate(trimmed);
-  if (slug) {
-    return { type: 'category', slug };
-  }
-
-  return defaultConfig;
-}
-
-function extractProductListingPlaceholders(content: string): {
-  html: string;
-  placeholders: ProductListingPlaceholder[];
-} {
-  if (!content) {
-    return { html: '', placeholders: [] };
-  }
-
-  const normalizedContent = convertIndicatorSyntax(content);
-  const placeholders: ProductListingPlaceholder[] = [];
-  const regex = /<!--\s*product[\s_-]*listing(?<details>[\s\S]*?)-->/gi;
-
-  const html = normalizedContent.replace(
-    regex,
-    (_match, _details, _offset, _input, groups?: { details?: string }) => {
-      const details = groups?.details ?? '';
-      const config = parseProductListingConfig(details);
-      const marker = `__PRODUCT_LISTING_${placeholders.length}__`;
-      placeholders.push({ config, marker });
-      return marker;
-    }
-  );
-
-  return { html, placeholders };
-}
 
 function escapeHtml(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -544,98 +308,6 @@ function buildListingPageHref(
   return query ? `/b/${blogSlug}?${query}` : `/b/${blogSlug}`;
 }
 
-async function loadCategoryListing(options: CategoryListingOptions): Promise<ProductListingRenderData | null> {
-  const { slug, pageParam, pageKey, requestId } = options;
-  const trimmedSlug = slug.trim();
-  if (!trimmedSlug) {
-    return null;
-  }
-
-  const matchedCategory = await getPublishedCategoryBySlug(trimmedSlug, { requestId });
-  const productCategory =
-    matchedCategory && matchedCategory.type === 'product'
-      ? matchedCategory
-      : await resolveProductCategoryBySlugOrName(trimmedSlug, {
-          requestId,
-          hintName: matchedCategory?.name ?? null
-        });
-
-  const category = productCategory ?? matchedCategory ?? createVirtualProductCategoryFromSlug(trimmedSlug);
-  const subtitle = matchedCategory?.name?.trim() ? matchedCategory.name : category.name;
-
-  const offset = (pageParam - 1) * PAGE_SIZE;
-  let { products, totalCount } = await getPublishedProductsForCategory(
-    { id: category.id, slug: category.slug, name: category.name },
-    {
-      limit: PAGE_SIZE,
-      offset,
-      requestId
-    }
-  );
-
-  if (totalCount <= 0 || products.length === 0) {
-    return null;
-  }
-
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  let currentPage = pageParam;
-  if (pageParam > totalPages) {
-    currentPage = totalPages;
-    const lastOffset = (totalPages - 1) * PAGE_SIZE;
-    ({ products } = await getPublishedProductsForCategory(
-      { id: category.id, slug: category.slug, name: category.name },
-      {
-        limit: PAGE_SIZE,
-        offset: lastOffset,
-        requestId
-      }
-    ));
-  }
-
-  const cards = toCategoryProductCards(products);
-  if (cards.length === 0) {
-    return null;
-  }
-
-  return {
-    key: `category-${category.slug}`,
-    heading: 'Productos relacionados',
-    subtitle,
-    cards,
-    viewAllHref: `/categories/${category.slug}`,
-    pagination:
-      totalPages > 1
-        ? {
-            pageKey,
-            currentPage,
-            totalPages
-          }
-        : undefined
-  };
-}
-
-async function loadManualListing(productSlugs: string[]): Promise<ProductListingRenderData | null> {
-  if (!Array.isArray(productSlugs) || productSlugs.length === 0) {
-    return null;
-  }
-
-  const results = await getPublishedProductsBySlugs(productSlugs);
-  if (!Array.isArray(results) || results.length === 0) {
-    return null;
-  }
-
-  const cards = toManualProductCards(results);
-  if (cards.length === 0) {
-    return null;
-  }
-
-  return {
-    key: 'manual-products',
-    heading: 'Productos relacionados',
-    cards
-  };
-}
-
 function RelatedProductsSection({
   data,
   blogSlug,
@@ -773,18 +445,22 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
     let categoryIndex = 0;
     placeholders.forEach((placeholder, index) => {
       if (placeholder.config.type === 'manual') {
-        listingRequests.push({ config: { type: 'manual', slug: null }, pageKey: `manual-${index}` });
+        listingRequests.push({ config: { type: 'manual', slug: null, categoryLabel: null }, pageKey: `manual-${index}` });
         return;
       }
       const slug = placeholder.config.slug ?? defaultCategorySlug;
       const pageKey = categoryIndex === 0 ? 'page' : `page${categoryIndex + 1}`;
       categoryIndex += 1;
-      listingRequests.push({ config: { type: 'category', slug }, pageKey });
+      if (!slug) {
+        listingRequests.push({ config: { type: 'category', slug: null, categoryLabel: placeholder.config.categoryLabel }, pageKey });
+        return;
+      }
+      listingRequests.push({ config: { type: 'category', slug, categoryLabel: placeholder.config.categoryLabel }, pageKey });
     });
   } else if (manualProductSlugs.length > 0) {
-    listingRequests.push({ config: { type: 'manual', slug: null }, pageKey: 'manual-default' });
+    listingRequests.push({ config: { type: 'manual', slug: null, categoryLabel: null }, pageKey: 'manual-default' });
   } else if (defaultCategorySlug) {
-    listingRequests.push({ config: { type: 'category', slug: defaultCategorySlug }, pageKey: 'page' });
+    listingRequests.push({ config: { type: 'category', slug: defaultCategorySlug, categoryLabel: null }, pageKey: 'page' });
   }
 
   let manualListingCache: ProductListingRenderData | null | undefined;
@@ -800,7 +476,7 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
       continue;
     }
 
-    const slug = request.config.slug ?? defaultCategorySlug;
+    const slug = request.config.slug ?? null;
     if (!slug) {
       listingResults.push(null);
       continue;
@@ -810,7 +486,7 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
       const pageValue = resolveSearchParam(searchParams?.[request.pageKey]);
       const pageParam = parsePageParam(pageValue);
       const listing = await loadCategoryListing({
-        slug,
+        config: { ...request.config, slug },
         pageParam,
         pageKey: request.pageKey,
         requestId

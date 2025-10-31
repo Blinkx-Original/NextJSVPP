@@ -273,7 +273,10 @@ async function syncProductCategoryColumns(
   const normalizedCategory = typeof categoryValue === 'string' ? categoryValue.trim().toLowerCase() : null;
 
   for (const column of columns) {
-    if (column === 'category') {
+    if (column === 'category' || column === 'categoria') {
+      continue;
+    }
+    if (!column.includes('slug')) {
       continue;
     }
     if (normalizedCategory) {
