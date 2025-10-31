@@ -1,0 +1,20 @@
+.title {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.articleContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.contentSegment {
+  display: contents;
+}
+
+@media (max-width: 600px) {
+  .articleContent {
+    gap: 2rem;
+  }
+}

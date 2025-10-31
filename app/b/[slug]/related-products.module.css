@@ -1,5 +1,5 @@
 .relatedProducts {
-  margin-top: 3rem;
+  margin-top: 2.5rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -13,10 +13,22 @@
   gap: 0.75rem;
 }
 
+.headerText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 .title {
   font-size: 1.75rem;
   font-weight: 700;
   color: #0f172a;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #475569;
 }
 
 .viewAll {
