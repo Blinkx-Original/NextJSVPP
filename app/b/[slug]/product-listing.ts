@@ -37,6 +37,7 @@ export type ProductListingType = 'category' | 'manual';
 export interface ProductListingConfig {
   type: ProductListingType;
   slug: string | null;
+  categoryLabel: string | null;
 }
 
 export interface ProductListingPlaceholder {
@@ -147,8 +148,16 @@ function convertIndicatorSyntax(html: string): string {
     );
 }
 
+function normalizeLabel(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.replace(/-->/g, '').trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export function parseProductListingConfig(details: string | null | undefined): ProductListingConfig {
-  const defaultConfig: ProductListingConfig = { type: 'category', slug: null };
+  const defaultConfig: ProductListingConfig = { type: 'category', slug: null, categoryLabel: null };
   if (!details) {
     return defaultConfig;
   }
@@ -160,7 +169,7 @@ export function parseProductListingConfig(details: string | null | undefined): P
 
   const collapsed = trimmed.replace(/\s+/g, '').toLowerCase();
   if (MANUAL_LISTING_KEYWORDS.has(collapsed)) {
-    return { type: 'manual', slug: null };
+    return { type: 'manual', slug: null, categoryLabel: null };
   }
 
   const manualAttrMatch = trimmed.match(/(?:type|source|mode)\s*(?::|=)\s*(?:"([^"]+)"|'([^']+)'|([^\s]+))/i);
@@ -169,7 +178,7 @@ export function parseProductListingConfig(details: string | null | undefined): P
       .replace(/\s+/g, '')
       .toLowerCase();
     if (MANUAL_LISTING_KEYWORDS.has(candidate)) {
-      return { type: 'manual', slug: null };
+      return { type: 'manual', slug: null, categoryLabel: null };
     }
   }
 
@@ -178,7 +187,11 @@ export function parseProductListingConfig(details: string | null | undefined): P
     const slugCandidate = slugAttrMatch[1] ?? slugAttrMatch[2] ?? slugAttrMatch[3];
     const slug = toProductListingSlug(slugCandidate);
     if (slug) {
-      return { type: 'category', slug };
+      return {
+        type: 'category',
+        slug,
+        categoryLabel: normalizeLabel(slugCandidate)
+      };
     }
   }
 
@@ -191,14 +204,18 @@ export function parseProductListingConfig(details: string | null | undefined): P
       const normalizedValue = value.replace(/\s+/g, '').toLowerCase();
       if (['type', 'source', 'mode'].includes(rawKey.trim().toLowerCase())) {
         if (MANUAL_LISTING_KEYWORDS.has(normalizedValue)) {
-          return { type: 'manual', slug: null };
+          return { type: 'manual', slug: null, categoryLabel: null };
         }
         continue;
       }
       if (['slug', 'category', 'categoria', 'cat'].includes(rawKey.trim().toLowerCase())) {
         const slug = toProductListingSlug(value);
         if (slug) {
-          return { type: 'category', slug };
+          return {
+            type: 'category',
+            slug,
+            categoryLabel: normalizeLabel(value)
+          };
         }
       }
       continue;
@@ -206,19 +223,27 @@ export function parseProductListingConfig(details: string | null | undefined): P
 
     const normalizedToken = token.replace(/\s+/g, '').toLowerCase();
     if (MANUAL_LISTING_KEYWORDS.has(normalizedToken)) {
-      return { type: 'manual', slug: null };
+      return { type: 'manual', slug: null, categoryLabel: null };
     }
     if (!hasMultipleTokens) {
       const slug = toProductListingSlug(token);
       if (slug) {
-        return { type: 'category', slug };
+        return {
+          type: 'category',
+          slug,
+          categoryLabel: normalizeLabel(token)
+        };
       }
     }
   }
 
   const slug = toProductListingSlug(trimmed);
   if (slug) {
-    return { type: 'category', slug };
+    return {
+      type: 'category',
+      slug,
+      categoryLabel: normalizeLabel(trimmed)
+    };
   }
 
   return defaultConfig;
@@ -252,33 +277,50 @@ export function extractProductListingPlaceholders(content: string): {
 
 export async function loadCategoryListing(
   options: {
-    slug: string;
+    config: ProductListingConfig & { slug: string };
     pageParam: number;
     pageKey: string;
     requestId: string;
   }
 ): Promise<ProductListingRenderData | null> {
-  const { slug, pageParam, pageKey, requestId } = options;
-  const trimmedSlug = slug.trim();
+  const { config, pageParam, pageKey, requestId } = options;
+  const trimmedSlug = config.slug.trim();
   if (!trimmedSlug) {
     return null;
   }
 
   const matchedCategory = await getPublishedCategoryBySlug(trimmedSlug, { requestId });
-  const productCategory =
-    matchedCategory && matchedCategory.type === 'product'
-      ? matchedCategory
-      : await resolveProductCategoryBySlugOrName(trimmedSlug, {
-          requestId,
-          hintName: matchedCategory?.name ?? null
-        });
+
+  const normalizedLabel = config.categoryLabel?.trim() ?? null;
+
+  let productCategory = matchedCategory && matchedCategory.type === 'product' ? matchedCategory : null;
+
+  if (!productCategory && normalizedLabel) {
+    productCategory = await resolveProductCategoryBySlugOrName(normalizedLabel, {
+      requestId,
+      hintName: matchedCategory?.name ?? null
+    });
+  }
+
+  if (!productCategory || productCategory.type !== 'product') {
+    productCategory = await resolveProductCategoryBySlugOrName(trimmedSlug, {
+      requestId,
+      hintName: normalizedLabel ?? matchedCategory?.name ?? null
+    });
+  }
 
   const category = productCategory ?? matchedCategory ?? createVirtualProductCategoryFromSlug(trimmedSlug);
-  const subtitle = matchedCategory?.name?.trim() ? matchedCategory.name : category.name;
+  const queryCategory = {
+    id: category.id,
+    slug: category.slug,
+    name: normalizedLabel ?? category.name
+  };
+
+  const subtitle = normalizedLabel ?? (matchedCategory?.name?.trim() ? matchedCategory.name : category.name);
 
   const offset = (pageParam - 1) * PAGE_SIZE;
   let { products, totalCount } = await getPublishedProductsForCategory(
-    { id: category.id, slug: category.slug, name: category.name },
+    queryCategory,
     {
       limit: PAGE_SIZE,
       offset,
@@ -296,7 +338,7 @@ export async function loadCategoryListing(
     currentPage = totalPages;
     const lastOffset = (totalPages - 1) * PAGE_SIZE;
     ({ products } = await getPublishedProductsForCategory(
-      { id: category.id, slug: category.slug, name: category.name },
+      queryCategory,
       {
         limit: PAGE_SIZE,
         offset: lastOffset,

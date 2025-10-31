@@ -28,9 +28,23 @@ function buildProductStatsJoin(columns: ProductCategoryColumn[]): string {
   }
 
   const scalarColumns = columns.filter((column) =>
-    column === 'category' || column === 'category_slug' || column === 'category_slugs'
+    column === 'category' ||
+    column === 'category_slug' ||
+    column === 'category_slugs' ||
+    column === 'categoria' ||
+    column === 'categoria_slug' ||
+    column === 'categorias_slug'
   );
-  const jsonColumns = columns.filter((column) => column === 'categories' || column === 'category_slugs_json');
+  const jsonColumns = columns.filter((column) =>
+    column === 'categories' ||
+    column === 'category_slugs_json' ||
+    column === 'categorias' ||
+    column === 'categorias_slugs' ||
+    column === 'categorias_slugs_json' ||
+    column === 'categoria_slugs_json' ||
+    column === 'categoria_json' ||
+    column === 'categorias_json'
+  );
 
   const subqueries: string[] = [];
 

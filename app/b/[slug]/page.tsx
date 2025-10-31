@@ -446,18 +446,22 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
     let categoryIndex = 0;
     placeholders.forEach((placeholder, index) => {
       if (placeholder.config.type === 'manual') {
-        listingRequests.push({ config: { type: 'manual', slug: null }, pageKey: `manual-${index}` });
+        listingRequests.push({ config: { type: 'manual', slug: null, categoryLabel: null }, pageKey: `manual-${index}` });
         return;
       }
       const slug = placeholder.config.slug ?? defaultCategorySlug;
       const pageKey = categoryIndex === 0 ? 'page' : `page${categoryIndex + 1}`;
       categoryIndex += 1;
-      listingRequests.push({ config: { type: 'category', slug }, pageKey });
+      if (!slug) {
+        listingRequests.push({ config: { type: 'category', slug: null, categoryLabel: placeholder.config.categoryLabel }, pageKey });
+        return;
+      }
+      listingRequests.push({ config: { type: 'category', slug, categoryLabel: placeholder.config.categoryLabel }, pageKey });
     });
   } else if (manualProductSlugs.length > 0) {
-    listingRequests.push({ config: { type: 'manual', slug: null }, pageKey: 'manual-default' });
+    listingRequests.push({ config: { type: 'manual', slug: null, categoryLabel: null }, pageKey: 'manual-default' });
   } else if (defaultCategorySlug) {
-    listingRequests.push({ config: { type: 'category', slug: defaultCategorySlug }, pageKey: 'page' });
+    listingRequests.push({ config: { type: 'category', slug: defaultCategorySlug, categoryLabel: null }, pageKey: 'page' });
   }
 
   let manualListingCache: ProductListingRenderData | null | undefined;
@@ -473,7 +477,7 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
       continue;
     }
 
-    const slug = request.config.slug ?? defaultCategorySlug;
+    const slug = request.config.slug ?? null;
     if (!slug) {
       listingResults.push(null);
       continue;
@@ -483,7 +487,7 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
       const pageValue = resolveSearchParam(searchParams?.[request.pageKey]);
       const pageParam = parsePageParam(pageValue);
       const listing = await loadCategoryListing({
-        slug,
+        config: { ...request.config, slug },
         pageParam,
         pageKey: request.pageKey,
         requestId
