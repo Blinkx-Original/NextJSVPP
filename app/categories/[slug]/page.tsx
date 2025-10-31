@@ -6,11 +6,13 @@ import styles from "./page.module.css";
 import {
   getPublishedCategoryBySlug,
   getPublishedProductsForCategory,
-  type CategoryProductSummary,
-  type CategorySummary
+  createVirtualProductCategoryFromSlug,
+  resolveProductCategoryBySlugOrName,
+  type CategoryProductSummary
 } from "@/lib/categories";
 import { createRequestId } from "@/lib/request-id";
 import { buildCategoriesHubUrl } from "@/lib/urls";
+import { parsePageParam, resolveSearchParam } from "@/lib/search-params";
 
 // This page is statically generated at runtime using server side data
 // fetching.  It renders a list of products associated with a given
@@ -28,24 +30,6 @@ interface PageProps {
   searchParams?: { [key: string]: string | string[] | undefined };
 }
 
-function resolveSearchParam(value: string | string[] | undefined): string | undefined {
-  if (Array.isArray(value)) {
-    return value[0];
-  }
-  return value;
-}
-
-function parsePage(value: string | undefined): number {
-  if (!value) {
-    return 1;
-  }
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return 1;
-  }
-  return parsed;
-}
-
 function toProductCards(products: CategoryProductSummary[]) {
   return products.map((product) => ({
     id: product.id.toString(),
@@ -59,41 +43,29 @@ function toProductCards(products: CategoryProductSummary[]) {
 
 // Format a slug into a human‑friendly category name.  e.g.
 // "latest-category" -> "Latest Category".
-function formatSlugName(slug: string): string {
-  return slug
-    .split("-")
-    .filter((part) => part.trim().length > 0)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function createVirtualCategoryFromSlug(slug: string): CategorySummary {
-  const fallbackName = formatSlugName(slug) || slug;
-  return {
-    id: BigInt(0),
-    type: "product",
-    slug,
-    name: fallbackName,
-    shortDescription: null,
-    longDescription: null,
-    heroImageUrl: null,
-    lastUpdatedAt: null
-  };
-}
-
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const requestId = createRequestId();
   const category = await getPublishedCategoryBySlug(params.slug, { requestId });
+  const productCategory =
+    category && category.type === "product"
+      ? category
+      : await resolveProductCategoryBySlugOrName(params.slug, {
+          requestId,
+          hintName: category?.name ?? null
+        });
   const host = headers().get("host") ?? undefined;
   const canonical = `${buildCategoriesHubUrl(host)}/${params.slug}`;
-  const resolvedCategory = category ?? createVirtualCategoryFromSlug(params.slug);
+  const resolvedCategory =
+    productCategory ?? category ?? createVirtualProductCategoryFromSlug(params.slug);
   const isBlog = resolvedCategory.type === "blog";
-  const title = `${resolvedCategory.name} | ${isBlog ? "Blog Category" : "Product Category"}`;
+  const displayName = category?.name?.trim() ? category.name : resolvedCategory.name;
   const description =
     resolvedCategory.shortDescription ||
+    (resolvedCategory !== category ? category?.shortDescription : null) ||
     (isBlog
       ? "Stories, news, and insights curated for this BlinkX blog category."
       : "Discover published products curated for this category on BlinkX Virtual Product Pages.");
+  const title = `${displayName} | ${isBlog ? "Blog Category" : "Product Category"}`;
   return {
     title,
     description,
@@ -121,10 +93,21 @@ function buildPageHref(slug: string, page: number): string {
 
 export default async function CategoryPage({ params, searchParams }: PageProps) {
   const requestId = createRequestId();
-  const pageParam = parsePage(resolveSearchParam(searchParams?.page));
+  const pageParam = parsePageParam(resolveSearchParam(searchParams?.page));
+  const matchedCategory = await getPublishedCategoryBySlug(params.slug, { requestId });
+  const productCategory =
+    matchedCategory && matchedCategory.type === "product"
+      ? matchedCategory
+      : await resolveProductCategoryBySlugOrName(params.slug, {
+          requestId,
+          hintName: matchedCategory?.name ?? null
+        });
   const category =
-    (await getPublishedCategoryBySlug(params.slug, { requestId })) ??
-    createVirtualCategoryFromSlug(params.slug);
+    productCategory ?? matchedCategory ?? createVirtualProductCategoryFromSlug(params.slug);
+  const displayName = matchedCategory?.name?.trim() ? matchedCategory.name : category.name;
+  const displayDescription =
+    category.shortDescription ||
+    (category !== matchedCategory ? matchedCategory?.shortDescription : null);
   // Determine pagination offsets.
   const offset = (pageParam - 1) * PAGE_SIZE;
   let { products, totalCount } = await getPublishedProductsForCategory(
@@ -157,9 +140,9 @@ export default async function CategoryPage({ params, searchParams }: PageProps) 
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
-        <h1 className={styles.heroTitle}>{category.name}</h1>
-        {category.shortDescription ? (
-          <p className={styles.heroDescription}>{category.shortDescription}</p>
+        <h1 className={styles.heroTitle}>{displayName}</h1>
+        {displayDescription ? (
+          <p className={styles.heroDescription}>{displayDescription}</p>
         ) : null}
       </section>
       {/* Render the product cards or an empty state if no products are found */}
