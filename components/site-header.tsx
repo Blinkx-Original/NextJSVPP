@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 import { displayName, useAlgoliaSearch } from './algolia-search';
+import { HeaderCategoryMenu } from './header-category-menu';
 
 const SUPPORT_PHONE = '1-800-925-6278';
 const CUSTOMER_SERVICE_PHONE = '1-801-985-8965';
@@ -112,7 +113,7 @@ export function SiteHeader() {
               <span />
             </span>
           </button>
-          <nav className="site-header__menu site-header__menu--desktop" aria-label="Contact information">
+          <nav className="site-header__menu site-header__menu--desktop" aria-label="Primary navigation">
             {menuItems.map((item) => (
               <a key={item.label} className="site-header__menu-item" href={item.href}>
                 <span aria-hidden="true" className="site-header__menu-icon">{item.icon}</span>
@@ -120,6 +121,7 @@ export function SiteHeader() {
                 <span className="site-header__menu-value">{item.value}</span>
               </a>
             ))}
+            <HeaderCategoryMenu variant="desktop" />
           </nav>
         </div>
 
@@ -127,7 +129,7 @@ export function SiteHeader() {
           className={`site-header__mobile-panel${isMenuOpen ? ' site-header__mobile-panel--open' : ''}`}
           aria-hidden={!isMenuOpen}
         >
-          <nav className="site-header__mobile-menu" aria-label="Contact information (mobile)">
+          <nav className="site-header__mobile-menu" aria-label="Primary navigation (mobile)">
             {menuItems.map((item) => (
               <a
                 key={item.label}
@@ -142,6 +144,7 @@ export function SiteHeader() {
                 </div>
               </a>
             ))}
+            <HeaderCategoryMenu variant="mobile" onNavigate={() => setIsMenuOpen(false)} />
           </nav>
         </div>
 

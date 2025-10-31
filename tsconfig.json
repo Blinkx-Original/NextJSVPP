@@ -25,6 +25,12 @@
       ],
       "react-arborist": [
         "./lib/react-arborist"
+      ],
+      "recoil": [
+        "./lib/recoil"
+      ],
+      "axios": [
+        "./lib/axios"
       ]
     },
     "types": [

@@ -9,7 +9,12 @@ type SqlClient = Pool | PoolConnection;
 
 type CategoryType = 'product' | 'blog';
 
-export type ProductCategoryColumn = 'category' | 'category_slug' | 'categories';
+export type ProductCategoryColumn =
+  | 'category'
+  | 'category_slug'
+  | 'categories'
+  | 'category_slugs'
+  | 'category_slugs_json';
 export type BlogCategoryColumn = 'category_slug' | 'category';
 
 let cachedProductCategoryColumns: ProductCategoryColumn[] | undefined;
@@ -21,7 +26,13 @@ async function detectProductCategoryColumns(client: SqlClient): Promise<ProductC
   }
 
   const columns: ProductCategoryColumn[] = [];
-  const candidates: ProductCategoryColumn[] = ['category', 'category_slug', 'categories'];
+  const candidates: ProductCategoryColumn[] = [
+    'category',
+    'category_slug',
+    'categories',
+    'category_slugs',
+    'category_slugs_json'
+  ];
 
   for (const column of candidates) {
     try {
@@ -501,11 +512,16 @@ function buildCategoryMatchFragments(
       for (const value of match.normalizedValues) {
         params.push(column, value);
       }
-    } else if (column === 'categories' && (match.jsonValues.length > 0 || match.csvTokens.length > 0)) {
+    } else if (
+      (column === 'categories' || column === 'category_slugs' || column === 'category_slugs_json') &&
+      (match.jsonValues.length > 0 || match.csvTokens.length > 0)
+    ) {
       const jsonFragments: string[] = [];
       const jsonParams: unknown[] = [];
       for (const value of match.jsonValues) {
         jsonFragments.push('JSON_CONTAINS(CAST(?? AS JSON), JSON_QUOTE(?))');
+        jsonParams.push(column, value);
+        jsonFragments.push("JSON_SEARCH(CAST(?? AS JSON), 'one', ?, NULL, '$') IS NOT NULL");
         jsonParams.push(column, value);
       }
 
