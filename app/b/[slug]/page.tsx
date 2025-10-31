@@ -9,6 +9,7 @@ import styles from '../../p/[slug]/page.module.css';
 import blogStyles from './page.module.css';
 import relatedStyles from './related-products.module.css';
 import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
+import { slugifyCategoryName } from '@/lib/category-slug';
 import {
   getNormalizedPublishedBlogPost,
   type NormalizedBlogPost,
