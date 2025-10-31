@@ -4,6 +4,7 @@ import { ReactNode } from 'react';
 
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
+import { AppProviders } from '@/components/app-providers';
 
 const siteName = process.env.NEXT_PUBLIC_SITE_NAME ?? 'Virtual Product Pages';
 
@@ -34,9 +35,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="es">
       <body>
-        <SiteHeader />
-        <main>{children}</main>
-        <SiteFooter />
+        <AppProviders>
+          <SiteHeader />
+          <main>{children}</main>
+          <SiteFooter />
+        </AppProviders>
       </body>
     </html>
   );
