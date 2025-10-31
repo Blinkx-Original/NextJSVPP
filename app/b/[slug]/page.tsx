@@ -9,6 +9,7 @@ import styles from '../../p/[slug]/page.module.css';
 import blogStyles from './page.module.css';
 import relatedStyles from './related-products.module.css';
 import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
+import { slugifyCategoryName } from '@/lib/category-slug';
 import {
   getNormalizedPublishedBlogPost,
   type NormalizedBlogPost,
@@ -220,7 +221,7 @@ function toManualProductCards(results: NormalizedProductResult[]): ProductCard[]
     .filter((card): card is ProductCard => card !== null);
 }
 
-function sanitizeSlugCandidate(value: string | null | undefined): string | null {
+function toProductListingSlug(value: string | null | undefined): string | null {
   if (!value) {
     return null;
   }
@@ -228,9 +229,8 @@ function sanitizeSlugCandidate(value: string | null | undefined): string | null 
   if (!trimmed) {
     return null;
   }
-  const normalized = trimmed.toLowerCase().replace(/[_\s]+/g, '-');
-  const sanitized = normalized.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  return sanitized || null;
+  const slug = slugifyCategoryName(trimmed);
+  return slug ? slug : null;
 }
 
 function convertIndicatorSyntax(html: string): string {
@@ -246,7 +246,7 @@ function convertIndicatorSyntax(html: string): string {
     .replace(/\[\s*product[\s_-]*listing(?:\s*(?::|=|\s+)\s*([^\]]+))?\s*\]/gi, (_, descriptor) => toComment(descriptor));
 }
 
-function parseProductListingConfig(details: string | null | undefined): ProductListingConfig {
+export function parseProductListingConfig(details: string | null | undefined): ProductListingConfig {
   const defaultConfig: ProductListingConfig = { type: 'category', slug: null };
   if (!details) {
     return defaultConfig;
@@ -275,13 +275,14 @@ function parseProductListingConfig(details: string | null | undefined): ProductL
   const slugAttrMatch = trimmed.match(/(?:category|slug|categoria|cat)\s*(?::|=)\s*(?:"([^"]+)"|'([^']+)'|([^\s]+))/i);
   if (slugAttrMatch) {
     const slugCandidate = slugAttrMatch[1] ?? slugAttrMatch[2] ?? slugAttrMatch[3];
-    const slug = sanitizeSlugCandidate(slugCandidate);
+    const slug = toProductListingSlug(slugCandidate);
     if (slug) {
       return { type: 'category', slug };
     }
   }
 
   const tokens = trimmed.split(/\s+/);
+  const hasMultipleTokens = tokens.length > 1;
   for (const token of tokens) {
     const [rawKey, rawValue] = token.split(/[:=]/, 2);
     if (rawValue !== undefined) {
@@ -294,7 +295,7 @@ function parseProductListingConfig(details: string | null | undefined): ProductL
         continue;
       }
       if (['slug', 'category', 'categoria', 'cat'].includes(rawKey.trim().toLowerCase())) {
-        const slug = sanitizeSlugCandidate(value);
+        const slug = toProductListingSlug(value);
         if (slug) {
           return { type: 'category', slug };
         }
@@ -306,13 +307,15 @@ function parseProductListingConfig(details: string | null | undefined): ProductL
     if (MANUAL_LISTING_KEYWORDS.has(normalizedToken)) {
       return { type: 'manual', slug: null };
     }
-    const slug = sanitizeSlugCandidate(token);
-    if (slug) {
-      return { type: 'category', slug };
+    if (!hasMultipleTokens) {
+      const slug = toProductListingSlug(token);
+      if (slug) {
+        return { type: 'category', slug };
+      }
     }
   }
 
-  const slug = sanitizeSlugCandidate(trimmed);
+  const slug = toProductListingSlug(trimmed);
   if (slug) {
     return { type: 'category', slug };
   }
@@ -320,7 +323,7 @@ function parseProductListingConfig(details: string | null | undefined): ProductL
   return defaultConfig;
 }
 
-function extractProductListingPlaceholders(content: string): {
+export function extractProductListingPlaceholders(content: string): {
   html: string;
   placeholders: ProductListingPlaceholder[];
 } {
@@ -544,7 +547,9 @@ function buildListingPageHref(
   return query ? `/b/${blogSlug}?${query}` : `/b/${blogSlug}`;
 }
 
-async function loadCategoryListing(options: CategoryListingOptions): Promise<ProductListingRenderData | null> {
+export async function loadCategoryListing(
+  options: CategoryListingOptions
+): Promise<ProductListingRenderData | null> {
   const { slug, pageParam, pageKey, requestId } = options;
   const trimmedSlug = slug.trim();
   if (!trimmedSlug) {
