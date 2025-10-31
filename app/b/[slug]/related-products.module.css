@@ -175,3 +175,26 @@
   background: linear-gradient(135deg, #2563eb, #3b82f6);
   color: #ffffff;
 }
+
+.emptySection {
+  gap: 1rem;
+}
+
+.emptyState {
+  padding: 2rem;
+  border-radius: 1rem;
+  border: 1px dashed rgba(37, 99, 235, 0.3);
+  background: #f8fafc;
+  text-align: center;
+}
+
+.emptyMessage {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #475569;
+}
+
+.emptyHighlight {
+  color: #1d4ed8;
+}

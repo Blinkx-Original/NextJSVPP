@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
+import he from 'he';
 import styles from '../../p/[slug]/page.module.css';
 import blogStyles from './page.module.css';
 import relatedStyles from './related-products.module.css';
@@ -69,6 +70,7 @@ interface ProductListingConfig {
 
 interface ProductListingPlaceholder {
   config: ProductListingConfig;
+  marker: string;
 }
 
 interface ProductListingRequest {
@@ -319,31 +321,189 @@ function parseProductListingConfig(details: string | null | undefined): ProductL
 }
 
 function extractProductListingPlaceholders(content: string): {
-  segments: string[];
+  html: string;
   placeholders: ProductListingPlaceholder[];
 } {
   if (!content) {
-    return { segments: [''], placeholders: [] };
+    return { html: '', placeholders: [] };
   }
 
   const normalizedContent = convertIndicatorSyntax(content);
-  const regex = /<!--\s*product[\s_-]*listing(?<details>[\s\S]*?)-->/gi;
-  const segments: string[] = [];
   const placeholders: ProductListingPlaceholder[] = [];
+  const regex = /<!--\s*product[\s_-]*listing(?<details>[\s\S]*?)-->/gi;
 
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(normalizedContent)) !== null) {
-    const start = match.index;
-    segments.push(normalizedContent.slice(lastIndex, start));
-    const details = match.groups?.details ?? '';
-    const config = parseProductListingConfig(details);
-    placeholders.push({ config });
-    lastIndex = start + match[0].length;
+  const html = normalizedContent.replace(
+    regex,
+    (_match, _details, _offset, _input, groups?: { details?: string }) => {
+      const details = groups?.details ?? '';
+      const config = parseProductListingConfig(details);
+      const marker = `__PRODUCT_LISTING_${placeholders.length}__`;
+      placeholders.push({ config, marker });
+      return marker;
+    }
+  );
+
+  return { html, placeholders };
+}
+
+function escapeHtml(value: string | null | undefined): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return he.encode(value, { useNamedReferences: true });
+}
+
+function escapeAttribute(value: string | null | undefined): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return he.encode(value, { useNamedReferences: true });
+}
+
+function buildProductCardHtml(card: ProductCard): string {
+  const title = escapeHtml(card.title);
+  const summary = card.shortSummary ? `<p class="${relatedStyles.cardSummary}">${escapeHtml(card.shortSummary)}</p>` : '';
+  const price = card.price ? `<p class="${relatedStyles.cardPrice}">${escapeHtml(card.price)}</p>` : '';
+  const productHref = `/p/${encodeURIComponent(card.slug)}`;
+  const image = card.primaryImage
+    ? `<img src="${escapeAttribute(card.primaryImage)}" alt="${title}" class="${relatedStyles.cardImage}" loading="lazy" />`
+    : '';
+
+  return `
+    <article class="${relatedStyles.card}">
+      <div class="${relatedStyles.cardImageWrapper}">
+        ${image}
+      </div>
+      <div class="${relatedStyles.cardBody}">
+        <h3 class="${relatedStyles.cardTitle}">${title}</h3>
+        ${summary}
+        ${price}
+        <div class="${relatedStyles.cardFooter}">
+          <a class="${relatedStyles.cardLink}" href="${escapeAttribute(productHref)}" data-prefetch="true">
+            Ver producto
+          </a>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function buildPaginationHtml(
+  data: ProductListingRenderData,
+  blogSlug: string,
+  searchParams?: SearchParamsMap
+): string {
+  const pagination = data.pagination;
+  if (!pagination || pagination.totalPages <= 1) {
+    return '';
   }
 
-  segments.push(normalizedContent.slice(lastIndex));
-  return { segments, placeholders };
+  const pages = Array.from({ length: pagination.totalPages }, (_, index) => index + 1);
+  const links = pages
+    .map((pageNumber) => {
+      const href = buildListingPageHref(blogSlug, pagination.pageKey, pageNumber, searchParams);
+      const isActive = pageNumber === pagination.currentPage;
+      const className = [relatedStyles.pageLink, isActive ? relatedStyles.pageLinkActive : '']
+        .filter(Boolean)
+        .join(' ');
+      const ariaCurrent = isActive ? ' aria-current="page"' : '';
+      return `<a class="${className}" href="${escapeAttribute(href)}" data-prefetch="true"${ariaCurrent}>${pageNumber}</a>`;
+    })
+    .join('');
+
+  return `
+    <nav class="${relatedStyles.pagination}" aria-label="Paginación de productos relacionados">
+      <div class="${relatedStyles.paginationList}">
+        ${links}
+      </div>
+    </nav>
+  `;
+}
+
+function renderEmbeddedListingHtml(
+  listing: ProductListingRenderData | null,
+  placeholder: ProductListingPlaceholder,
+  blogSlug: string,
+  searchParams?: SearchParamsMap
+): string {
+  const hasCards = listing && listing.cards && listing.cards.length > 0;
+  const heading = escapeHtml(listing?.heading ?? 'Productos relacionados');
+  const subtitleText = listing?.subtitle ?? null;
+  const subtitle = subtitleText ? `<p class="${relatedStyles.subtitle}">${escapeHtml(subtitleText)}</p>` : '';
+  const viewAll = listing?.viewAllHref
+    ? `<a class="${relatedStyles.viewAll}" href="${escapeAttribute(listing.viewAllHref)}" data-prefetch="true">Ver todos</a>`
+    : '';
+
+  if (!hasCards) {
+    const fallbackSlug = placeholder.config.slug ?? blogSlug;
+    const fallbackCategory = createVirtualProductCategoryFromSlug(fallbackSlug);
+    const resolvedSubtitle = subtitleText ?? fallbackCategory.name;
+    const emptyMessage =
+      placeholder.config.type === 'manual'
+        ? 'No se encontraron productos relacionados para esta selección.'
+        : `No hay productos publicados actualmente en la categoría <strong class="${relatedStyles.emptyHighlight}">${escapeHtml(
+            fallbackCategory.name
+          )}</strong>.`;
+
+    const subtitleHtml = resolvedSubtitle
+      ? `<p class="${relatedStyles.subtitle}">${escapeHtml(resolvedSubtitle)}</p>`
+      : '';
+
+    return `
+      <section class="${relatedStyles.relatedProducts} ${relatedStyles.emptySection}" data-product-listing="empty">
+        <header class="${relatedStyles.header}">
+          <div class="${relatedStyles.headerText}">
+            <h2 class="${relatedStyles.title}">${heading}</h2>
+            ${subtitleHtml}
+          </div>
+          ${viewAll}
+        </header>
+        <div class="${relatedStyles.emptyState}">
+          <p class="${relatedStyles.emptyMessage}">${emptyMessage}</p>
+        </div>
+      </section>
+    `;
+  }
+
+  const cardsHtml = listing.cards.map((card) => buildProductCardHtml(card)).join('');
+  const pagination = buildPaginationHtml(listing, blogSlug, searchParams);
+
+  return `
+    <section class="${relatedStyles.relatedProducts}" data-product-listing="${escapeHtml(listing.key)}">
+      <header class="${relatedStyles.header}">
+        <div class="${relatedStyles.headerText}">
+          <h2 class="${relatedStyles.title}">${heading}</h2>
+          ${subtitle}
+        </div>
+        ${viewAll}
+      </header>
+      <div class="${relatedStyles.grid}">
+        ${cardsHtml}
+      </div>
+      ${pagination}
+    </section>
+  `;
+}
+
+function injectListingsIntoHtml(
+  html: string,
+  placeholders: ProductListingPlaceholder[],
+  listingResults: (ProductListingRenderData | null)[],
+  blogSlug: string,
+  searchParams?: SearchParamsMap
+): string {
+  if (!html || placeholders.length === 0) {
+    return html;
+  }
+
+  let output = html;
+  placeholders.forEach((placeholder, index) => {
+    const listing = listingResults[index] ?? null;
+    const replacement = renderEmbeddedListingHtml(listing, placeholder, blogSlug, searchParams);
+    output = output.replace(placeholder.marker, replacement);
+  });
+
+  return output;
 }
 
 function cloneSearchParams(searchParams?: SearchParamsMap): URLSearchParams {
@@ -604,8 +764,8 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
 
   const contentExtraction = normalized.content_html
     ? extractProductListingPlaceholders(normalized.content_html)
-    : { segments: [''], placeholders: [] };
-  const { segments, placeholders } = contentExtraction;
+    : { html: '', placeholders: [] };
+  const { html: contentHtml, placeholders } = contentExtraction;
   const hasPlaceholders = placeholders.length > 0;
 
   const listingRequests: ProductListingRequest[] = [];
@@ -662,37 +822,9 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
 
   const hasStandaloneListings = !hasPlaceholders && listingResults.some((listing) => listing && listing.cards.length > 0);
 
-  let articleNodes: ReactNode[] | null = null;
-  if (hasPlaceholders) {
-    articleNodes = [];
-    let listingIndex = 0;
-    for (let index = 0; index < segments.length; index += 1) {
-      const html = segments[index];
-      if (html && html.trim()) {
-        articleNodes.push(
-          <div
-            key={`segment-${index}`}
-            className={blogStyles.contentSegment}
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        );
-      }
-      if (listingIndex < listingResults.length) {
-        const listing = listingResults[listingIndex];
-        listingIndex += 1;
-        if (listing && listing.cards.length > 0) {
-          articleNodes.push(
-            <RelatedProductsSection
-              key={`${listing.key}-${index}`}
-              data={listing}
-              blogSlug={normalized.slug}
-              searchParams={searchParams}
-            />
-          );
-        }
-      }
-    }
-  }
+  const embeddedContentHtml = hasPlaceholders
+    ? injectListingsIntoHtml(contentHtml, placeholders, listingResults, normalized.slug, searchParams)
+    : null;
 
   return (
     <main className={styles.productPage}>
@@ -743,10 +875,11 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
       </section>
       {normalized.content_html ? (
         <section className={styles.productDescription}>
-          {hasPlaceholders ? (
-            <article className={`${styles.productDescriptionContent} ${blogStyles.articleContent}`}>
-              {articleNodes?.length ? articleNodes : null}
-            </article>
+          {hasPlaceholders && embeddedContentHtml !== null ? (
+            <article
+              className={`${styles.productDescriptionContent} ${blogStyles.articleContent}`}
+              dangerouslySetInnerHTML={{ __html: embeddedContentHtml }}
+            />
           ) : (
             <article
               className={styles.productDescriptionContent}
