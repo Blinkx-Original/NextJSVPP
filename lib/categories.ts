@@ -157,6 +157,28 @@ export interface CategorySummary {
   lastUpdatedAt: string | null;
 }
 
+export function formatCategoryNameFromSlug(slug: string): string {
+  return slug
+    .split('-')
+    .filter((part) => part.trim().length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+export function createVirtualProductCategoryFromSlug(slug: string): CategorySummary {
+  const fallbackName = formatCategoryNameFromSlug(slug) || slug;
+  return {
+    id: BigInt(0),
+    type: 'product',
+    slug,
+    name: fallbackName,
+    shortDescription: null,
+    longDescription: null,
+    heroImageUrl: null,
+    lastUpdatedAt: null
+  };
+}
+
 function normalizeCategoryRecord(record: CategoryRecord): CategorySummary {
   const typeValue = record.type?.toLowerCase() === 'blog' ? 'blog' : 'product';
   const lastUpdated = record.updated_at || record.last_tidb_update_at || null;

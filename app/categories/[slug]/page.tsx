@@ -6,11 +6,12 @@ import styles from "./page.module.css";
 import {
   getPublishedCategoryBySlug,
   getPublishedProductsForCategory,
-  type CategoryProductSummary,
-  type CategorySummary
+  createVirtualProductCategoryFromSlug,
+  type CategoryProductSummary
 } from "@/lib/categories";
 import { createRequestId } from "@/lib/request-id";
 import { buildCategoriesHubUrl } from "@/lib/urls";
+import { parsePageParam, resolveSearchParam } from "@/lib/search-params";
 
 // This page is statically generated at runtime using server side data
 // fetching.  It renders a list of products associated with a given
@@ -28,24 +29,6 @@ interface PageProps {
   searchParams?: { [key: string]: string | string[] | undefined };
 }
 
-function resolveSearchParam(value: string | string[] | undefined): string | undefined {
-  if (Array.isArray(value)) {
-    return value[0];
-  }
-  return value;
-}
-
-function parsePage(value: string | undefined): number {
-  if (!value) {
-    return 1;
-  }
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return 1;
-  }
-  return parsed;
-}
-
 function toProductCards(products: CategoryProductSummary[]) {
   return products.map((product) => ({
     id: product.id.toString(),
@@ -59,34 +42,13 @@ function toProductCards(products: CategoryProductSummary[]) {
 
 // Format a slug into a human‑friendly category name.  e.g.
 // "latest-category" -> "Latest Category".
-function formatSlugName(slug: string): string {
-  return slug
-    .split("-")
-    .filter((part) => part.trim().length > 0)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function createVirtualCategoryFromSlug(slug: string): CategorySummary {
-  const fallbackName = formatSlugName(slug) || slug;
-  return {
-    id: BigInt(0),
-    type: "product",
-    slug,
-    name: fallbackName,
-    shortDescription: null,
-    longDescription: null,
-    heroImageUrl: null,
-    lastUpdatedAt: null
-  };
-}
-
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const requestId = createRequestId();
   const category = await getPublishedCategoryBySlug(params.slug, { requestId });
   const host = headers().get("host") ?? undefined;
   const canonical = `${buildCategoriesHubUrl(host)}/${params.slug}`;
-  const resolvedCategory = category ?? createVirtualCategoryFromSlug(params.slug);
+  const resolvedCategory =
+    category ?? createVirtualProductCategoryFromSlug(params.slug);
   const isBlog = resolvedCategory.type === "blog";
   const title = `${resolvedCategory.name} | ${isBlog ? "Blog Category" : "Product Category"}`;
   const description =
@@ -121,10 +83,10 @@ function buildPageHref(slug: string, page: number): string {
 
 export default async function CategoryPage({ params, searchParams }: PageProps) {
   const requestId = createRequestId();
-  const pageParam = parsePage(resolveSearchParam(searchParams?.page));
+  const pageParam = parsePageParam(resolveSearchParam(searchParams?.page));
   const category =
     (await getPublishedCategoryBySlug(params.slug, { requestId })) ??
-    createVirtualCategoryFromSlug(params.slug);
+    createVirtualProductCategoryFromSlug(params.slug);
   // Determine pagination offsets.
   const offset = (pageParam - 1) * PAGE_SIZE;
   let { products, totalCount } = await getPublishedProductsForCategory(

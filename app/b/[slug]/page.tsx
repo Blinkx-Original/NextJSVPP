@@ -1,23 +1,35 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
+import Link from 'next/link';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import styles from '../../p/[slug]/page.module.css';
+import relatedStyles from './related-products.module.css';
 import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
 import {
   getNormalizedPublishedBlogPost,
   type NormalizedBlogPost,
   type NormalizedBlogPostResult
 } from '@/lib/blog-posts';
+import {
+  createVirtualProductCategoryFromSlug,
+  getPublishedCategoryBySlug,
+  getPublishedProductsForCategory,
+  type CategoryProductSummary
+} from '@/lib/categories';
 import { createRequestId } from '@/lib/request-id';
 import { buildBlogPostUrl } from '@/lib/urls';
 import { buildBlogSeo, buildBlogMetaTitle } from '@/lib/blog-seo';
+import { parsePageParam, resolveSearchParam } from '@/lib/search-params';
 
 export const runtime = 'nodejs';
 export const revalidate = 300;
 
+const PAGE_SIZE = 10;
+
 interface PageProps {
   params: { slug: string };
+  searchParams?: { [key: string]: string | string[] | undefined };
 }
 
 function truncateDescription(text: string, maxLength = 160): string {
@@ -90,7 +102,26 @@ function truncateSummary(summary: string, maxLength = 160): string {
   return truncateDescription(summary, maxLength);
 }
 
-export default async function BlogPostPage({ params }: PageProps) {
+function toProductCards(products: CategoryProductSummary[]) {
+  return products.map((product) => ({
+    id: product.id.toString(),
+    slug: product.slug,
+    title: product.title,
+    shortSummary: product.shortSummary,
+    price: product.price,
+    primaryImage: product.primaryImage
+  }));
+}
+
+function buildBlogPageHref(slug: string, page: number): string {
+  if (page <= 1) {
+    return `/b/${slug}`;
+  }
+  const params = new URLSearchParams({ page: String(page) });
+  return `/b/${slug}?${params.toString()}`;
+}
+
+export default async function BlogPostPage({ params, searchParams }: PageProps) {
   const requestId = createRequestId();
   const startedAt = Date.now();
   const postResult = await loadBlogPost(params.slug, { requestId });
@@ -119,6 +150,40 @@ export default async function BlogPostPage({ params }: PageProps) {
     };
   }).filter((cta) => cta.url.length > 0);
   const primaryCtaType = ctas[0]?.type;
+
+  const pageParam = parsePageParam(resolveSearchParam(searchParams?.page));
+  const relatedCategorySlug = normalized.category_slug?.trim() || normalized.slug;
+  const relatedCategory =
+    (await getPublishedCategoryBySlug(relatedCategorySlug, { requestId })) ??
+    createVirtualProductCategoryFromSlug(relatedCategorySlug);
+  const offset = (pageParam - 1) * PAGE_SIZE;
+  let { products: relatedProducts, totalCount: relatedTotalCount } =
+    await getPublishedProductsForCategory(
+      { id: relatedCategory.id, slug: relatedCategory.slug, name: relatedCategory.name },
+      {
+        limit: PAGE_SIZE,
+        offset,
+        requestId
+      }
+    );
+  const totalPages = relatedTotalCount > 0 ? Math.max(1, Math.ceil(relatedTotalCount / PAGE_SIZE)) : 1;
+  let currentPage = pageParam;
+  if (pageParam > totalPages && relatedTotalCount > 0) {
+    currentPage = totalPages;
+    const lastOffset = (totalPages - 1) * PAGE_SIZE;
+    ({ products: relatedProducts } = await getPublishedProductsForCategory(
+      { id: relatedCategory.id, slug: relatedCategory.slug, name: relatedCategory.name },
+      {
+        limit: PAGE_SIZE,
+        offset: lastOffset,
+        requestId
+      }
+    ));
+  }
+  const productCards = toProductCards(relatedProducts);
+  const paginationPages = relatedTotalCount > 0 ? Array.from({ length: totalPages }, (_, index) => index + 1) : [];
+  const viewAllHref = `/categories/${relatedCategory.slug}`;
+  const hasRelatedProducts = relatedTotalCount > 0;
 
   return (
     <main className={styles.productPage}>
@@ -173,6 +238,69 @@ export default async function BlogPostPage({ params }: PageProps) {
             className={styles.productDescriptionContent}
             dangerouslySetInnerHTML={{ __html: normalized.content_html }}
           />
+        </section>
+      ) : null}
+      {hasRelatedProducts ? (
+        <section className={relatedStyles.relatedProducts}>
+          <header className={relatedStyles.header}>
+            <h2 className={relatedStyles.title}>Productos relacionados</h2>
+            <Link className={relatedStyles.viewAll} href={viewAllHref} prefetch>
+              Ver todos
+            </Link>
+          </header>
+          <div className={relatedStyles.grid}>
+            {productCards.map((product) => (
+              <article key={product.id} className={relatedStyles.card}>
+                <div className={relatedStyles.cardImageWrapper}>
+                  {product.primaryImage ? (
+                    <Image
+                      src={product.primaryImage}
+                      alt={product.title}
+                      fill
+                      className={relatedStyles.cardImage}
+                      sizes="(max-width: 768px) 100vw, 320px"
+                    />
+                  ) : null}
+                </div>
+                <div className={relatedStyles.cardBody}>
+                  <h3 className={relatedStyles.cardTitle}>{product.title}</h3>
+                  {product.shortSummary ? (
+                    <p className={relatedStyles.cardSummary}>{product.shortSummary}</p>
+                  ) : null}
+                  {product.price ? <div className={relatedStyles.cardPrice}>{product.price}</div> : null}
+                  <div className={relatedStyles.cardFooter}>
+                    <Link className={relatedStyles.cardLink} href={`/p/${product.slug}`} prefetch>
+                      Ver producto
+                    </Link>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+          {totalPages > 1 ? (
+            <nav className={relatedStyles.pagination} aria-label="Pagination">
+              <div className={relatedStyles.paginationList}>
+                {paginationPages.map((pageNumber) => {
+                  const href = buildBlogPageHref(params.slug, pageNumber);
+                  const isActive = pageNumber === currentPage;
+                  const className = isActive
+                    ? `${relatedStyles.pageLink} ${relatedStyles.pageLinkActive}`
+                    : relatedStyles.pageLink;
+                  return (
+                    <Link
+                      key={pageNumber}
+                      className={className}
+                      href={href}
+                      aria-current={isActive ? 'page' : undefined}
+                      prefetch
+                    >
+                      {pageNumber}
+                    </Link>
+                  );
+                })}
+              </div>
+            </nav>
+          ) : null}
         </section>
       ) : null}
       <script
