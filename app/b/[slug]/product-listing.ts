@@ -182,7 +182,9 @@ export function parseProductListingConfig(details: string | null | undefined): P
     }
   }
 
-  const slugAttrMatch = trimmed.match(/(?:category|slug|categoria|cat)\s*(?::|=)\s*(?:"([^"]+)"|'([^']+)'|([^\s]+))/i);
+  const slugAttrMatch = trimmed.match(
+    /(?:category(?:[-_]slug)?|slug|categoria(?:[-_]slug)?|cat)\s*(?::|=)\s*(?:"([^"]+)"|'([^']+)'|([^\s]+))/i
+  );
   if (slugAttrMatch) {
     const slugCandidate = slugAttrMatch[1] ?? slugAttrMatch[2] ?? slugAttrMatch[3];
     const slug = toProductListingSlug(slugCandidate);
@@ -208,7 +210,15 @@ export function parseProductListingConfig(details: string | null | undefined): P
         }
         continue;
       }
-      if (['slug', 'category', 'categoria', 'cat'].includes(rawKey.trim().toLowerCase())) {
+      const normalizedKey = rawKey
+        .trim()
+        .toLowerCase()
+        .replace(/[-\s]+/g, '_');
+      if (
+        ['slug', 'category', 'category_slug', 'categoria', 'categoria_slug', 'cat'].includes(
+          normalizedKey
+        )
+      ) {
         const slug = toProductListingSlug(value);
         if (slug) {
           return {
