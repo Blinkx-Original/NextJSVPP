@@ -1,13 +1,12 @@
-import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
-import he from 'he';
 import styles from '../../p/[slug]/page.module.css';
 import blogStyles from './page.module.css';
 import relatedStyles from './related-products.module.css';
+import ProductListingGrid from './ProductListingGrid';
 import { CTA_DEFAULT_LABELS, resolveCtaLabel } from '@/lib/product-cta';
 import { slugifyCategoryName } from '@/lib/category-slug';
 import {
@@ -23,12 +22,16 @@ import { parsePageParam, resolveSearchParam } from '@/lib/search-params';
 import {
   extractProductListingPlaceholders,
   loadCategoryListing,
-  loadManualListing,
+  loadManualListing
+} from './product-listing';
+import {
+  PRODUCT_LISTING_HEADING,
   type ProductCard,
   type ProductListingPlaceholder,
   type ProductListingRenderData,
-  type ProductListingRequest
-} from './product-listing';
+  type ProductListingRequest,
+  type ProductListingType
+} from './product-listing.types';
 
 export const runtime = 'nodejs';
 export const revalidate = 300;
@@ -111,165 +114,25 @@ function truncateSummary(summary: string, maxLength = 160): string {
 }
 
 
-function escapeHtml(value: string | null | undefined): string {
-  if (typeof value !== 'string') {
-    return '';
-  }
-  return he.encode(value, { useNamedReferences: true });
+interface ListingEmptyState {
+  type: ProductListingType;
+  message: string;
+  highlight?: string | null;
 }
 
-function escapeAttribute(value: string | null | undefined): string {
-  if (typeof value !== 'string') {
-    return '';
-  }
-  return he.encode(value, { useNamedReferences: true });
+interface ListingSectionData {
+  dataKey: string;
+  heading: string;
+  subtitle?: string | null;
+  cards: ProductCard[];
+  viewAllHref?: string;
+  pagination?: ProductListingRenderData['pagination'];
+  emptyState?: ListingEmptyState;
 }
 
-function buildProductCardHtml(card: ProductCard): string {
-  const title = escapeHtml(card.title);
-  const summary = card.shortSummary ? `<p class="${relatedStyles.cardSummary}">${escapeHtml(card.shortSummary)}</p>` : '';
-  const price = card.price ? `<p class="${relatedStyles.cardPrice}">${escapeHtml(card.price)}</p>` : '';
-  const productHref = `/p/${encodeURIComponent(card.slug)}`;
-  const image = card.primaryImage
-    ? `<img src="${escapeAttribute(card.primaryImage)}" alt="${title}" class="${relatedStyles.cardImage}" loading="lazy" />`
-    : '';
-
-  return `
-    <article class="${relatedStyles.card}">
-      <div class="${relatedStyles.cardImageWrapper}">
-        ${image}
-      </div>
-      <div class="${relatedStyles.cardBody}">
-        <h3 class="${relatedStyles.cardTitle}">${title}</h3>
-        ${summary}
-        ${price}
-        <div class="${relatedStyles.cardFooter}">
-          <a class="${relatedStyles.cardLink}" href="${escapeAttribute(productHref)}" data-prefetch="true">
-            Ver producto
-          </a>
-        </div>
-      </div>
-    </article>
-  `;
-}
-
-function buildPaginationHtml(
-  data: ProductListingRenderData,
-  blogSlug: string,
-  searchParams?: SearchParamsMap
-): string {
-  const pagination = data.pagination;
-  if (!pagination || pagination.totalPages <= 1) {
-    return '';
-  }
-
-  const pages = Array.from({ length: pagination.totalPages }, (_, index) => index + 1);
-  const links = pages
-    .map((pageNumber) => {
-      const href = buildListingPageHref(blogSlug, pagination.pageKey, pageNumber, searchParams);
-      const isActive = pageNumber === pagination.currentPage;
-      const className = [relatedStyles.pageLink, isActive ? relatedStyles.pageLinkActive : '']
-        .filter(Boolean)
-        .join(' ');
-      const ariaCurrent = isActive ? ' aria-current="page"' : '';
-      return `<a class="${className}" href="${escapeAttribute(href)}" data-prefetch="true"${ariaCurrent}>${pageNumber}</a>`;
-    })
-    .join('');
-
-  return `
-    <nav class="${relatedStyles.pagination}" aria-label="Paginación de productos relacionados">
-      <div class="${relatedStyles.paginationList}">
-        ${links}
-      </div>
-    </nav>
-  `;
-}
-
-function renderEmbeddedListingHtml(
-  listing: ProductListingRenderData | null,
-  placeholder: ProductListingPlaceholder,
-  blogSlug: string,
-  searchParams?: SearchParamsMap
-): string {
-  const hasCards = listing && listing.cards && listing.cards.length > 0;
-  const heading = escapeHtml(listing?.heading ?? 'Productos relacionados');
-  const subtitleText = listing?.subtitle ?? null;
-  const subtitle = subtitleText ? `<p class="${relatedStyles.subtitle}">${escapeHtml(subtitleText)}</p>` : '';
-  const viewAll = listing?.viewAllHref
-    ? `<a class="${relatedStyles.viewAll}" href="${escapeAttribute(listing.viewAllHref)}" data-prefetch="true">Ver todos</a>`
-    : '';
-
-  if (!hasCards) {
-    const fallbackSlug = placeholder.config.slug ?? blogSlug;
-    const fallbackCategory = createVirtualProductCategoryFromSlug(fallbackSlug);
-    const resolvedSubtitle = subtitleText ?? fallbackCategory.name;
-    const emptyMessage =
-      placeholder.config.type === 'manual'
-        ? 'No se encontraron productos relacionados para esta selección.'
-        : `No hay productos publicados actualmente en la categoría <strong class="${relatedStyles.emptyHighlight}">${escapeHtml(
-            fallbackCategory.name
-          )}</strong>.`;
-
-    const subtitleHtml = resolvedSubtitle
-      ? `<p class="${relatedStyles.subtitle}">${escapeHtml(resolvedSubtitle)}</p>`
-      : '';
-
-    return `
-      <section class="${relatedStyles.relatedProducts} ${relatedStyles.emptySection}" data-product-listing="empty">
-        <header class="${relatedStyles.header}">
-          <div class="${relatedStyles.headerText}">
-            <h2 class="${relatedStyles.title}">${heading}</h2>
-            ${subtitleHtml}
-          </div>
-          ${viewAll}
-        </header>
-        <div class="${relatedStyles.emptyState}">
-          <p class="${relatedStyles.emptyMessage}">${emptyMessage}</p>
-        </div>
-      </section>
-    `;
-  }
-
-  const cardsHtml = listing.cards.map((card) => buildProductCardHtml(card)).join('');
-  const pagination = buildPaginationHtml(listing, blogSlug, searchParams);
-
-  return `
-    <section class="${relatedStyles.relatedProducts}" data-product-listing="${escapeHtml(listing.key)}">
-      <header class="${relatedStyles.header}">
-        <div class="${relatedStyles.headerText}">
-          <h2 class="${relatedStyles.title}">${heading}</h2>
-          ${subtitle}
-        </div>
-        ${viewAll}
-      </header>
-      <div class="${relatedStyles.grid}">
-        ${cardsHtml}
-      </div>
-      ${pagination}
-    </section>
-  `;
-}
-
-function injectListingsIntoHtml(
-  html: string,
-  placeholders: ProductListingPlaceholder[],
-  listingResults: (ProductListingRenderData | null)[],
-  blogSlug: string,
-  searchParams?: SearchParamsMap
-): string {
-  if (!html || placeholders.length === 0) {
-    return html;
-  }
-
-  let output = html;
-  placeholders.forEach((placeholder, index) => {
-    const listing = listingResults[index] ?? null;
-    const replacement = renderEmbeddedListingHtml(listing, placeholder, blogSlug, searchParams);
-    output = output.replace(placeholder.marker, replacement);
-  });
-
-  return output;
-}
+type ContentSegment =
+  | { type: 'html'; key: string; html: string }
+  | { type: 'listing'; key: string; data: ListingSectionData };
 
 function cloneSearchParams(searchParams?: SearchParamsMap): URLSearchParams {
   const params = new URLSearchParams();
@@ -309,26 +172,134 @@ function buildListingPageHref(
   return query ? `/b/${blogSlug}?${query}` : `/b/${blogSlug}`;
 }
 
+function createListingSectionData(
+  listing: ProductListingRenderData | null,
+  placeholder: ProductListingPlaceholder,
+  blogSlug: string
+): ListingSectionData {
+  const fallbackSlug = placeholder.config.slug ?? blogSlug;
+  const fallbackCategory = createVirtualProductCategoryFromSlug(fallbackSlug);
+  const normalizedLabel = placeholder.config.categoryLabel?.trim() ?? null;
+  const heading = listing?.heading ?? PRODUCT_LISTING_HEADING;
+  const cards = Array.isArray(listing?.cards) ? listing.cards : [];
+  const subtitle = listing?.subtitle ?? normalizedLabel ?? fallbackCategory.name ?? null;
+  const viewAllHref = listing?.viewAllHref;
+  const pagination = listing?.pagination;
+  const fallbackKey =
+    placeholder.config.type === 'manual'
+      ? 'manual-products'
+      : `category-${fallbackCategory.slug}`;
+  const dataKey = listing?.key ?? fallbackKey;
+
+  let emptyState: ListingEmptyState | undefined;
+  if (cards.length === 0) {
+    if (placeholder.config.type === 'manual') {
+      emptyState = {
+        type: 'manual',
+        message: 'No se encontraron productos relacionados para esta selección.'
+      };
+    } else {
+      emptyState = {
+        type: 'category',
+        message: 'No hay productos publicados actualmente en la categoría',
+        highlight: normalizedLabel ?? fallbackCategory.name ?? fallbackCategory.slug
+      };
+    }
+  }
+
+  return {
+    dataKey,
+    heading,
+    subtitle: subtitle ?? null,
+    cards,
+    viewAllHref,
+    pagination,
+    emptyState
+  };
+}
+
+function createStandaloneSectionData(listing: ProductListingRenderData): ListingSectionData {
+  return {
+    dataKey: listing.key,
+    heading: listing.heading ?? PRODUCT_LISTING_HEADING,
+    subtitle: listing.subtitle ?? null,
+    cards: listing.cards ?? [],
+    viewAllHref: listing.viewAllHref,
+    pagination: listing.pagination
+  };
+}
+
+function buildContentSegments(
+  html: string,
+  placeholders: ProductListingPlaceholder[],
+  listingResults: (ProductListingRenderData | null)[],
+  blogSlug: string
+): ContentSegment[] {
+  if (!html || placeholders.length === 0) {
+    return html ? [{ type: 'html', key: 'content-0', html }] : [];
+  }
+
+  const segments: ContentSegment[] = [];
+  const markerRegex = /__PRODUCT_LISTING_(\d+)__/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = markerRegex.exec(html))) {
+    const matchIndex = match.index ?? 0;
+    if (matchIndex > lastIndex) {
+      const chunk = html.slice(lastIndex, matchIndex);
+      if (chunk.trim().length > 0) {
+        segments.push({ type: 'html', key: `html-${segments.length}`, html: chunk });
+      }
+    }
+
+    const placeholderIndex = Number.parseInt(match[1] ?? '', 10);
+    const placeholder = placeholders[placeholderIndex];
+    if (placeholder) {
+      const listing = listingResults[placeholderIndex] ?? null;
+      const data = createListingSectionData(listing, placeholder, blogSlug);
+      segments.push({ type: 'listing', key: `listing-${placeholderIndex}`, data });
+    }
+
+    lastIndex = matchIndex + match[0].length;
+  }
+
+  const tail = html.slice(lastIndex);
+  if (tail.trim().length > 0) {
+    segments.push({ type: 'html', key: `html-${segments.length}`, html: tail });
+  }
+
+  return segments;
+}
+
 function RelatedProductsSection({
   data,
   blogSlug,
   searchParams
 }: {
-  data: ProductListingRenderData;
+  data: ListingSectionData;
   blogSlug: string;
   searchParams?: SearchParamsMap;
 }) {
-  const { heading, subtitle, cards, viewAllHref, pagination } = data;
-  if (!cards || cards.length === 0) {
-    return null;
-  }
+  const { heading, subtitle, cards, viewAllHref, pagination, emptyState, dataKey } = data;
+  const hasCards = cards.length > 0;
+  const pages =
+    pagination && pagination.totalPages > 1
+      ? Array.from({ length: pagination.totalPages }, (_, index) => index + 1)
+      : [];
 
-  const pages = pagination && pagination.totalPages > 1
-    ? Array.from({ length: pagination.totalPages }, (_, index) => index + 1)
-    : [];
+  const sectionClassName = hasCards
+    ? relatedStyles.relatedProducts
+    : `${relatedStyles.relatedProducts} ${relatedStyles.emptySection}`;
+
+  const listingAttribute = hasCards
+    ? dataKey
+    : emptyState?.type === 'manual'
+      ? 'manual-empty'
+      : 'empty';
 
   return (
-    <section className={relatedStyles.relatedProducts}>
+    <section className={sectionClassName} data-product-listing={listingAttribute}>
       <header className={relatedStyles.header}>
         <div className={relatedStyles.headerText}>
           <h2 className={relatedStyles.title}>{heading}</h2>
@@ -340,59 +311,48 @@ function RelatedProductsSection({
           </Link>
         ) : null}
       </header>
-      <div className={relatedStyles.grid}>
-        {cards.map((product) => (
-          <article key={product.id} className={relatedStyles.card}>
-            <div className={relatedStyles.cardImageWrapper}>
-              {product.primaryImage ? (
-                <Image
-                  src={product.primaryImage}
-                  alt={product.title}
-                  fill
-                  className={relatedStyles.cardImage}
-                  sizes="(max-width: 768px) 100vw, 320px"
-                />
-              ) : null}
-            </div>
-            <div className={relatedStyles.cardBody}>
-              <h3 className={relatedStyles.cardTitle}>{product.title}</h3>
-              {product.shortSummary ? (
-                <p className={relatedStyles.cardSummary}>{product.shortSummary}</p>
-              ) : null}
-              {product.price ? <div className={relatedStyles.cardPrice}>{product.price}</div> : null}
-              <div className={relatedStyles.cardFooter}>
-                <Link className={relatedStyles.cardLink} href={`/p/${product.slug}`} prefetch>
-                  Ver producto
-                </Link>
+      {hasCards ? (
+        <>
+          <ProductListingGrid cards={cards} />
+          {pages.length > 0 ? (
+            <nav className={relatedStyles.pagination} aria-label="Paginación de productos relacionados">
+              <div className={relatedStyles.paginationList}>
+                {pages.map((pageNumber) => {
+                  const href = buildListingPageHref(blogSlug, pagination!.pageKey, pageNumber, searchParams);
+                  const isActive = pageNumber === pagination!.currentPage;
+                  const className = isActive
+                    ? `${relatedStyles.pageLink} ${relatedStyles.pageLinkActive}`
+                    : relatedStyles.pageLink;
+                  return (
+                    <Link
+                      key={pageNumber}
+                      className={className}
+                      href={href}
+                      aria-current={isActive ? 'page' : undefined}
+                      prefetch
+                    >
+                      {pageNumber}
+                    </Link>
+                  );
+                })}
               </div>
-            </div>
-          </article>
-        ))}
-      </div>
-      {pages.length > 0 ? (
-        <nav className={relatedStyles.pagination} aria-label="Paginación de productos relacionados">
-          <div className={relatedStyles.paginationList}>
-            {pages.map((pageNumber) => {
-              const href = buildListingPageHref(blogSlug, pagination!.pageKey, pageNumber, searchParams);
-              const isActive = pageNumber === pagination!.currentPage;
-              const className = isActive
-                ? `${relatedStyles.pageLink} ${relatedStyles.pageLinkActive}`
-                : relatedStyles.pageLink;
-              return (
-                <Link
-                  key={pageNumber}
-                  className={className}
-                  href={href}
-                  aria-current={isActive ? 'page' : undefined}
-                  prefetch
-                >
-                  {pageNumber}
-                </Link>
-              );
-            })}
-          </div>
-        </nav>
-      ) : null}
+            </nav>
+          ) : null}
+        </>
+      ) : (
+        <div className={relatedStyles.emptyState}>
+          <p className={relatedStyles.emptyMessage}>
+            {emptyState?.type === 'category' && emptyState.highlight ? (
+              <>
+                {emptyState.message}{' '}
+                <strong className={relatedStyles.emptyHighlight}>{emptyState.highlight}</strong>.
+              </>
+            ) : (
+              emptyState?.message ?? 'No se encontraron productos relacionados.'
+            )}
+          </p>
+        </div>
+      )}
     </section>
   );
 }
@@ -499,8 +459,8 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
 
   const hasStandaloneListings = !hasPlaceholders && listingResults.some((listing) => listing && listing.cards.length > 0);
 
-  const embeddedContentHtml = hasPlaceholders
-    ? injectListingsIntoHtml(contentHtml, placeholders, listingResults, normalized.slug, searchParams)
+  const contentSegments = hasPlaceholders
+    ? buildContentSegments(contentHtml, placeholders, listingResults, normalized.slug)
     : null;
 
   return (
@@ -552,11 +512,21 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
       </section>
       {normalized.content_html ? (
         <section className={styles.productDescription}>
-          {hasPlaceholders && embeddedContentHtml !== null ? (
-            <article
-              className={`${styles.productDescriptionContent} ${blogStyles.articleContent}`}
-              dangerouslySetInnerHTML={{ __html: embeddedContentHtml }}
-            />
+          {hasPlaceholders && contentSegments && contentSegments.length > 0 ? (
+            <article className={`${styles.productDescriptionContent} ${blogStyles.articleContent}`}>
+              {contentSegments.map((segment) =>
+                segment.type === 'html' ? (
+                  <div key={segment.key} dangerouslySetInnerHTML={{ __html: segment.html }} />
+                ) : (
+                  <RelatedProductsSection
+                    key={segment.key}
+                    data={segment.data}
+                    blogSlug={normalized.slug}
+                    searchParams={searchParams}
+                  />
+                )
+              )}
+            </article>
           ) : (
             <article
               className={styles.productDescriptionContent}
@@ -570,7 +540,7 @@ export default async function BlogPostPage({ params, searchParams }: PageProps) 
             listing && listing.cards.length > 0 ? (
               <RelatedProductsSection
                 key={`${listing.key}-${index}`}
-                data={listing}
+                data={createStandaloneSectionData(listing)}
                 blogSlug={normalized.slug}
                 searchParams={searchParams}
               />

@@ -50,6 +50,7 @@
   color: #1d4ed8;
 }
 
+.gridStatic,
 .grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -57,9 +58,24 @@
 }
 
 @media (min-width: 768px) {
+  .gridStatic,
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.gridLayout {
+  position: relative;
+  width: 100%;
+}
+
+.gridItem {
+  display: flex;
+}
+
+.gridItem > .card,
+.gridItem .card {
+  width: 100%;
 }
 
 .card {

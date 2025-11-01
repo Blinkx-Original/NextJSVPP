@@ -26,6 +26,9 @@
       "react-arborist": [
         "./lib/react-arborist"
       ],
+      "react-grid-layout": [
+        "./lib/react-grid-layout"
+      ],
       "recoil": [
         "./lib/recoil"
       ],
