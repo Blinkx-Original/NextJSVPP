@@ -1,7 +1,11 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { z } from 'zod';
 import { getPool, toDbErrorInfo } from './db';
-import { slugifyCategoryName, slugifyCategoryName as formatCategorySlug } from './category-slug';
+import {
+  CATEGORY_SLUG_REGEX,
+  slugifyCategoryName,
+  slugifyCategoryName as formatCategorySlug
+} from './category-slug';
 
 // -- Category type helpers --------------------------------------------------
 
@@ -164,6 +168,18 @@ function toTrimmedOrNull(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function toTimestampString(value: unknown): string | null {
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  return null;
 }
 
 export type CategoryRecord = z.infer<typeof categoryRecordSchema>;
@@ -540,6 +556,8 @@ const categoryProductRecordSchema = z.object({
   id: bigintLike,
   slug: z.string(),
   title_h1: z.string(),
+  brand: z.string().nullable().optional(),
+  model: z.string().nullable().optional(),
   short_summary: z.string().nullable().optional(),
   price: z.string().nullable().optional(),
   images_json: z.string().nullable().optional(),
@@ -551,6 +569,8 @@ export interface CategoryProductSummary {
   id: bigint;
   slug: string;
   title: string;
+  brand: string | null;
+  model: string | null;
   shortSummary: string | null;
   price: string | null;
   primaryImage: string | null;
@@ -561,6 +581,7 @@ export interface CategoryProductsQueryOptions {
   limit?: number;
   offset?: number;
   requestId?: string;
+  orderBy?: 'alpha' | 'lastUpdated';
 }
 
 export interface CategoryProductsQueryResult {
@@ -590,6 +611,8 @@ function normalizeProductRecord(record: z.infer<typeof categoryProductRecordSche
     id: toBigInt(record.id),
     slug: record.slug,
     title: record.title_h1,
+    brand: toTrimmedOrNull(record.brand),
+    model: toTrimmedOrNull(record.model),
     shortSummary: toTrimmedOrNull(record.short_summary),
     price: toTrimmedOrNull(record.price),
     primaryImage: images.length > 0 ? images[0]! : null,
@@ -726,13 +749,18 @@ function buildCategoryMatchFragments(
   return { where, params };
 }
 
-async function countProductsForCategory(
+interface CategoryProductStats {
+  totalCount: number;
+  lastUpdatedAt: string | null;
+}
+
+async function getCategoryProductStats(
   category: Pick<CategorySummary, 'slug' | 'name'>,
   columns: ProductCategoryColumn[],
   match?: CategoryMatchData
-): Promise<number> {
+): Promise<CategoryProductStats> {
   if (columns.length === 0) {
-    return 0;
+    return { totalCount: 0, lastUpdatedAt: null };
   }
 
   const categoryMatch = match ?? createCategoryMatchData(category);
@@ -741,7 +769,7 @@ async function countProductsForCategory(
     categoryMatch.jsonValues.length === 0 &&
     categoryMatch.csvTokens.length === 0
   ) {
-    return 0;
+    return { totalCount: 0, lastUpdatedAt: null };
   }
 
   const pool = getPool();
@@ -749,17 +777,21 @@ async function countProductsForCategory(
 
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT COUNT(*) AS total
+      `SELECT COUNT(*) AS total, MAX(COALESCE(updated_at, last_tidb_update_at)) AS last_updated
         FROM products
         WHERE is_published = 1 AND (${where})`,
       params
     );
-    const total = Array.isArray(rows) && rows.length > 0 ? rows[0]?.total : 0;
-    return normalizeCount(total);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { totalCount: 0, lastUpdatedAt: null };
+    }
+    const total = normalizeCount(rows[0]?.total);
+    const lastUpdatedAt = toTimestampString(rows[0]?.last_updated ?? null);
+    return { totalCount: total, lastUpdatedAt };
   } catch (error) {
     const info = toDbErrorInfo(error);
-    console.error('[categories] count products failed', info);
-    return 0;
+    console.error('[categories] category product stats failed', info);
+    return { totalCount: 0, lastUpdatedAt: null };
   }
 }
 
@@ -771,6 +803,7 @@ export async function getPublishedProductsForCategory(
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const requestId = options.requestId;
+  const orderBy = options.orderBy === 'lastUpdated' ? 'lastUpdated' : 'alpha';
   const columns = await getProductCategoryColumns(pool);
   if (columns.length === 0) {
     return { products: [], totalCount: 0 };
@@ -783,11 +816,16 @@ export async function getPublishedProductsForCategory(
   const { where, params } = buildCategoryMatchFragments(columns, match);
 
   try {
+    const orderClause =
+      orderBy === 'lastUpdated'
+        ? `ORDER BY COALESCE(updated_at, last_tidb_update_at) DESC, id DESC`
+        : 'ORDER BY title_h1 ASC';
+
     const [rows] = await pool.query(
-      `SELECT id, slug, title_h1, short_summary, price, images_json, last_tidb_update_at, updated_at
+      `SELECT id, slug, title_h1, brand, model, short_summary, price, images_json, last_tidb_update_at, updated_at
         FROM products
         WHERE is_published = 1 AND (${where})
-        ORDER BY title_h1 ASC
+        ${orderClause}
         LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
@@ -801,14 +839,211 @@ export async function getPublishedProductsForCategory(
     }
 
     const products = parsed.data.map(normalizeProductRecord);
-    const totalCount = await countProductsForCategory({ slug: category.slug, name: category.name }, columns, match);
+    const stats = await getCategoryProductStats(
+      { slug: category.slug, name: category.name },
+      columns,
+      match
+    );
 
-    return { products, totalCount };
+    return { products, totalCount: stats.totalCount };
   } catch (error) {
     const info = toDbErrorInfo(error);
     console.error('[categories] products for category query failed', info, requestId ? { requestId } : undefined);
     return { products: [], totalCount: 0 };
   }
+}
+
+const categoryArchiveRowSchema = z.object({
+  category_name: z.string(),
+  total_products: bigintLike,
+  last_tidb_update_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional()
+});
+
+type CategoryArchiveRow = z.infer<typeof categoryArchiveRowSchema>;
+
+export interface ProductCategoryArchiveEntry {
+  slug: string;
+  name: string;
+  productCount: number;
+  lastUpdatedAt: string | null;
+}
+
+export interface ProductCategoryArchivePage {
+  entries: ProductCategoryArchiveEntry[];
+  totalCount: number;
+  currentPage: number;
+  totalPages: number;
+}
+
+export const PRODUCT_CATEGORY_ARCHIVE_PAGE_SIZE = 9;
+
+const CATEGORY_ARCHIVE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface CategoryArchiveCacheEntry {
+  expiresAt: number;
+  entries: ProductCategoryArchiveEntry[];
+}
+
+let cachedCategoryArchive: CategoryArchiveCacheEntry | null = null;
+
+const RESERVED_CATEGORY_ARCHIVE_SLUGS = new Set(['page']);
+
+function ensureUniqueArchiveSlug(
+  preferredSlug: string | null | undefined,
+  fallbackName: string,
+  used: Set<string>
+): string {
+  const normalizedPreferred =
+    typeof preferredSlug === 'string' && CATEGORY_SLUG_REGEX.test(preferredSlug.trim().toLowerCase())
+      ? preferredSlug.trim().toLowerCase()
+      : '';
+  const fallbackBase = slugifyCategoryName(fallbackName) ||
+    fallbackName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const sanitizedFallback = fallbackBase.replace(/^-+|-+$/g, '') || 'category';
+  const base = (normalizedPreferred || sanitizedFallback).replace(/^-+|-+$/g, '') || 'category';
+  let candidate = base;
+  let suffix = 2;
+  while (RESERVED_CATEGORY_ARCHIVE_SLUGS.has(candidate) || used.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+function normalizeArchiveRow(
+  row: CategoryArchiveRow,
+  usedSlugs: Set<string>,
+  seenNames: Set<string>
+): ProductCategoryArchiveEntry | null {
+  const rawName = row.category_name?.trim();
+  if (!rawName) {
+    return null;
+  }
+  const normalizedName = rawName.toLowerCase();
+  if (seenNames.has(normalizedName)) {
+    return null;
+  }
+  const slug = ensureUniqueArchiveSlug(null, rawName, usedSlugs);
+  const lastUpdatedAt = toTimestampString(row.updated_at || row.last_tidb_update_at || null);
+  const productCount = normalizeCount(row.total_products);
+  if (productCount <= 0) {
+    return null;
+  }
+  seenNames.add(normalizedName);
+  return {
+    slug,
+    name: rawName,
+    productCount,
+    lastUpdatedAt
+  };
+}
+
+async function loadCategoryArchiveEntries(): Promise<ProductCategoryArchiveEntry[]> {
+  if (cachedCategoryArchive && cachedCategoryArchive.expiresAt > Date.now()) {
+    return cachedCategoryArchive.entries;
+  }
+
+  const pool = getPool();
+  try {
+    const usedSlugs = new Set<string>();
+    const seenNames = new Set<string>();
+    const entries: ProductCategoryArchiveEntry[] = [];
+
+    const columns = await getProductCategoryColumns(pool);
+    if (columns.length > 0) {
+      const categories = await getAllPublishedCategories({ type: 'product' });
+      for (const category of categories) {
+        const displayName = category.name?.trim();
+        if (!displayName) {
+          continue;
+        }
+        const match = createCategoryMatchData({ slug: category.slug, name: displayName });
+        const stats = await getCategoryProductStats({ slug: category.slug, name: displayName }, columns, match);
+        if (stats.totalCount <= 0) {
+          continue;
+        }
+        const slug = ensureUniqueArchiveSlug(category.slug, displayName, usedSlugs);
+        entries.push({
+          slug,
+          name: displayName,
+          productCount: stats.totalCount,
+          lastUpdatedAt: stats.lastUpdatedAt
+        });
+        const normalizedName = displayName.toLowerCase();
+        if (normalizedName) {
+          seenNames.add(normalizedName);
+        }
+      }
+    } else {
+      console.warn('[categories] no product category columns detected; falling back to raw grouping');
+    }
+
+    const [rows] = await pool.query(
+      `SELECT
+        category AS category_name,
+        COUNT(*) AS total_products,
+        MAX(last_tidb_update_at) AS last_tidb_update_at,
+        MAX(updated_at) AS updated_at
+      FROM products
+      WHERE is_published = 1 AND category IS NOT NULL AND TRIM(category) <> ''
+      GROUP BY category
+      ORDER BY category ASC`
+    );
+
+    const parsed = z.array(categoryArchiveRowSchema).safeParse(rows);
+    if (!parsed.success) {
+      console.error('[categories] failed to parse category archive rows', parsed.error.format());
+    } else {
+      for (const row of parsed.data) {
+        const entry = normalizeArchiveRow(row, usedSlugs, seenNames);
+        if (entry) {
+          entries.push(entry);
+        }
+      }
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+    cachedCategoryArchive = {
+      entries,
+      expiresAt: Date.now() + CATEGORY_ARCHIVE_CACHE_TTL_MS
+    };
+
+    return entries;
+  } catch (error) {
+    console.error('[categories] failed to load category archive entries', toDbErrorInfo(error));
+    return [];
+  }
+}
+
+export async function getProductCategoryArchiveEntries(): Promise<ProductCategoryArchiveEntry[]> {
+  return loadCategoryArchiveEntries();
+}
+
+export async function getProductCategoryArchivePage(
+  page: number,
+  pageSize: number
+): Promise<ProductCategoryArchivePage> {
+  const entries = await loadCategoryArchiveEntries();
+  const totalCount = entries.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const currentPage = Math.min(Math.max(page, 1), totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const end = start + pageSize;
+  const slice = entries.slice(start, end);
+  return { entries: slice, totalCount, currentPage, totalPages };
+}
+
+export async function findProductCategoryArchiveEntry(
+  slug: string
+): Promise<ProductCategoryArchiveEntry | null> {
+  if (!slug) {
+    return null;
+  }
+  const entries = await loadCategoryArchiveEntries();
+  return entries.find((entry) => entry.slug === slug) ?? null;
 }
 
 export interface CategorySitemapEntry {
