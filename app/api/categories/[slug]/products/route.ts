@@ -19,6 +19,8 @@ interface SerializedProductSummary {
   id: string;
   slug: string;
   title: string;
+  brand: string | null;
+  model: string | null;
   shortSummary: string | null;
   price: string | null;
   primaryImage: string | null;
@@ -43,6 +45,8 @@ function serializeProducts(products: CategoryProductSummary[]): SerializedProduc
     id: product.id.toString(),
     slug: product.slug,
     title: product.title,
+    brand: product.brand,
+    model: product.model,
     shortSummary: product.shortSummary,
     price: product.price,
     primaryImage: product.primaryImage,
