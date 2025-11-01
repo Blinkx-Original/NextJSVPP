@@ -73,7 +73,7 @@ export function Responsive(props: ResponsiveProps) {
 
   const activeBreakpoint = useMemo(() => selectBreakpoint(width, breakpoints), [width, breakpoints]);
   const activeLayout = useMemo(() => layouts[activeBreakpoint] ?? [], [layouts, activeBreakpoint]);
-  const columnCount = cols[activeBreakpoint] ?? activeLayout.length || 1;
+  const columnCount = (cols[activeBreakpoint] ?? activeLayout.length) || 1;
   const baseWidth = activeLayout[0]?.w ?? columnCount;
   const itemsPerRow = Math.max(1, Math.floor(columnCount / Math.max(baseWidth, 1)));
 
