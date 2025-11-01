@@ -1,0 +1,12 @@
+.rgl-container {
+  width: 100%;
+}
+
+.rgl-item {
+  display: flex;
+  width: 100%;
+}
+
+.rgl-item > * {
+  width: 100%;
+}

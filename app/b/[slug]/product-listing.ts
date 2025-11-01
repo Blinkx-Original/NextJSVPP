@@ -8,47 +8,17 @@ import {
 } from '@/lib/categories';
 import { getPublishedProductsBySlugs, type NormalizedProductResult } from '@/lib/products';
 
+import {
+  PRODUCT_LISTING_HEADING,
+  type ProductCard,
+  type ProductListingConfig,
+  type ProductListingPlaceholder,
+  type ProductListingRenderData,
+  type ProductListingRequest,
+  type ProductListingType
+} from './product-listing.types';
+
 export const PAGE_SIZE = 10;
-
-export interface ProductCard {
-  id: string;
-  slug: string;
-  title: string;
-  shortSummary: string | null;
-  price: string | null;
-  primaryImage: string | null;
-}
-
-export interface ProductListingRenderData {
-  key: string;
-  heading: string;
-  subtitle?: string;
-  cards: ProductCard[];
-  viewAllHref?: string;
-  pagination?: {
-    pageKey: string;
-    currentPage: number;
-    totalPages: number;
-  };
-}
-
-export type ProductListingType = 'category' | 'manual';
-
-export interface ProductListingConfig {
-  type: ProductListingType;
-  slug: string | null;
-  categoryLabel: string | null;
-}
-
-export interface ProductListingPlaceholder {
-  config: ProductListingConfig;
-  marker: string;
-}
-
-export interface ProductListingRequest {
-  config: ProductListingConfig;
-  pageKey: string;
-}
 
 const MANUAL_LISTING_KEYWORDS = new Set([
   'manual',
@@ -364,7 +334,7 @@ export async function loadCategoryListing(
 
   return {
     key: `category-${category.slug}`,
-    heading: 'Productos relacionados',
+    heading: PRODUCT_LISTING_HEADING,
     subtitle,
     cards,
     viewAllHref: `/categories/${category.slug}`,
@@ -396,7 +366,7 @@ export async function loadManualListing(productSlugs: string[]): Promise<Product
 
   return {
     key: 'manual-products',
-    heading: 'Productos relacionados',
+    heading: PRODUCT_LISTING_HEADING,
     cards
   };
 }
