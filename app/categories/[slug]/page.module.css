@@ -5,6 +5,8 @@
   padding: 3rem 1.5rem 4rem;
   max-width: 1200px;
   margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .hero {
@@ -36,6 +38,7 @@
 .layout {
   display: grid;
   gap: 2rem;
+  width: 100%;
 }
 
 @media (min-width: 1024px) {
@@ -54,6 +57,7 @@
   border: 1px solid #e2e8f0;
   padding: 1.75rem 1.5rem;
   box-shadow: 0 24px 45px -32px rgba(15, 23, 42, 0.18);
+  min-width: 0;
 }
 
 @media (min-width: 1024px) {
@@ -127,6 +131,21 @@
   background: #f8fafc;
 }
 
+.facetLink {
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .facetLink {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .facetCount {
+    align-self: flex-start;
+  }
+}
+
 .facetLink:hover {
   border-color: #2563eb;
   box-shadow: 0 8px 18px rgba(37, 99, 235, 0.15);
@@ -162,12 +181,15 @@
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1.5rem;
+  width: 100%;
 }
 
 @media (min-width: 768px) {
@@ -286,6 +308,11 @@
   border-radius: 999px;
 }
 
+.paginationList {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 .pageLink {
   min-width: 2.5rem;
   height: 2.5rem;
@@ -297,6 +324,24 @@
   text-decoration: none;
   color: #1f2937;
   transition: background 0.2s ease, color 0.2s ease;
+}
+
+.pageLink {
+  padding: 0 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 2.75rem 1rem 3.5rem;
+  }
+
+  .heroTitle {
+    font-size: clamp(2rem, 6vw, 2.5rem);
+  }
+
+  .heroDescription {
+    font-size: 0.95rem;
+  }
 }
 
 .pageLinkActive {
