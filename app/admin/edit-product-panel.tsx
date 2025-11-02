@@ -106,6 +106,7 @@ export default function EditProductPanel({
   const [title, setTitle] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
   const [priceText, setPriceText] = useState<string>('');
+  const [imageListInput, setImageListInput] = useState<string>('');
   const [imageUrl, setImageUrl] = useState<string>('');
   const [ctaLeadLabel, setCtaLeadLabel] = useState<string>('');
   const [ctaLeadUrl, setCtaLeadUrl] = useState<string>('');
@@ -142,6 +143,7 @@ export default function EditProductPanel({
     setTitle('');
     setSummary('');
     setPriceText('');
+    setImageListInput('');
     setImageUrl('');
     setCtaLeadLabel('');
     setCtaLeadUrl('');
@@ -176,6 +178,7 @@ export default function EditProductPanel({
       setPriceText(product.price ?? '');
       const fallbackImage =
         Array.isArray(product.images) && product.images.length > 0 ? product.images[0] ?? '' : '';
+      setImageListInput(Array.isArray(product.images) ? product.images.filter(Boolean).join('\n') : '');
       setImageUrl(product.primary_image_url ?? fallbackImage ?? '');
       setCtaLeadLabel(product.cta_lead_label ?? '');
       setCtaLeadUrl(product.cta_lead_url ?? '');
@@ -300,10 +303,19 @@ export default function EditProductPanel({
     resetPrimaryMessages();
   }, [resetPrimaryMessages]);
 
-  const handleImageChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    setImageUrl(event.target.value);
-    resetPrimaryMessages();
-  }, [resetPrimaryMessages]);
+  const handleImageListChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      const value = event.target.value;
+      setImageListInput(value);
+      const firstImage = value
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => line.length > 0);
+      setImageUrl(firstImage ?? '');
+      resetPrimaryMessages();
+    },
+    [resetPrimaryMessages]
+  );
 
   const handleCategoryChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     setCategorySlug(event.target.value);
@@ -351,7 +363,11 @@ export default function EditProductPanel({
         cta_affiliate_label: ctaAffiliateLabel || '',
         cta_stripe_label: ctaStripeLabel || '',
         cta_paypal_label: ctaPaypalLabel || '',
-        image_url: imageUrl
+        image_url: imageUrl,
+        images: imageListInput
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
       };
       const response = await fetch('/api/admin/products', {
         method: 'POST',
@@ -381,6 +397,7 @@ export default function EditProductPanel({
     ctaStripeLabel,
     ctaStripeUrl,
     description,
+    imageListInput,
     imageUrl,
     loadedSlug,
     priceText,
@@ -505,13 +522,15 @@ export default function EditProductPanel({
             </label>
 
             <label style={{ display: 'grid', gap: 4 }}>
-              <span style={{ fontWeight: 600 }}>Imagen principal (URL)</span>
-              <input
-                value={imageUrl}
-                onChange={handleImageChange}
-                placeholder="https://..."
-                style={inputStyle}
+              <span style={{ fontWeight: 600 }}>Imágenes (una URL por línea)</span>
+              <textarea
+                value={imageListInput}
+                onChange={handleImageListChange}
+                placeholder={'https://...\nhttps://...'}
+                rows={4}
+                style={{ ...textareaStyle, minHeight: '6.25rem' }}
               />
+              <span style={helperTextStyle}>La primera imagen se usará como principal.</span>
             </label>
 
             <label style={{ display: 'grid', gap: 4 }}>
