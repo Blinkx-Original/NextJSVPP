@@ -131,7 +131,9 @@ export default function InlineAlgoliaSearch({ className = "" }: { className?: st
           </span>
         </div>
 
-        <p className={styles.debug}>{debugText}</p>
+        {process.env.NODE_ENV !== "production" && debugText ? (
+          <p className={styles.debug}>{debugText}</p>
+        ) : null}
       </div>
     </section>
   );
