@@ -558,12 +558,30 @@ a {
   }
 
   .site-header__mobile-panel {
+    position: fixed;
+    inset: 0;
     display: none;
-    width: 100%;
+    padding: clamp(104px, 18vh, 132px) 18px 32px;
+    background: rgba(248, 250, 252, 0.96);
+    backdrop-filter: blur(18px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 20;
   }
 
   .site-header__mobile-panel--open {
     display: block;
+  }
+
+  .site-header__mobile-menu {
+    max-width: 520px;
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .site-header__mobile-panel {
+    padding: clamp(96px, 20vh, 120px) 14px 28px;
   }
 }
 
