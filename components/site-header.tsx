@@ -128,7 +128,22 @@ export function SiteHeader() {
         <div
           className={`site-header__mobile-panel${isMenuOpen ? ' site-header__mobile-panel--open' : ''}`}
           aria-hidden={!isMenuOpen}
+          role="dialog"
+          aria-modal="true"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsMenuOpen(false);
+            }
+          }}
         >
+          <button
+            type="button"
+            className="site-header__mobile-close"
+            aria-label="Close navigation menu"
+            onClick={() => setIsMenuOpen(false)}
+          >
+            ×
+          </button>
           <nav className="site-header__mobile-menu" aria-label="Primary navigation (mobile)">
             {menuItems.map((item) => (
               <a
