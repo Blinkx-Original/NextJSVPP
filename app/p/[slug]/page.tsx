@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import styles from './page.module.css';
@@ -12,6 +11,7 @@ import {
 import { createRequestId } from '@/lib/request-id';
 import { buildProductUrl } from '@/lib/urls';
 import { buildMetaTitle, buildSeo } from '@/lib/seo';
+import { ProductImageCarousel } from '@/components/ProductImageCarousel';
 
 export const runtime = 'nodejs';
 export const revalidate = 300;
@@ -103,8 +103,8 @@ export default async function ProductPage({ params }: PageProps) {
   const host = headers().get('host') ?? undefined;
   const canonical = buildProductUrl(normalized.slug, host);
   const seo = buildSeo(normalized, canonical);
-  const primaryImage = normalized.images[0];
   const summary = normalized.short_summary ? truncateSummary(normalized.short_summary) : '';
+  const hasPrice = Boolean(normalized.price && normalized.price.trim().length > 0);
   const ctas = CTA_CONFIG.map((item) => {
     const url = normalized[item.urlKey as keyof NormalizedProduct] as string;
     const labelValue = normalized[item.labelKey as keyof NormalizedProduct] as string;
@@ -120,15 +120,10 @@ export default async function ProductPage({ params }: PageProps) {
     <main className={styles.productPage}>
       <section className={styles.productHero}>
         <div className={styles.productMedia}>
-          {primaryImage ? (
-            <Image
-              src={primaryImage}
-              alt={normalized.title_h1 || normalized.slug}
-              width={1200}
-              height={675}
-              sizes="(max-width: 900px) 100vw, 720px"
-              priority
-              className={styles.productMediaImage}
+          {normalized.images.length > 0 ? (
+            <ProductImageCarousel
+              images={normalized.images}
+              title={normalized.title_h1 || normalized.slug}
             />
           ) : (
             <div className={styles.productMediaPlaceholder} aria-hidden="true" />
@@ -139,6 +134,11 @@ export default async function ProductPage({ params }: PageProps) {
             {normalized.title_h1 || normalized.slug}
           </h1>
           {summary ? <p className={styles.productSummary}>{summary}</p> : null}
+          {hasPrice ? (
+            <div className={`${styles.productPrice} ${styles.productPriceVisible}`}>
+              <span>{normalized.price}</span>
+            </div>
+          ) : null}
           {ctas.length > 0 ? (
             <div className={styles.productCtas}>
               {ctas.map((cta) => {
@@ -161,17 +161,6 @@ export default async function ProductPage({ params }: PageProps) {
               })}
             </div>
           ) : null}
-          <div
-            className={
-              [
-                styles.productPrice,
-                normalized.price ? styles.productPriceVisible : styles.productPriceEmpty
-              ].join(' ')
-            }
-            aria-hidden={normalized.price ? undefined : true}
-          >
-            {normalized.price ? <span>{normalized.price}</span> : null}
-          </div>
         </div>
       </section>
       {normalized.desc_html ? (
