@@ -28,6 +28,11 @@ export interface AlgoliaSearchResponse {
   facets: Record<string, Record<string, number>>;
 }
 
+export interface AlgoliaCategoryOption {
+  slug: string;
+  name: string;
+}
+
 export interface AlgoliaSearchOptions {
   query?: string;
   page?: number;
@@ -124,4 +129,27 @@ export async function searchAlgoliaProducts(options: AlgoliaSearchOptions = {}):
     nbPages: typeof data.nbPages === "number" ? data.nbPages : 0,
     facets: data.facets ?? {}
   };
+}
+
+export async function fetchAlgoliaCategoryOptions(): Promise<AlgoliaCategoryOption[]> {
+  const response = await searchAlgoliaProducts({
+    hitsPerPage: 0,
+    facets: ["categories"]
+  });
+
+  const categoriesFacet = response.facets["categories"] ?? {};
+
+  return Object.entries(categoriesFacet)
+    .filter(([value, count]) => {
+      if (typeof value !== "string") {
+        return false;
+      }
+      const trimmed = value.trim();
+      return trimmed.length > 0 && count > 0 && trimmed !== "__empty";
+    })
+    .map(([value]) => {
+      const normalized = value.trim();
+      return { slug: normalized, name: normalized } satisfies AlgoliaCategoryOption;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

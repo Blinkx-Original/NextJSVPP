@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPublishedCategoryPickerOptions } from '@/lib/categories';
 import { safeGetEnv } from '@/lib/env';
+import { fetchAlgoliaCategoryOptions } from '@/lib/algolia-search';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -70,7 +71,14 @@ export async function GET(
   }
 
   try {
-    const options = await getPublishedCategoryPickerOptions({ type });
+    const options =
+      type === 'product'
+        ? await fetchAlgoliaCategoryOptions()
+        : (await getPublishedCategoryPickerOptions({ type })).map((option) => ({
+            slug: option.slug,
+            name: option.name
+          }));
+
     const filtered = search
       ? options.filter((option) =>
           option.name.toLowerCase().includes(search) || option.slug.toLowerCase().includes(search)
