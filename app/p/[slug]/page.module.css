@@ -13,25 +13,18 @@
   gap: 2rem;
 }
 
+
 .productMedia {
   width: 100%;
-  border-radius: 20px;
-  overflow: hidden;
-  background: #ffffff;
-}
-
-.productMediaImage {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .productMediaPlaceholder {
   width: 100%;
   aspect-ratio: 16 / 9;
+  border-radius: 20px;
   background: #ffffff;
 }
 
@@ -170,16 +163,8 @@
     gap: 1.25rem;
   }
 
-  .productMedia {
-    border-radius: 14px;
-  }
-
-  .productMediaImage {
-    aspect-ratio: 16 / 9;
-  }
-
   .productMediaPlaceholder {
-    aspect-ratio: 16 / 9;
+    border-radius: 14px;
   }
 
   .productTitle {

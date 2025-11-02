@@ -1,0 +1,124 @@
+.carousel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.viewport {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #ffffff;
+}
+
+.navButton {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(15, 23, 42, 0.72);
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.navButton:hover,
+.navButton:focus-visible {
+  background: rgba(15, 23, 42, 0.9);
+  transform: translateY(-50%) scale(1.03);
+}
+
+.navButton:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+
+.navButtonPrevious {
+  left: 1rem;
+}
+
+.navButtonNext {
+  right: 1rem;
+}
+
+.thumbnailList {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.thumbnailButton {
+  border: 2px solid transparent;
+  border-radius: 14px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  width: clamp(3.5rem, 12vw, 5rem);
+  aspect-ratio: 16 / 10;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.thumbnailButton:hover,
+.thumbnailButton:focus-visible {
+  border-color: rgba(37, 99, 235, 0.4);
+  transform: translateY(-1px);
+}
+
+.thumbnailButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.thumbnailButtonActive {
+  border-color: #2563eb;
+}
+
+.thumbnailImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+@media (max-width: 600px) {
+  .viewport {
+    border-radius: 14px;
+  }
+
+  .navButton {
+    width: 2.35rem;
+    height: 2.35rem;
+  }
+
+  .navButtonPrevious {
+    left: 0.75rem;
+  }
+
+  .navButtonNext {
+    right: 0.75rem;
+  }
+
+  .thumbnailList {
+    gap: 0.4rem;
+  }
+
+  .thumbnailButton {
+    border-radius: 10px;
+  }
+}
