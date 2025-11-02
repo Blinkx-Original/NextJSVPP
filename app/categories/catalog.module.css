@@ -3,8 +3,10 @@
   flex-direction: column;
   gap: 2.75rem;
   padding: 3rem 1.5rem 4rem;
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .hero {
@@ -30,6 +32,7 @@
 .layout {
   display: grid;
   gap: 2rem;
+  width: 100%;
 }
 
 @media (min-width: 1024px) {
@@ -48,6 +51,7 @@
   border: 1px solid #e2e8f0;
   padding: 1.75rem 1.5rem;
   box-shadow: 0 24px 45px -32px rgba(15, 23, 42, 0.18);
+  min-width: 0;
 }
 
 @media (min-width: 1024px) {
@@ -156,13 +160,16 @@
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
+  min-width: 0;
+  width: 100%;
 }
 
 .controls {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  align-items: flex-start;
+  align-items: stretch;
+  width: 100%;
 }
 
 @media (min-width: 640px) {
@@ -173,6 +180,10 @@
   }
 }
 
+.controls > * {
+  width: 100%;
+}
+
 .categorySelect {
   padding: 0.6rem 1rem;
   font-size: 1rem;
@@ -181,6 +192,7 @@
   color: #0f172a;
   background-color: #ffffff;
   min-width: 220px;
+  width: 100%;
   appearance: auto;
   background-image: none;
   background-repeat: initial;
@@ -203,6 +215,62 @@
   background: rgba(37, 99, 235, 0.1);
   color: #1d4ed8;
   font-weight: 600;
+  width: 100%;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+@media (min-width: 640px) {
+  .selectedBadge {
+    width: auto;
+    justify-content: flex-start;
+  }
+}
+
+.facetList {
+  max-width: 100%;
+}
+
+.facetLink {
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .facetLink {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .facetCount {
+    align-self: flex-start;
+  }
+}
+
+.grid {
+  width: 100%;
+}
+
+.cardBody {
+  min-width: 0;
+}
+
+.paginationList {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.pageLink {
+  min-width: 2.5rem;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 2.5rem 1rem 3.5rem;
+  }
+
+  .categorySelect {
+    min-width: 0;
+  }
 }
 
 .grid {
