@@ -1,7 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent
+} from "react";
 
 function readEnv(...keys: string[]): string {
   for (const key of keys) {
@@ -15,6 +22,8 @@ function readEnv(...keys: string[]): string {
   }
   return "";
 }
+
+const DEBUG_ENABLED = process.env.NODE_ENV !== "production";
 
 const APP_ID = readEnv("NEXT_PUBLIC_ALGOLIA_APP_ID", "ALGOLIA_APP_ID");
 const SEARCH_KEY = readEnv(
@@ -74,7 +83,13 @@ export function useAlgoliaSearch() {
   const [hits, setHits] = useState<Hit[]>([]);
   const [selected, setSelected] = useState(-1);
   const [open, setOpen] = useState(false);
-  const [debugText, setDebugText] = useState("");
+  const [debugText, setDebugTextState] = useState("");
+  const setDebugText = useCallback(
+    (message: string) => {
+      setDebugTextState(DEBUG_ENABLED ? message : "");
+    },
+    []
+  );
 
   const isConfigured = Boolean(APP_ID && SEARCH_KEY && INDEX_NAME);
 
@@ -134,7 +149,7 @@ export function useAlgoliaSearch() {
     }, 140);
 
     return () => window.clearTimeout(handle);
-  }, [isConfigured, query]);
+  }, [isConfigured, query, setDebugText]);
 
   useEffect(() => {
     if (!isConfigured) {
@@ -174,7 +189,7 @@ export function useAlgoliaSearch() {
         setDebugText(`Algolia test error: ${message}`);
       }
     })();
-  }, [isConfigured]);
+  }, [isConfigured, setDebugText]);
 
   useEffect(() => {
     function handleDocumentClick(event: MouseEvent) {
