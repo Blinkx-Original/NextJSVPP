@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import { ReactNode } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <main>{children}</main>
           <SiteFooter />
         </AppProviders>
+        <Analytics />
       </body>
     </html>
   );

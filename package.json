@@ -18,7 +18,8 @@
     "he": "1.2.0",
     "react-arborist": "3.4.0",
     "axios": "1.6.8",
-    "recoil": "0.7.7"
+    "recoil": "0.7.7",
+    "@vercel/analytics": "1.2.2"
   },
   "devDependencies": {
     "@types/node": "20.12.7",
