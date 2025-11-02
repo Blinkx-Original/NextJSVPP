@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import styles from './page.module.css';
@@ -12,6 +11,7 @@ import {
 import { createRequestId } from '@/lib/request-id';
 import { buildProductUrl } from '@/lib/urls';
 import { buildMetaTitle, buildSeo } from '@/lib/seo';
+import { ProductImageCarousel } from '@/components/ProductImageCarousel';
 
 export const runtime = 'nodejs';
 export const revalidate = 300;
@@ -103,7 +103,6 @@ export default async function ProductPage({ params }: PageProps) {
   const host = headers().get('host') ?? undefined;
   const canonical = buildProductUrl(normalized.slug, host);
   const seo = buildSeo(normalized, canonical);
-  const primaryImage = normalized.images[0];
   const summary = normalized.short_summary ? truncateSummary(normalized.short_summary) : '';
   const ctas = CTA_CONFIG.map((item) => {
     const url = normalized[item.urlKey as keyof NormalizedProduct] as string;
@@ -120,15 +119,10 @@ export default async function ProductPage({ params }: PageProps) {
     <main className={styles.productPage}>
       <section className={styles.productHero}>
         <div className={styles.productMedia}>
-          {primaryImage ? (
-            <Image
-              src={primaryImage}
-              alt={normalized.title_h1 || normalized.slug}
-              width={1200}
-              height={675}
-              sizes="(max-width: 900px) 100vw, 720px"
-              priority
-              className={styles.productMediaImage}
+          {normalized.images.length > 0 ? (
+            <ProductImageCarousel
+              images={normalized.images}
+              title={normalized.title_h1 || normalized.slug}
             />
           ) : (
             <div className={styles.productMediaPlaceholder} aria-hidden="true" />
