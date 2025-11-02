@@ -22,7 +22,7 @@ Este repositorio contiene la implementación base (Fase 1) junto con **requerimi
 ## Quick start
 
 1. Instalar dependencias: `npm install`.
-2. Copiar `env/.env.example` a `.env.local` y completar credenciales TiDB, Algolia y `ADMIN_PASSWORD` (usuario fijo `admin`).
+2. Copiar `env/.env.example` a `.env.local` y completar credenciales TiDB, Algolia y `ADMIN_PASSWORD` (usuario fijo `admin`). Para la búsqueda en cliente configura `NEXT_PUBLIC_ALGOLIA_APP_ID`, `NEXT_PUBLIC_ALGOLIA_SEARCH_KEY` (usa la clave *search-only*) y `NEXT_PUBLIC_ALGOLIA_INDEX`; estos valores pueden reutilizar los equivalentes privados (`ALGOLIA_APP_ID`, `ALGOLIA_API_KEY`, `ALGOLIA_INDEX`) si prefieres mantener una sola fuente de verdad.
 3. Ejecutar el entorno local: `npm run dev`.
 4. Visitar `/p/[slug]` para productos publicados o `/healthz` para el status de TiDB.
 
