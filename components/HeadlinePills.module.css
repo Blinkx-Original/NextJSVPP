@@ -59,7 +59,7 @@
 
 .pill span {
   display: inline-block;
-  font-size: clamp(0.95rem, 2.5vw, 1.1rem);
+  font-size: clamp(0.92rem, 2.3vw, 1.05rem);
 }
 
 .footer {
@@ -104,11 +104,20 @@
   .headline {
     justify-content: flex-start;
     text-align: left;
-    font-size: clamp(1.1rem, 6vw, 1.5rem);
+    font-size: clamp(0.98rem, 5.5vw, 1.35rem);
     font-weight: 600;
+    gap: 0.5rem;
   }
 
   .textSegment {
     font-weight: 600;
+  }
+
+  .pill {
+    padding: 0.45rem 0.85rem;
+  }
+
+  .pill span {
+    font-size: clamp(0.8rem, 4vw, 0.9rem);
   }
 }

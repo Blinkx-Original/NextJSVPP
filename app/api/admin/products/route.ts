@@ -78,6 +78,7 @@ interface UpdatePayload {
   cta_stripe_label?: unknown;
   cta_paypal_label?: unknown;
   image_url?: unknown;
+  images?: unknown;
 }
 
 const TITLE_MAX_LENGTH = 120;
@@ -209,6 +210,51 @@ function normalizeOptionalString(value: unknown, maxLength?: number): string | n
     return trimmed.slice(0, maxLength);
   }
   return trimmed;
+}
+
+function normalizeImageListInput(value: unknown): string[] {
+  const entries: string[] = [];
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === 'string') {
+        entries.push(item);
+      }
+    }
+  } else if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (typeof item === 'string') {
+              entries.push(item);
+            }
+          }
+        }
+      } catch {
+        // fall back to splitting by lines below
+      }
+    }
+    if (entries.length === 0) {
+      entries.push(...trimmed.split(/\r?\n/));
+    }
+  }
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of entries) {
+    const normalizedEntry = normalizeOptionalString(entry, URL_MAX_LENGTH);
+    if (normalizedEntry && !seen.has(normalizedEntry)) {
+      seen.add(normalizedEntry);
+      normalized.push(normalizedEntry);
+    }
+  }
+
+  return normalized;
 }
 
 function normalizeOptionalUrl(value: unknown, field: string, maxLength?: number): string | null {
@@ -466,7 +512,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
 
   const existingRow = existing as ExistingProductRow;
 
-  const existingPrimaryImage = getPrimaryImage(existingRow.images_json);
+  const existingImages = parseImagesField(existingRow.images_json);
   const previousCategory = normalizeOptionalString(existingRow.category ?? '', CATEGORY_MAX_LENGTH);
 
   let title: string;
@@ -481,7 +527,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
   let affiliateLabel: string;
   let stripeLabel: string;
   let paypalLabel: string;
-  let imageUrl: string | null = null;
+  let imageList: string[] = existingImages;
+  let imageUrl: string | null = imageList[0] ?? null;
   let categoryValue: string | null = previousCategory;
 
   try {
@@ -559,9 +606,20 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
         : existingRow.cta_paypal_label ?? '';
     paypalLabel = normalizeOptionalLabel(paypalLabelInput, CTA_LABEL_MAX_LENGTH);
 
-    const imageInput =
-      typeof payload.image_url === 'string' ? payload.image_url : existingPrimaryImage ?? '';
-    imageUrl = normalizeOptionalString(imageInput, URL_MAX_LENGTH);
+    if (Array.isArray(payload.images) || typeof payload.images === 'string') {
+      imageList = normalizeImageListInput(payload.images);
+    }
+
+    if (typeof payload.image_url === 'string') {
+      const normalizedPrimary = normalizeOptionalString(payload.image_url, URL_MAX_LENGTH);
+      if (normalizedPrimary) {
+        imageList = [normalizedPrimary, ...imageList.filter((url) => url !== normalizedPrimary)];
+      } else if (!Array.isArray(payload.images) && typeof payload.images !== 'string') {
+        imageList = [];
+      }
+    }
+
+    imageUrl = imageList[0] ?? null;
 
     if (payload.category === null) {
       categoryValue = null;
@@ -606,7 +664,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
   try {
     await ensurePriceColumnAllowsText(connection);
 
-    const imagesJson = imageUrl ? JSON.stringify([imageUrl]) : JSON.stringify([]);
+    const imagesJson = JSON.stringify(imageList);
 
     const [result] = await connection.query<ResultSetHeader>(
       `UPDATE products
