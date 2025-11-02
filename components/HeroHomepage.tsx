@@ -10,7 +10,7 @@ export default function HeroHomepage() {
 
   const ctas = {
     primary: { label: 'Information For Investors', href: '/investors' },
-    secondary: { label: 'Rules Of Engagement', href: '/rules' }
+    secondary: { label: 'Editorial Guidelines', href: '/legal/editorial-guidelines' }
   };
 
   // Gris ya más claro que el del mock. Cambia 500→400 si lo quieres aún más claro.
