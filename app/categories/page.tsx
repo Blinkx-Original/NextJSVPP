@@ -2,36 +2,26 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import { headers } from "next/headers";
-// Importing notFound is unnecessary on this page because we do not
-// explicitly throw 404 errors in the categories hub.  Unknown
-// categories simply result in an empty state.
 import styles from "./catalog.module.css";
 import CategorySelect from "./CategorySelect";
 import {
-  getPublishedCategories,
-  getPublishedCategoryBySlug,
-  getPublishedProductsForCategory,
-  type CategorySummary,
-  type CategoryProductSummary
-} from "@/lib/categories";
-import { createRequestId } from "@/lib/request-id";
+  getAlgoliaSearchConfig,
+  searchAlgoliaProducts,
+  type AlgoliaProductHit
+} from "@/lib/algolia-search";
 import { buildCategoriesHubUrl } from "@/lib/urls";
 
-// The number of products to display per page when viewing a selected
-// category.  This matches the PAGE_SIZE used by the category detail
-// pages to keep pagination consistent.
-const PAGE_SIZE = 10;
+const HITS_PER_PAGE = 8;
 
-// Metadata for the categories landing page.  This page allows users
-// to select a category and browse its products.  The canonical URL
-// points to the root of the categories hub without any query
-// parameters.
+export const runtime = "nodejs";
+export const revalidate = 300;
+
 export async function generateMetadata(): Promise<Metadata> {
   const host = headers().get("host") ?? undefined;
   const canonical = buildCategoriesHubUrl(host);
   const title = "Browse Product Categories | BlinkX Virtual Product Pages";
   const description =
-    "Explore published product categories, select a category from the menu, and browse the curated products within.";
+    "Explore curated product categories, filter with facets, and review Algolia-powered product grids.";
   return {
     title,
     description,
@@ -53,12 +43,21 @@ interface PageProps {
   searchParams?: { [key: string]: string | string[] | undefined };
 }
 
-/**
- * Resolve a query string value that may be supplied as an array or a
- * string.  Next.js serialises duplicate parameters into arrays; we
- * normalise by taking the first value.  Missing or empty values
- * return undefined.
- */
+interface ProductCard {
+  id: string;
+  title: string;
+  summary: string | null;
+  price: string | null;
+  image: string | null;
+  href: string;
+  categories: string[];
+}
+
+interface FacetSelection {
+  value: string;
+  queryKey: string;
+}
+
 function resolveParam(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) {
     return value[0];
@@ -66,10 +65,6 @@ function resolveParam(value: string | string[] | undefined): string | undefined 
   return value;
 }
 
-/**
- * Parse the page number from the query string.  Invalid or missing
- * values default to page 1.  Pages are 1‑indexed in the UI.
- */
 function parsePage(value: string | undefined): number {
   if (!value) {
     return 1;
@@ -81,195 +76,337 @@ function parsePage(value: string | undefined): number {
   return parsed;
 }
 
-/**
- * Convert a CategoryProductSummary into a shape suitable for
- * rendering.  The id is stringified for use as a React key; the
- * primary image is extracted from the array of images returned by the
- * database.
- */
-function toProductCards(products: CategoryProductSummary[]) {
-  return products.map((product) => ({
-    id: product.id.toString(),
-    slug: product.slug,
-    title: product.title,
-    shortSummary: product.shortSummary,
-    price: product.price,
-    primaryImage: product.primaryImage
-  }));
-}
-
-/**
- * Build a URL for navigating to a page of products for the selected
- * category.  The slug is included as the `category` query
- * parameter.  Only the `page` parameter is added when greater than 1.
- */
-function buildPageHref(slug: string, page: number): string {
-  const params = new URLSearchParams();
-  params.set("category", slug);
-  if (page > 1) {
-    params.set("page", String(page));
+function extractFacetSelections(
+  searchParams: PageProps["searchParams"]
+): Map<string, FacetSelection> {
+  const selections = new Map<string, FacetSelection>();
+  if (!searchParams) {
+    return selections;
   }
-  const query = params.toString();
-  return query ? `/categories?${query}` : "/categories";
-}
-
-/**
- * The main categories page.  This server component fetches a list of
- * published product categories to populate the drop‑down and, if a
- * specific category is selected via the `category` query parameter,
- * fetches the products for that category.  Pagination is supported
- * through a `page` parameter.
- */
-export default async function CategoriesPage({ searchParams }: PageProps) {
-  const requestId = createRequestId();
-  // Extract the selected category slug and page number from the
-  // query string.  Missing values default to undefined for slug and
-  // 1 for page.
-  const slugParam = resolveParam(searchParams?.category);
-  const pageParam = parsePage(resolveParam(searchParams?.page));
-
-  // Fetch all published categories without filtering by type.  Some databases
-  // may contain inconsistent `type` values (e.g. trailing whitespace or
-  // plural forms).  The normalization performed by `getPublishedCategories`
-  // ensures the returned records have a consistent `type` field of either
-  // "product" or "blog".  We filter to product categories after fetching.
-  const { categories: allCategories } = await getPublishedCategories({
-    // Do not specify a type here; instead filter the normalized results.
-    limit: 1000,
-    offset: 0,
-    requestId
-  });
-  // Filter to only product categories.  The `type` field on CategorySummary is
-  // normalised by the library so any unrecognised values become "product".
-  const productCategories = allCategories.filter((c) => c.type === "product");
-  // Map to the simple objects expected by the CategorySelect component.
-  const selectOptions = productCategories.map((c) => ({ slug: c.slug, name: c.name }));
-
-  // Resolve the selected category.  If a slug is provided but does
-  // not correspond to a published category we treat it as unknown.
-  let selectedCategory: CategorySummary | null = null;
-  if (slugParam) {
-    selectedCategory = await getPublishedCategoryBySlug(slugParam, { requestId });
-  }
-  let products: CategoryProductSummary[] = [];
-  let totalCount = 0;
-  let totalPages = 0;
-  let currentPage = pageParam;
-  if (selectedCategory) {
-    // Determine the offset based on the current page.  Page numbers are
-    // 1‑indexed so subtract 1 when computing the offset.
-    const offset = (pageParam - 1) * PAGE_SIZE;
-    const result = await getPublishedProductsForCategory(
-      { id: selectedCategory.id, slug: selectedCategory.slug, name: selectedCategory.name },
-      {
-        limit: PAGE_SIZE,
-        offset,
-        requestId
-      }
-    );
-    products = result.products;
-    totalCount = result.totalCount;
-    totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-    // If the requested page exceeds the total pages but there are
-    // products, adjust to the last page and re‑fetch the products for
-    // that page.  This ensures deep links remain valid when items
-    // are removed from a category.
-    if (pageParam > totalPages && totalCount > 0) {
-      currentPage = totalPages;
-      const lastOffset = (totalPages - 1) * PAGE_SIZE;
-      const lastResult = await getPublishedProductsForCategory(
-        { id: selectedCategory.id, slug: selectedCategory.slug, name: selectedCategory.name },
-        {
-          limit: PAGE_SIZE,
-          offset: lastOffset,
-          requestId
-        }
-      );
-      products = lastResult.products;
+  for (const [key, rawValue] of Object.entries(searchParams)) {
+    if (key === "page") {
+      continue;
+    }
+    const value = resolveParam(rawValue)?.trim();
+    if (!value) {
+      continue;
+    }
+    if (key === "category") {
+      selections.set("categories", { value, queryKey: "category" });
+    } else {
+      selections.set(key, { value, queryKey: key });
     }
   }
+  return selections;
+}
 
-  const cards = toProductCards(products);
+function buildFacetFilters(selections: Map<string, FacetSelection>): Array<string | string[]> {
+  const filters: Array<string | string[]> = [];
+  selections.forEach(({ value }, facet) => {
+    filters.push([`${facet}:${value}`]);
+  });
+  return filters;
+}
+
+function createBaseSearchParams(searchParams: PageProps["searchParams"]): URLSearchParams {
+  const params = new URLSearchParams();
+  if (!searchParams) {
+    return params;
+  }
+  for (const [key, rawValue] of Object.entries(searchParams)) {
+    const value = resolveParam(rawValue);
+    if (value) {
+      params.set(key, value);
+    }
+  }
+  return params;
+}
+
+function resolveDisplayName(hit: AlgoliaProductHit): string {
+  const candidates = [hit.title, hit.name, hit.sku, hit.slug, hit.objectID];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return "Untitled product";
+}
+
+function resolveImage(hit: AlgoliaProductHit): string | null {
+  if (typeof hit.image === "string" && hit.image.trim()) {
+    return hit.image.trim();
+  }
+  if (Array.isArray(hit.images)) {
+    const first = hit.images.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+    if (first) {
+      return first.trim();
+    }
+  }
+  return null;
+}
+
+function resolveHref(hit: AlgoliaProductHit): string {
+  const slug = typeof hit.slug === "string" && hit.slug.trim() ? hit.slug.trim() : null;
+  if (slug) {
+    return `/p/${slug}`;
+  }
+  const wpUrl = typeof hit.wp_url === "string" && hit.wp_url.trim() ? hit.wp_url.trim() : null;
+  if (wpUrl) {
+    return wpUrl;
+  }
+  const url = typeof hit.url === "string" && hit.url.trim() ? hit.url.trim() : null;
+  if (url) {
+    return url;
+  }
+  return "#";
+}
+
+function formatPrice(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2
+    }).format(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  return null;
+}
+
+function toProductCard(hit: AlgoliaProductHit): ProductCard {
+  const categories: string[] = Array.isArray(hit.categories)
+    ? hit.categories.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : typeof hit.categories === "string" && hit.categories.trim().length > 0
+    ? [hit.categories.trim()]
+    : [];
+
+  const id =
+    (typeof hit.objectID === "string" && hit.objectID.trim()) ||
+    (typeof hit.slug === "string" && hit.slug.trim()) ||
+    resolveDisplayName(hit);
+
+  return {
+    id,
+    title: resolveDisplayName(hit),
+    summary: typeof hit.short_description === "string" && hit.short_description.trim()
+      ? hit.short_description.trim()
+      : null,
+    price: formatPrice(hit.price),
+    image: resolveImage(hit),
+    href: resolveHref(hit),
+    categories
+  };
+}
+
+function formatFacetLabel(name: string): string {
+  return name
+    .split("_")
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function buildFacetHref(
+  basePath: string,
+  baseParams: URLSearchParams,
+  facetName: string,
+  facetValue: string,
+  isSelected: boolean
+): string {
+  const queryKey = facetName === "categories" ? "category" : facetName;
+  const next = new URLSearchParams(baseParams.toString());
+  if (isSelected) {
+    next.delete(queryKey);
+  } else {
+    next.set(queryKey, facetValue);
+  }
+  next.delete("page");
+  const query = next.toString();
+  return query ? `${basePath}?${query}` : basePath;
+}
+
+const FACET_VALUE_LIMIT = 20;
+
+export default async function CategoriesPage({ searchParams }: PageProps) {
+  const config = getAlgoliaSearchConfig();
+  if (!config) {
+    return (
+      <main className={styles.page}>
+        <section className={styles.hero}>
+          <h1 className={styles.heroTitle}>Product categories</h1>
+          <p className={styles.heroDescription}>
+            Algolia environment variables are missing. Please configure ALGOLIA_APP_ID, ALGOLIA_API_KEY, and ALGOLIA_INDEX.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  const pageParam = parsePage(resolveParam(searchParams?.page));
+  const selections = extractFacetSelections(searchParams);
+  const facetFilters = buildFacetFilters(selections);
+  const baseParams = createBaseSearchParams(searchParams);
+
+  let searchResult;
+  try {
+    searchResult = await searchAlgoliaProducts({
+      page: pageParam,
+      hitsPerPage: HITS_PER_PAGE,
+      facetFilters,
+      facets: ["*"]
+    });
+  } catch (error) {
+    console.error("Algolia search failed", error);
+    return (
+      <main className={styles.page}>
+        <section className={styles.hero}>
+          <h1 className={styles.heroTitle}>Product categories</h1>
+          <p className={styles.heroDescription}>
+            Unable to reach the Algolia index. Please verify the credentials and network connectivity.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  const cards = searchResult.hits.map(toProductCard).filter((card) => Boolean(card.title));
+  const totalPages = searchResult.nbPages > 0 ? searchResult.nbPages : 1;
+  const currentPage = Math.min(Math.max(1, searchResult.page), totalPages);
   const paginationPages = Array.from({ length: totalPages }, (_, index) => index + 1);
+  const selectedCategory = selections.get("categories")?.value ?? null;
+
+  const categoriesFacet = searchResult.facets.categories ?? {};
+  const categoryOptions = Object.entries(categoriesFacet)
+    .filter(([, count]) => count > 0)
+    .slice(0, FACET_VALUE_LIMIT)
+    .map(([value]) => ({ slug: value, name: value }));
+
+  const facetGroups = Object.entries(searchResult.facets)
+    .map(([name, values]) => ({
+      name,
+      values: Object.entries(values)
+        .filter(([value, count]) => Boolean(value.trim()) && count > 0 && value !== "__empty")
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, FACET_VALUE_LIMIT)
+    }))
+    .filter((group) => group.values.length > 0);
 
   return (
     <main className={styles.page}>
-      {/* Top controls: category selector */}
-      <div className={styles.controls}>
-        <CategorySelect categories={selectOptions} selectedSlug={slugParam ?? undefined} />
-      </div>
-      {/* Display hero information for the selected category, if any */}
-      {selectedCategory ? (
-        <section className={styles.hero}>
-          <h1 className={styles.heroTitle}>{selectedCategory.name}</h1>
-          {selectedCategory.shortDescription ? (
-            <p className={styles.heroDescription}>{selectedCategory.shortDescription}</p>
+      <section className={styles.hero}>
+        <h1 className={styles.heroTitle}>Browse product categories</h1>
+        <p className={styles.heroDescription}>
+          Use the facet panel to discover Algolia-powered product collections. Each page displays eight products in a clean, two-column grid.
+        </p>
+      </section>
+      <div className={styles.layout}>
+        <aside className={styles.sidebar}>
+          <div className={styles.sidebarHeader}>
+            <h2 className={styles.sidebarTitle}>Filters</h2>
+            <p className={styles.sidebarSubtitle}>Refine the grid with live Algolia facets.</p>
+          </div>
+          {facetGroups.length === 0 ? (
+            <p className={styles.sidebarEmpty}>No facets available.</p>
+          ) : (
+            facetGroups.map((group) => (
+              <div key={group.name} className={styles.facetGroup}>
+                <h3 className={styles.facetTitle}>{formatFacetLabel(group.name)}</h3>
+                <ul className={styles.facetList}>
+                  {group.values.map(([value, count]) => {
+                    const isSelected = selections.get(group.name)?.value === value;
+                    const href = buildFacetHref("/categories", baseParams, group.name, value, isSelected);
+                    return (
+                      <li key={value} className={styles.facetItem}>
+                        <Link className={isSelected ? `${styles.facetLink} ${styles.facetLinkActive}` : styles.facetLink} href={href} prefetch>
+                          <span className={styles.facetLabel}>{value}</span>
+                          <span className={styles.facetCount}>{count}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))
+          )}
+        </aside>
+        <section className={styles.content}>
+          <div className={styles.controls}>
+            <CategorySelect categories={categoryOptions} selectedSlug={selectedCategory ?? undefined} />
+          </div>
+          {selectedCategory ? (
+            <div className={styles.selectedBadge}>Category: {selectedCategory}</div>
+          ) : null}
+          {cards.length === 0 ? (
+            <div className={styles.emptyState}>No products found for the current selection.</div>
+          ) : (
+            <div className={styles.grid}>
+              {cards.map((product) => (
+                <article key={product.id} className={styles.card}>
+                  <div className={styles.cardImageWrapper}>
+                    {product.image ? (
+                      <Image
+                        src={product.image}
+                        alt={product.title}
+                        fill
+                        className={styles.cardImage}
+                        sizes="(max-width: 768px) 100vw, 320px"
+                      />
+                    ) : null}
+                  </div>
+                  <div className={styles.cardBody}>
+                    <h3 className={styles.cardTitle}>{product.title}</h3>
+                    {product.summary ? <p className={styles.cardSummary}>{product.summary}</p> : null}
+                    {product.price ? <div className={styles.cardPrice}>{product.price}</div> : null}
+                    {product.categories.length > 0 ? (
+                      <ul className={styles.cardTags}>
+                        {product.categories.map((category) => (
+                          <li key={category}>{category}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <div className={styles.cardFooter}>
+                      <Link className={styles.cardLink} href={product.href} prefetch>
+                        View Details
+                      </Link>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+          {totalPages > 1 ? (
+            <nav className={styles.pagination} aria-label="Pagination">
+              <div className={styles.paginationList}>
+                {paginationPages.map((pageNumber) => {
+                  const isActive = pageNumber === currentPage;
+                  const params = new URLSearchParams(baseParams.toString());
+                  if (pageNumber === 1) {
+                    params.delete("page");
+                  } else {
+                    params.set("page", String(pageNumber));
+                  }
+                  const query = params.toString();
+                  const href = query ? `/categories?${query}` : "/categories";
+                  const className = isActive
+                    ? `${styles.pageLink} ${styles.pageLinkActive}`
+                    : styles.pageLink;
+                  return (
+                    <Link key={pageNumber} className={className} href={href} aria-current={isActive ? "page" : undefined} prefetch>
+                      {pageNumber}
+                    </Link>
+                  );
+                })}
+              </div>
+            </nav>
           ) : null}
         </section>
-      ) : null}
-      {/* Render the product cards or an empty state if no products are found */}
-      {selectedCategory ? (
-        cards.length === 0 ? (
-          <div className={styles.emptyState}>No products found in this category.</div>
-        ) : (
-          <div className={styles.grid}>
-            {cards.map((product) => (
-              <article key={product.id} className={styles.card}>
-                <div className={styles.cardImageWrapper}>
-                  {product.primaryImage ? (
-                    <Image
-                      src={product.primaryImage}
-                      alt={product.title}
-                      fill
-                      className={styles.cardImage}
-                      sizes="(max-width: 768px) 100vw, 320px"
-                    />
-                  ) : null}
-                </div>
-                <div className={styles.cardBody}>
-                  <h3 className={styles.cardTitle}>{product.title}</h3>
-                  {product.shortSummary ? (
-                    <p className={styles.cardSummary}>{product.shortSummary}</p>
-                  ) : null}
-                  {product.price ? <div className={styles.cardPrice}>{product.price}</div> : null}
-                  <div className={styles.cardFooter}>
-                    <Link className={styles.cardLink} href={`/p/${product.slug}`} prefetch>
-                      View Details
-                    </Link>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        )
-      ) : (
-        <div className={styles.emptyState}>Select a category to view products.</div>
-      )}
-      {/* Render pagination controls if there are multiple pages */}
-      {selectedCategory && totalPages > 1 ? (
-        <nav className={styles.pagination} aria-label="Pagination">
-          <div className={styles.paginationList}>
-            {paginationPages.map((pageNumber) => {
-              const href = buildPageHref(selectedCategory!.slug, pageNumber);
-              const isActive = pageNumber === currentPage;
-              const className = isActive
-                ? `${styles.pageLink} ${styles.pageLinkActive}`
-                : styles.pageLink;
-              return (
-                <Link
-                  key={pageNumber}
-                  className={className}
-                  href={href}
-                  aria-current={isActive ? "page" : undefined}
-                  prefetch
-                >
-                  {pageNumber}
-                </Link>
-              );
-            })}
-          </div>
-        </nav>
-      ) : null}
+      </div>
     </main>
   );
 }
