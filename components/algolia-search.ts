@@ -3,9 +3,26 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
-const APP_ID = process.env.NEXT_PUBLIC_ALGOLIA_APP_ID?.trim() ?? "";
-const SEARCH_KEY = process.env.NEXT_PUBLIC_ALGOLIA_SEARCH_KEY?.trim() ?? "";
-const INDEX_NAME = process.env.NEXT_PUBLIC_ALGOLIA_INDEX?.trim() ?? "";
+function readEnv(...keys: string[]): string {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return "";
+}
+
+const APP_ID = readEnv("NEXT_PUBLIC_ALGOLIA_APP_ID", "ALGOLIA_APP_ID");
+const SEARCH_KEY = readEnv(
+  "NEXT_PUBLIC_ALGOLIA_SEARCH_KEY",
+  "ALGOLIA_SEARCH_KEY",
+  "ALGOLIA_API_KEY"
+);
+const INDEX_NAME = readEnv("NEXT_PUBLIC_ALGOLIA_INDEX", "ALGOLIA_INDEX");
 
 const ATTRIBUTES = [
   "title",
