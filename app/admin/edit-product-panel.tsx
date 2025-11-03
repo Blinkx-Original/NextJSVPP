@@ -339,9 +339,21 @@ export default function EditProductPanel({
     [resetDescriptionMessages]
   );
 
+  const readLatestDescription = useCallback(() => {
+    const editorContent = editorRef.current?.getContent();
+    if (typeof editorContent === 'string') {
+      return editorContent;
+    }
+    return description;
+  }, [description]);
+
   const handleSavePrimary = useCallback(async () => {
     if (!loadedSlug) {
       return;
+    }
+    const currentDescription = readLatestDescription();
+    if (currentDescription !== description) {
+      setDescription(currentDescription);
     }
     setPrimarySaveStatus('loading');
     setPrimarySaveError(null);
@@ -352,7 +364,7 @@ export default function EditProductPanel({
         slug: loadedSlug,
         title_h1: title,
         short_summary: summary,
-        desc_html: description,
+        desc_html: currentDescription,
         price: priceText,
         category: categorySlug || null,
         cta_lead_url: ctaLeadUrl || '',
@@ -397,6 +409,7 @@ export default function EditProductPanel({
     ctaStripeLabel,
     ctaStripeUrl,
     description,
+    readLatestDescription,
     imageListInput,
     imageUrl,
     loadedSlug,
@@ -410,7 +423,11 @@ export default function EditProductPanel({
       if (!loadedSlug) {
         return;
       }
-      const payload = { slug: loadedSlug, desc_html: description };
+      const currentDescription = readLatestDescription();
+      if (currentDescription !== description) {
+        setDescription(currentDescription);
+      }
+      const payload = { slug: loadedSlug, desc_html: currentDescription };
       const shouldOpenPreview = viewAfter && typeof window !== 'undefined';
       let previewWindow: Window | null = null;
       if (shouldOpenPreview) previewWindow = window.open('', '_blank');
@@ -447,7 +464,7 @@ export default function EditProductPanel({
         if (previewWindow) previewWindow.close();
       }
     },
-    [applyProductData, description, loadedSlug]
+    [applyProductData, description, loadedSlug, readLatestDescription]
   );
 
   const formattedLastUpdated = useMemo(() => formatTimestamp(lastUpdatedAt), [lastUpdatedAt]);
