@@ -253,7 +253,6 @@ function normalizeImageListInput(value: unknown): string[] {
       normalized.push(normalizedEntry);
     }
   }
-
   return normalized;
 }
 
@@ -315,9 +314,7 @@ async function syncProductCategoryColumns(
   if (!Array.isArray(columns) || columns.length === 0) {
     return;
   }
-
   const normalizedCategory = typeof categoryValue === 'string' ? categoryValue.trim().toLowerCase() : null;
-
   for (const column of columns) {
     if (column === 'category' || column === 'categoria') {
       continue;
@@ -367,14 +364,12 @@ async function ensureProductExists(slug: string): Promise<RawProductRecord | nul
 }
 
 const TEXTUAL_PRICE_TYPES = new Set(['varchar', 'char', 'text', 'tinytext', 'mediumtext', 'longtext']);
-
 let priceColumnCheckPromise: Promise<void> | null = null;
 
 async function ensurePriceColumnAllowsText(connection: PoolConnection): Promise<void> {
   if (priceColumnCheckPromise) {
     return priceColumnCheckPromise;
   }
-
   priceColumnCheckPromise = (async () => {
     try {
       const [rows] = await connection.query<RowDataPacket[]>(
@@ -385,20 +380,16 @@ async function ensurePriceColumnAllowsText(connection: PoolConnection): Promise<
             AND COLUMN_NAME = 'price'
           LIMIT 1`
       );
-
       if (!Array.isArray(rows) || rows.length === 0) {
         return;
       }
-
       const row = rows[0] ?? {};
       const dataType = String((row as Record<string, unknown>).DATA_TYPE ?? (row as Record<string, unknown>).data_type ?? '')
         .trim()
         .toLowerCase();
-
       if (TEXTUAL_PRICE_TYPES.has(dataType)) {
         return;
       }
-
       await connection.query(
         `ALTER TABLE products
            MODIFY COLUMN price VARCHAR(120)
@@ -411,7 +402,6 @@ async function ensurePriceColumnAllowsText(connection: PoolConnection): Promise<
       throw error;
     }
   })();
-
   return priceColumnCheckPromise;
 }
 
@@ -434,23 +424,19 @@ export async function GET(request: NextRequest): Promise<NextResponse<AdminProdu
   if (!safeGetEnv()) {
     return buildErrorResponse('missing_env', { status: 500 });
   }
-
   const url = new URL(request.url);
   const slugParam = url.searchParams.get('slug') ?? url.searchParams.get('product');
   const normalizedSlug = normalizeProductSlugInput(slugParam);
-
   if (!slugParam || !normalizedSlug) {
     return buildErrorResponse(slugParam ? 'invalid_slug' : 'missing_slug', {
       status: 400,
       message: 'Provide a valid slug to load the product'
     });
   }
-
   const record = await ensureProductExists(normalizedSlug);
   if (!record) {
     return buildErrorResponse('product_not_found', { status: 404, message: 'Product not found' });
   }
-
   const body: AdminProductResponseBody = {
     ok: true,
     product: mapProduct(record)
@@ -466,7 +452,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
   if (!safeGetEnv()) {
     return buildErrorResponse('missing_env', { status: 500 });
   }
-
   let payload: UpdatePayload;
   try {
     payload = (await request.json()) as UpdatePayload;
@@ -477,7 +462,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
       details: { message: (error as Error)?.message }
     });
   }
-
   const slugInput = typeof payload.slug === 'string' ? payload.slug : null;
   const normalizedSlug = normalizeProductSlugInput(slugInput);
   if (!normalizedSlug) {
@@ -486,12 +470,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
       message: 'The slug field is required'
     });
   }
-
   const existing = await ensureProductExists(normalizedSlug);
   if (!existing) {
     return buildErrorResponse('product_not_found', { status: 404, message: 'Product not found' });
   }
-
   type ExistingProductRow = RawProductRecord &
     RowDataPacket & {
       title_h1?: string | null;
@@ -509,12 +491,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
       cta_paypal_label?: string | null;
       images_json?: string | null;
     };
-
   const existingRow = existing as ExistingProductRow;
-
   const existingImages = parseImagesField(existingRow.images_json);
   const previousCategory = normalizeOptionalString(existingRow.category ?? '', CATEGORY_MAX_LENGTH);
-
   let title: string;
   let summary: string;
   let description: string;
@@ -530,26 +509,21 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
   let imageList: string[] = existingImages;
   let imageUrl: string | null = imageList[0] ?? null;
   let categoryValue: string | null = previousCategory;
-
   try {
-    const titleInput =
-      typeof payload.title_h1 === 'string' ? payload.title_h1 : existingRow.title_h1 ?? '';
-    title = normalizeRequiredString(titleInput, { maxLength: TITLE_MAX_LENGTH }, 'title_h1');
-
+    // Modified fallback: allow the slug to act as title if none exists to avoid empty title errors
+    const titleInputRaw =
+      typeof payload.title_h1 === 'string'
+        ? payload.title_h1
+        : existingRow.title_h1 ?? existingRow.slug ?? normalizedSlug;
+    title = normalizeRequiredString(titleInputRaw, { maxLength: TITLE_MAX_LENGTH }, 'title_h1');
     const summaryInput =
       typeof payload.short_summary === 'string'
         ? payload.short_summary
         : existingRow.short_summary ?? '';
-    summary = normalizeRequiredString(
-      summaryInput,
-      { maxLength: SUMMARY_MAX_LENGTH, allowEmpty: true },
-      'short_summary'
-    );
-
+    summary = normalizeRequiredString(summaryInput, { maxLength: SUMMARY_MAX_LENGTH, allowEmpty: true }, 'short_summary');
     const descriptionInput =
       typeof payload.desc_html === 'string' ? payload.desc_html : existingRow.desc_html ?? '';
     description = normalizeHtml(descriptionInput);
-
     const priceInput =
       typeof payload.price === 'string'
         ? payload.price
@@ -557,59 +531,33 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
           ? existingRow.price
           : '';
     price = normalizeOptionalString(priceInput, PRICE_MAX_LENGTH) ?? '';
-
     const leadInput =
-      typeof payload.cta_lead_url === 'string'
-        ? payload.cta_lead_url
-        : existingRow.cta_lead_url ?? '';
+      typeof payload.cta_lead_url === 'string' ? payload.cta_lead_url : existingRow.cta_lead_url ?? '';
     leadUrl = normalizeOptionalUrl(leadInput, 'cta_lead_url', URL_MAX_LENGTH) ?? '';
-
     const affiliateInput =
-      typeof payload.cta_affiliate_url === 'string'
-        ? payload.cta_affiliate_url
-        : existingRow.cta_affiliate_url ?? '';
+      typeof payload.cta_affiliate_url === 'string' ? payload.cta_affiliate_url : existingRow.cta_affiliate_url ?? '';
     affiliateUrl = normalizeOptionalUrl(affiliateInput, 'cta_affiliate_url', URL_MAX_LENGTH) ?? '';
-
     const stripeInput =
-      typeof payload.cta_stripe_url === 'string'
-        ? payload.cta_stripe_url
-        : existingRow.cta_stripe_url ?? '';
+      typeof payload.cta_stripe_url === 'string' ? payload.cta_stripe_url : existingRow.cta_stripe_url ?? '';
     stripeUrl = normalizeOptionalUrl(stripeInput, 'cta_stripe_url', URL_MAX_LENGTH) ?? '';
-
     const paypalInput =
-      typeof payload.cta_paypal_url === 'string'
-        ? payload.cta_paypal_url
-        : existingRow.cta_paypal_url ?? '';
+      typeof payload.cta_paypal_url === 'string' ? payload.cta_paypal_url : existingRow.cta_paypal_url ?? '';
     paypalUrl = normalizeOptionalUrl(paypalInput, 'cta_paypal_url', URL_MAX_LENGTH) ?? '';
-
     const leadLabelInput =
-      typeof payload.cta_lead_label === 'string'
-        ? payload.cta_lead_label
-        : existingRow.cta_lead_label ?? '';
+      typeof payload.cta_lead_label === 'string' ? payload.cta_lead_label : existingRow.cta_lead_label ?? '';
     leadLabel = normalizeOptionalLabel(leadLabelInput, CTA_LABEL_MAX_LENGTH);
-
     const affiliateLabelInput =
-      typeof payload.cta_affiliate_label === 'string'
-        ? payload.cta_affiliate_label
-        : existingRow.cta_affiliate_label ?? '';
+      typeof payload.cta_affiliate_label === 'string' ? payload.cta_affiliate_label : existingRow.cta_affiliate_label ?? '';
     affiliateLabel = normalizeOptionalLabel(affiliateLabelInput, CTA_LABEL_MAX_LENGTH);
-
     const stripeLabelInput =
-      typeof payload.cta_stripe_label === 'string'
-        ? payload.cta_stripe_label
-        : existingRow.cta_stripe_label ?? '';
+      typeof payload.cta_stripe_label === 'string' ? payload.cta_stripe_label : existingRow.cta_stripe_label ?? '';
     stripeLabel = normalizeOptionalLabel(stripeLabelInput, CTA_LABEL_MAX_LENGTH);
-
     const paypalLabelInput =
-      typeof payload.cta_paypal_label === 'string'
-        ? payload.cta_paypal_label
-        : existingRow.cta_paypal_label ?? '';
+      typeof payload.cta_paypal_label === 'string' ? payload.cta_paypal_label : existingRow.cta_paypal_label ?? '';
     paypalLabel = normalizeOptionalLabel(paypalLabelInput, CTA_LABEL_MAX_LENGTH);
-
     if (Array.isArray(payload.images) || typeof payload.images === 'string') {
       imageList = normalizeImageListInput(payload.images);
     }
-
     if (typeof payload.image_url === 'string') {
       const normalizedPrimary = normalizeOptionalString(payload.image_url, URL_MAX_LENGTH);
       if (normalizedPrimary) {
@@ -618,9 +566,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
         imageList = [];
       }
     }
-
     imageUrl = imageList[0] ?? null;
-
     if (payload.category === null) {
       categoryValue = null;
     } else if (typeof payload.category === 'string') {
@@ -630,7 +576,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
     } else {
       categoryValue = null;
     }
-
     if (categoryValue) {
       const normalizedCategory = categoryValue.trim().toLowerCase();
       if (CATEGORY_SLUG_REGEX.test(normalizedCategory)) {
@@ -642,7 +587,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
           ? cleaned
           : normalizedCategory.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
       }
-
       if (!categoryValue) {
         categoryValue = null;
       }
@@ -663,9 +607,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
   const connection = await getPool().getConnection();
   try {
     await ensurePriceColumnAllowsText(connection);
-
     const imagesJson = JSON.stringify(imageList);
-
     const [result] = await connection.query<ResultSetHeader>(
       `UPDATE products
         SET title_h1 = ?,
@@ -683,8 +625,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
             cta_paypal_label = ?,
             images_json = ?,
             last_tidb_update_at = NOW(6)
-        WHERE slug = ?
-        LIMIT 1`,
+       WHERE slug = ?
+       LIMIT 1`,
       [
         title,
         summary,
@@ -703,19 +645,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
         normalizedSlug
       ]
     );
-
     await syncProductCategoryColumns(connection, normalizedSlug, categoryValue);
-
     clearProductCache(normalizedSlug);
     revalidatePath(`/p/${normalizedSlug}`);
-
     if (previousCategory && previousCategory !== categoryValue && CATEGORY_SLUG_REGEX.test(previousCategory)) {
       revalidatePath(`/c/${previousCategory}`);
     }
     if (categoryValue && categoryValue !== previousCategory && CATEGORY_SLUG_REGEX.test(categoryValue)) {
       revalidatePath(`/c/${categoryValue}`);
     }
-
     const record = await ensureProductExists(normalizedSlug);
     if (!record) {
       return buildErrorResponse('product_not_found', {
@@ -723,13 +661,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
         message: 'Product not found after update'
       });
     }
-
     const body: AdminProductResponseBody = {
       ok: true,
       product: mapProduct(record),
       rows_affected: typeof result.affectedRows === 'number' ? result.affectedRows : undefined
     };
-
     return NextResponse.json(body);
   } catch (error) {
     const info = toDbErrorInfo(error);
@@ -742,4 +678,3 @@ export async function POST(request: NextRequest): Promise<NextResponse<AdminProd
     connection.release();
   }
 }
-
