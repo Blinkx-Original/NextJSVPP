@@ -1004,7 +1004,13 @@ function normalizeCategorySlug(value: unknown): string | null {
 
 export function normalizeBlogWritePayload(payload: Record<string, unknown>): BlogPostWritePayload {
   const slug = normalizeBlogSlug(payload.slug);
-  const title = normalizeBlogTitle(payload.title_h1 ?? payload.title);
+  // Use slug as fallback title when no title is provided. Without this fallback
+  // normalizeBlogTitle would throw an invalid_title error and prevent saving.
+  let titleInput: unknown = payload.title_h1 ?? payload.title;
+  if (typeof titleInput !== 'string' || titleInput.trim().length === 0) {
+    titleInput = slug;
+  }
+  const title = normalizeBlogTitle(titleInput);
   const shortSummary = normalizeSummaryText(payload.short_summary ?? payload.shortSummary, SUMMARY_MAX_LENGTH);
   const contentHtmlInput =
     typeof payload.content_html === 'string'
@@ -1047,14 +1053,14 @@ export function normalizeBlogWritePayload(payload: Record<string, unknown>): Blo
     coverImageUrl,
     categorySlug,
     productSlugs,
-    ctaLeadLabel,
     ctaLeadUrl,
-    ctaAffiliateLabel,
+    ctaLeadLabel,
     ctaAffiliateUrl,
-    ctaStripeLabel,
+    ctaAffiliateLabel,
     ctaStripeUrl,
-    ctaPaypalLabel,
+    ctaStripeLabel,
     ctaPaypalUrl,
+    ctaPaypalLabel,
     seoTitle,
     seoDescription,
     canonicalUrl,
