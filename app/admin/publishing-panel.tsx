@@ -35,6 +35,8 @@ interface BatchResponse {
   finished_at: string;
   message?: string | null;
   slugs?: string[];
+  product_paths?: string[];
+  sitemap_paths?: string[];
   activity_id?: string;
   error_code?: string | null;
   error_details?: unknown;
@@ -44,6 +46,10 @@ interface BatchResponse {
     error_code?: string | null;
     urls_purged?: number;
     purged?: string[];
+    zone_id?: string;
+    zone_id_short?: string;
+    ray_ids?: string[];
+    error_details?: unknown;
   };
   candidate_count?: number;
 }
@@ -121,6 +127,21 @@ function formatDateTime(value: string | null | undefined): string {
   }
 }
 
+function formatErrorDetails(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(value);
+  }
+}
+
 function NumericMetric({ label, value }: NumericMetricProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -160,6 +181,131 @@ function StatusBadge({ status, successLabel = 'Listo' }: StatusBadgeProps) {
     >
       {label}
     </span>
+  );
+}
+
+interface CloudflareSummaryProps {
+  summary?: BatchResponse['cloudflare'];
+}
+
+function CloudflareSummary({ summary }: CloudflareSummaryProps) {
+  if (!summary) {
+    return null;
+  }
+
+  const { configured, ok, error_code: errorCode, urls_purged: urlsPurgedRaw, purged, zone_id_short: zoneId, ray_ids: rayIds, error_details: errorDetails } = summary;
+
+  const urlsPurged = typeof urlsPurgedRaw === 'number' && Number.isFinite(urlsPurgedRaw) ? urlsPurgedRaw : null;
+  const urlsPurgedText = urlsPurged !== null ? formatNumber(urlsPurged) : null;
+
+  let description = '';
+  if (!configured) {
+    description = 'Integración no configurada. No se purgaron sitemaps en Cloudflare.';
+  } else if (ok) {
+    if (urlsPurged !== null) {
+      description = `Purga completada. ${urlsPurgedText} URL${urlsPurged === 1 ? '' : 's'} enviadas a Cloudflare.`;
+    } else {
+      description = 'Purga completada en Cloudflare.';
+    }
+  } else {
+    const code = errorCode ?? 'error_desconocido';
+    description = `Fallo al purgar en Cloudflare (${code}).`;
+  }
+
+  const errorDetailsText = formatErrorDetails(errorDetails);
+  const background = !configured ? '#f8fafc' : ok ? '#f0fdf4' : '#fef2f2';
+  const borderColor = !configured ? '#e2e8f0' : ok ? '#bbf7d0' : '#fecaca';
+
+  return (
+    <div
+      style={{
+        marginTop: '1rem',
+        padding: '1rem',
+        borderRadius: '0.75rem',
+        border: `1px solid ${borderColor}`,
+        background
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem' }}>
+        <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>Cloudflare</strong>
+        {zoneId ? <span style={{ fontSize: '0.75rem', color: '#475569' }}>Zona: {zoneId}</span> : null}
+      </div>
+      <p style={{ margin: '0.5rem 0 0.75rem', fontSize: '0.85rem', color: '#334155' }}>{description}</p>
+      {purged && purged.length > 0 ? (
+        <div style={{ marginBottom: '0.75rem' }}>
+          <span
+            style={{
+              display: 'block',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: '#475569',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5
+            }}
+          >
+            Sitemaps afectados
+          </span>
+          <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.25rem', fontSize: '0.85rem', color: '#0f172a' }}>
+            {purged.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {rayIds && rayIds.length > 0 ? (
+        <div style={{ marginBottom: '0.5rem' }}>
+          <span
+            style={{
+              display: 'block',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: '#475569',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5
+            }}
+          >
+            Ray IDs
+          </span>
+          <div style={{ marginTop: '0.35rem', display: 'flex', flexWrap: 'wrap', gap: '0.35rem', fontSize: '0.8rem', color: '#0f172a' }}>
+            {rayIds.map((rayId) => (
+              <code key={rayId} style={{ background: '#e2e8f0', borderRadius: '0.35rem', padding: '0.15rem 0.4rem' }}>
+                {rayId}
+              </code>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {errorDetailsText ? (
+        <div>
+          <span
+            style={{
+              display: 'block',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: '#475569',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5
+            }}
+          >
+            Detalles
+          </span>
+          <pre
+            style={{
+              margin: '0.35rem 0 0',
+              padding: '0.75rem',
+              background: '#0f172a',
+              color: '#f8fafc',
+              borderRadius: '0.5rem',
+              fontSize: '0.75rem',
+              lineHeight: 1.4,
+              overflowX: 'auto'
+            }}
+          >
+            {errorDetailsText}
+          </pre>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -426,6 +572,7 @@ export default function PublishingPanel() {
             </div>
           </div>
         ) : null}
+        <CloudflareSummary summary={sitemapResult.data?.cloudflare} />
         {sitemapResult.data?.message ? (
           <p style={{ margin: 0, fontSize: '0.9rem', color: '#0f172a' }}>{sitemapResult.data.message}</p>
         ) : null}
