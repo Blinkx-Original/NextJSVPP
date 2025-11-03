@@ -222,7 +222,25 @@ export async function POST(request: NextRequest) {
     }
 
     const duration = Date.now() - startedAt;
-    message = `Publicados ${success} productos.`;
+    const messageParts = [`Publicados ${success} productos.`];
+
+    if (cloudflareSummary) {
+      if (!cloudflareSummary.configured) {
+        messageParts.push('Cloudflare: purga deshabilitada (sin credenciales).');
+      } else if (cloudflareSummary.ok) {
+        const urlsPurged = cloudflareSummary.urls_purged ?? 0;
+        if (urlsPurged > 0) {
+          messageParts.push(`Cloudflare: purga exitosa de ${urlsPurged} URL${urlsPurged === 1 ? '' : 's'}.`);
+        } else {
+          messageParts.push('Cloudflare: purga exitosa.');
+        }
+      } else {
+        const code = cloudflareSummary.error_code ?? 'error_desconocido';
+        messageParts.push(`Cloudflare: error al purgar (${code}).`);
+      }
+    }
+
+    message = messageParts.join(' ');
 
     const metadata = {
       requested,
