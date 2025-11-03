@@ -1,3 +1,19 @@
+/* This CSS file overrides the default styles for product page titles.
+ *
+ * The original stylesheet (found at app/p/[slug]/page.module.css in the main
+ * repository) forces product titles to be displayed in uppercase by applying
+ * `text-transform: uppercase` to the `.productTitle` class. That behaviour
+ * prevents editors from controlling the case of `title_h1` values. When the
+ * product title is edited to include mixed case letters, the uppercase
+ * transformation overrides the editor’s intentions, resulting in a title
+ * that always appears in full capitals on the product page.
+ *
+ * To allow editors to control letter casing, this override sets
+ * `text-transform: none` on the `.productTitle` class. All other style
+ * properties from the original stylesheet are preserved to ensure visual
+ * consistency with the rest of the application.
+ */
+
 .productPage {
   max-width: 1200px;
   margin: 0 auto;
@@ -12,7 +28,6 @@
   flex-direction: column;
   gap: 2rem;
 }
-
 
 .productMedia {
   width: 100%;
@@ -39,7 +54,8 @@
   margin: 0;
   font-size: clamp(2rem, 2.5vw + 1.5rem, 3rem);
   font-weight: 700;
-  text-transform: uppercase;
+  /* Override uppercase transformation so editors can control casing */
+  text-transform: none;
   letter-spacing: 0.04em;
   color: #0f172a;
   word-break: break-word;
