@@ -11,12 +11,12 @@ const copy = {
   ],
   pills: [
     { label: "catalogs", href: "https://blinkx.com/p-cat/industrial/" },
-    { label: "we work", href: "/about" },
+    { label: "we work", href: "/legal/about-us" },
     { label: "investors", href: "/investors" },
   ],
   footerLink: {
     label: "Explore all capabilities",
-    href: "/capabilities",
+    href: "/categories",
   },
 };
 /* ================= /EDITABLE CONTENT ==================== */
