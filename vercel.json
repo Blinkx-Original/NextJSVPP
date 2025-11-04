@@ -1,0 +1,3 @@
+{
+  "buildCommand": "node scripts/remove-root-api.js && npm run build"
+}
