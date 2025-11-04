@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import React, {
   useCallback,
@@ -53,7 +53,7 @@ interface AdminProductResponse {
 
 export type EditProductPanelProps = {
   initialSlug?: string | null;
-  initialInput?: string | null; // accepted to match page.tsx usage
+  initialInput?: string | null;
 };
 
 function stripHtml(html: string): string {
@@ -98,7 +98,7 @@ const successTextStyle: React.CSSProperties = {
 
 export default function EditProductPanel({
   initialSlug = null,
-  initialInput: _initialInput = '' // accepted but not required for layout; underscore prevents unused warnings
+  initialInput: _initialInput = ''
 }: EditProductPanelProps) {
   const [slugInput, setSlugInput] = useState<string>(initialSlug ?? _initialInput ?? '');
   const [loadedSlug, setLoadedSlug] = useState<string>(initialSlug ?? '');
@@ -136,6 +136,15 @@ export default function EditProductPanel({
   const [descriptionSaveSuccess, setDescriptionSaveSuccess] = useState<string | null>(null);
 
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+
+  // State for publishing operations (step 1)
+  const [publishStatus, setPublishStatus] = useState<AsyncStatus>('idle');
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState<string | null>(null);
+  // State for purge operations (step 3)
+  const [purgeStatus, setPurgeStatus] = useState<AsyncStatus>('idle');
+  const [purgeError, setPurgeError] = useState<string | null>(null);
+  const [purgeSuccess, setPurgeSuccess] = useState<string | null>(null);
 
   const editorRef = useRef<TinyMceEditorHandle | null>(null);
 
@@ -471,6 +480,59 @@ export default function EditProductPanel({
   const isSavingPrimary = primarySaveStatus === 'loading';
   const isSavingDescription = descriptionSaveStatus === 'loading';
 
+  const handlePublishToSitemap = useCallback(async () => {
+    if (!loadedSlug) {
+      return;
+    }
+    setPublishStatus('loading');
+    setPublishError(null);
+    setPublishSuccess(null);
+    try {
+      const response = await fetch('/api/admin/publishing/publish-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: loadedSlug })
+      });
+      const body = await response.json();
+      if (!response.ok || !body?.ok) {
+        throw new Error(body?.message || 'No se pudo publicar el producto.');
+      }
+      setPublishStatus('success');
+      setPublishSuccess(body.message ?? 'Producto publicado correctamente.');
+      // Reload product data to reflect last update timestamp
+      await loadProductBySlug(loadedSlug);
+    } catch (error) {
+      setPublishStatus('error');
+      setPublishError((error as Error)?.message ?? 'No se pudo publicar el producto.');
+    }
+  }, [loadedSlug, loadProductBySlug]);
+
+  const handlePublishAndPurge = useCallback(async () => {
+    if (!loadedSlug) {
+      return;
+    }
+    setPurgeStatus('loading');
+    setPurgeError(null);
+    setPurgeSuccess(null);
+    try {
+      const response = await fetch('/api/admin/publishing/purge-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: loadedSlug })
+      });
+      const body = await response.json();
+      if (!response.ok || !body?.ok) {
+        throw new Error(body?.message || 'No se pudo publicar y purgar.');
+      }
+      setPurgeStatus('success');
+      setPurgeSuccess(body.message ?? 'Producto publicado y purga completada.');
+      await loadProductBySlug(loadedSlug);
+    } catch (error) {
+      setPurgeStatus('error');
+      setPurgeError((error as Error)?.message ?? 'No se pudo publicar y purgar.');
+    }
+  }, [loadedSlug, loadProductBySlug]);
+
   return (
     <section style={sectionStyle} aria-label="Product editor">
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '1.25rem' }}>
@@ -658,6 +720,34 @@ export default function EditProductPanel({
             {primarySaveSuccess ? <p style={successTextStyle}>{primarySaveSuccess}</p> : null}
             {formattedLastUpdated ? (
               <p style={helperTextStyle}>Última actualización en TiDB: {formattedLastUpdated}</p>
+            ) : null}
+
+            {/* Publish and Purge buttons */}
+            {loadedSlug ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={handlePublishToSitemap}
+                    style={buttonStyle}
+                    disabled={!loadedSlug || publishStatus === 'loading'}
+                  >
+                    {publishStatus === 'loading' ? 'Publicando…' : 'Publicar en Sitemap'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePublishAndPurge}
+                    style={buttonStyle}
+                    disabled={!loadedSlug || purgeStatus === 'loading'}
+                  >
+                    {purgeStatus === 'loading' ? 'Publicando y Purgando…' : 'Purgar Cloudflare y Regenerar'}
+                  </button>
+                </div>
+                {publishError ? <p style={errorTextStyle}>{publishError}</p> : null}
+                {publishSuccess ? <p style={successTextStyle}>{publishSuccess}</p> : null}
+                {purgeError ? <p style={errorTextStyle}>{purgeError}</p> : null}
+                {purgeSuccess ? <p style={successTextStyle}>{purgeSuccess}</p> : null}
+              </div>
             ) : null}
           </div>
         </section>
