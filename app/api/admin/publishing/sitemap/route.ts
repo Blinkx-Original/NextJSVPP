@@ -27,6 +27,7 @@ interface BatchResponseBody {
   success: number;
   skipped: number;
   errors: number;
+  warnings: number;
   duration_ms: number;
   finished_at: string;
   message?: string | null;
@@ -80,6 +81,7 @@ export async function POST(request: NextRequest) {
       success: 0,
       skipped: 0,
       errors: 0,
+      warnings: 0,
       duration_ms: 0,
       finished_at: new Date().toISOString(),
       error_code: 'job_in_progress'
@@ -94,6 +96,7 @@ export async function POST(request: NextRequest) {
   let success = 0;
   let skipped = 0;
   let errors = 0;
+  let warnings = 0;
   let slugs: string[] = [];
   let cloudflareSummary: BatchResponseBody['cloudflare'] = { configured: false, ok: false };
   let message: string | null = null;
@@ -136,6 +139,7 @@ export async function POST(request: NextRequest) {
         success: 0,
         skipped: 0,
         errors: 0,
+        warnings: 0,
         duration_ms: duration,
         message,
         metadata: { requested }
@@ -147,6 +151,7 @@ export async function POST(request: NextRequest) {
         success: 0,
         skipped: 0,
         errors: 0,
+        warnings: 0,
         duration_ms: duration,
         finished_at: activity.finished_at,
         message,
@@ -218,7 +223,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (cloudflareSummary && cloudflareSummary.configured && !cloudflareSummary.ok) {
-      errors = Math.max(errors, 1);
+      warnings = Math.max(warnings, 1);
     }
 
     const duration = Date.now() - startedAt;
@@ -248,7 +253,8 @@ export async function POST(request: NextRequest) {
       slugs_preview: slugs.slice(0, 20),
       product_paths: productPaths.slice(0, 20),
       sitemap_paths: sitemapPaths,
-      cloudflare: cloudflareSummary
+      cloudflare: cloudflareSummary,
+      warnings
     };
 
     const activity = await recordPublishingActivity({
@@ -258,6 +264,7 @@ export async function POST(request: NextRequest) {
       success,
       skipped,
       errors,
+      warnings,
       duration_ms: duration,
       message,
       metadata
@@ -270,6 +277,7 @@ export async function POST(request: NextRequest) {
       success,
       skipped,
       errors,
+      warnings,
       duration_ms: duration,
       finished_at: activity.finished_at,
       message,
@@ -298,10 +306,12 @@ export async function POST(request: NextRequest) {
       success,
       skipped,
       errors,
+      warnings,
       duration_ms: duration,
       message: 'Error ejecutando el batch de sitemap',
       metadata: {
         slugs_total: slugs.length,
+        warnings,
         error: error instanceof Error ? { message: error.message } : null
       }
     });
@@ -312,6 +322,7 @@ export async function POST(request: NextRequest) {
       success,
       skipped,
       errors,
+      warnings,
       duration_ms: duration,
       finished_at: activity.finished_at,
       message: 'Error ejecutando el batch de sitemap',
