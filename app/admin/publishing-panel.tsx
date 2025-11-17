@@ -31,6 +31,7 @@ interface BatchResponse {
   success: number;
   skipped: number;
   errors: number;
+  warnings: number;
   duration_ms: number;
   finished_at: string;
   message?: string | null;
@@ -70,6 +71,7 @@ interface ActivityEntry {
   success: number;
   skipped: number;
   errors: number;
+  warnings: number;
   duration_ms: number;
   finished_at: string;
   message?: string | null;
@@ -193,7 +195,16 @@ function CloudflareSummary({ summary }: CloudflareSummaryProps) {
     return null;
   }
 
-  const { configured, ok, error_code: errorCode, urls_purged: urlsPurgedRaw, purged, zone_id_short: zoneId, ray_ids: rayIds, error_details: errorDetails } = summary;
+  const {
+    configured,
+    ok,
+    error_code: errorCode,
+    urls_purged: urlsPurgedRaw,
+    purged,
+    zone_id_short: zoneId,
+    ray_ids: rayIds,
+    error_details: errorDetails
+  } = summary;
 
   const urlsPurged = typeof urlsPurgedRaw === 'number' && Number.isFinite(urlsPurgedRaw) ? urlsPurgedRaw : null;
   const urlsPurgedText = urlsPurged !== null ? formatNumber(urlsPurged) : null;
@@ -213,8 +224,11 @@ function CloudflareSummary({ summary }: CloudflareSummaryProps) {
   }
 
   const errorDetailsText = formatErrorDetails(errorDetails);
-  const background = !configured ? '#f8fafc' : ok ? '#f0fdf4' : '#fef2f2';
-  const borderColor = !configured ? '#e2e8f0' : ok ? '#bbf7d0' : '#fecaca';
+  const background = !configured ? '#f8fafc' : ok ? '#f0fdf4' : '#fffbeb';
+  const borderColor = !configured ? '#e2e8f0' : ok ? '#bbf7d0' : '#fcd34d';
+  const badgeBackground = !configured ? '#cbd5f5' : ok ? '#10b981' : '#f59e0b';
+  const badgeColor = !configured ? '#0f172a' : '#fff';
+  const badgeLabel = !configured ? 'Sin purga' : ok ? 'Purga ok' : 'Advertencia';
 
   return (
     <div
@@ -226,8 +240,24 @@ function CloudflareSummary({ summary }: CloudflareSummaryProps) {
         background
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem' }}>
-        <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>Cloudflare</strong>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>Cloudflare</strong>
+          <span
+            style={{
+              fontSize: '0.7rem',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+              borderRadius: 999,
+              padding: '0.15rem 0.55rem',
+              background: badgeBackground,
+              color: badgeColor
+            }}
+          >
+            {badgeLabel}
+          </span>
+        </div>
         {zoneId ? <span style={{ fontSize: '0.75rem', color: '#475569' }}>Zona: {zoneId}</span> : null}
       </div>
       <p style={{ margin: '0.5rem 0 0.75rem', fontSize: '0.85rem', color: '#334155' }}>{description}</p>
@@ -562,6 +592,7 @@ export default function PublishingPanel() {
             <NumericMetric label="Success" value={sitemapResult.data.success} />
             <NumericMetric label="Skipped" value={sitemapResult.data.skipped} />
             <NumericMetric label="Errors" value={sitemapResult.data.errors} />
+            <NumericMetric label="Warnings" value={sitemapResult.data.warnings} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               <span style={{ fontSize: '0.85rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Duración
@@ -630,6 +661,7 @@ export default function PublishingPanel() {
             <NumericMetric label="Success" value={algoliaResult.data.success} />
             <NumericMetric label="Skipped" value={algoliaResult.data.skipped} />
             <NumericMetric label="Errors" value={algoliaResult.data.errors} />
+            <NumericMetric label="Warnings" value={algoliaResult.data.warnings} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               <span style={{ fontSize: '0.85rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Duración
@@ -696,6 +728,7 @@ export default function PublishingPanel() {
                   <NumericMetric label="Success" value={entry.success} />
                   <NumericMetric label="Skipped" value={entry.skipped} />
                   <NumericMetric label="Errors" value={entry.errors} />
+                  <NumericMetric label="Warnings" value={entry.warnings} />
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     <span style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                       Duración

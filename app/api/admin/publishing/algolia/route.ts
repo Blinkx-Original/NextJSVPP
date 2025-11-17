@@ -19,6 +19,7 @@ interface BatchResponseBody {
   success: number;
   skipped: number;
   errors: number;
+  warnings: number;
   duration_ms: number;
   finished_at: string;
   message?: string | null;
@@ -180,6 +181,7 @@ export async function POST(request: NextRequest) {
       success: 0,
       skipped: 0,
       errors: 0,
+      warnings: 0,
       duration_ms: 0,
       finished_at: new Date().toISOString(),
       error_code: 'job_in_progress'
@@ -193,6 +195,7 @@ export async function POST(request: NextRequest) {
   let success = 0;
   let skipped = 0;
   let errors = 0;
+  let warnings = 0;
   let slugs: string[] = [];
   let candidateCount = 0;
   let errorItems: PublishingActivityErrorItem[] = [];
@@ -207,6 +210,7 @@ export async function POST(request: NextRequest) {
         success: 0,
         skipped: 0,
         errors: 0,
+        warnings: 0,
         duration_ms: 0,
         finished_at: new Date().toISOString(),
         error_code: 'missing_env'
@@ -247,9 +251,10 @@ export async function POST(request: NextRequest) {
         success: 0,
         skipped: 0,
         errors: 0,
+        warnings: 0,
         duration_ms: duration,
         message,
-        metadata: { requested }
+        metadata: { requested, warnings: 0 }
       });
       const body: BatchResponseBody = {
         ok: true,
@@ -258,6 +263,7 @@ export async function POST(request: NextRequest) {
         success: 0,
         skipped: 0,
         errors: 0,
+        warnings: 0,
         duration_ms: duration,
         finished_at: activity.finished_at,
         message,
@@ -280,9 +286,10 @@ export async function POST(request: NextRequest) {
         success: 0,
         skipped: candidateCount,
         errors: 0,
+        warnings: 0,
         duration_ms: duration,
         message,
-        metadata: { candidate_count: candidateCount }
+        metadata: { candidate_count: candidateCount, warnings: 0 }
       });
       const body: BatchResponseBody = {
         ok: true,
@@ -291,6 +298,7 @@ export async function POST(request: NextRequest) {
         success: 0,
         skipped: candidateCount,
         errors: 0,
+        warnings: 0,
         duration_ms: duration,
         finished_at: activity.finished_at,
         message,
@@ -331,12 +339,14 @@ export async function POST(request: NextRequest) {
         success: 0,
         skipped: candidateCount,
         errors,
+        warnings,
         duration_ms: duration,
         message,
         metadata: {
           candidate_count: candidateCount,
           missing_slugs: missingSlugs,
-          error_items: errorItems
+          error_items: errorItems,
+          warnings
         },
         error_items: errorItems
       });
@@ -347,6 +357,7 @@ export async function POST(request: NextRequest) {
         success: 0,
         skipped: candidateCount,
         errors,
+        warnings,
         duration_ms: duration,
         finished_at: activity.finished_at,
         message,
@@ -372,7 +383,8 @@ export async function POST(request: NextRequest) {
       missing_slugs_total: missingSlugs.length,
       pushed_slugs_total: success,
       slugs_preview: resolvedSlugs.slice(0, 20),
-      error_items: errorItems
+      error_items: errorItems,
+      warnings
     };
 
     const activity = await recordPublishingActivity({
@@ -382,6 +394,7 @@ export async function POST(request: NextRequest) {
       success,
       skipped,
       errors,
+      warnings,
       duration_ms: duration,
       message,
       metadata,
@@ -395,6 +408,7 @@ export async function POST(request: NextRequest) {
       success,
       skipped,
       errors,
+      warnings,
       duration_ms: duration,
       finished_at: activity.finished_at,
       message,
@@ -414,6 +428,7 @@ export async function POST(request: NextRequest) {
       success,
       skipped,
       errors,
+      warnings,
       duration_ms: duration,
       message: 'Error ejecutando batch de Algolia',
       metadata: {
@@ -430,6 +445,7 @@ export async function POST(request: NextRequest) {
       success,
       skipped,
       errors,
+      warnings,
       duration_ms: duration,
       finished_at: activity.finished_at,
       message: 'Error ejecutando batch de Algolia',

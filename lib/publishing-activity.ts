@@ -15,6 +15,7 @@ export interface PublishingActivityEntry {
   success: number;
   skipped: number;
   errors: number;
+  warnings: number;
   duration_ms: number;
   finished_at: string;
   message?: string | null;
@@ -113,6 +114,7 @@ function restoreEntryFromState(value: unknown): PublishingActivityEntry | null {
   const success = toInteger(value.success);
   const skipped = toInteger(value.skipped);
   const errors = toInteger(value.errors);
+  const warningsRaw = toInteger(value.warnings);
   const duration = toInteger(value.duration_ms);
   const finishedAt = typeof value.finished_at === 'string' ? value.finished_at : null;
 
@@ -130,6 +132,8 @@ function restoreEntryFromState(value: unknown): PublishingActivityEntry | null {
     return null;
   }
 
+  const warnings = warningsRaw !== null && warningsRaw >= 0 ? warningsRaw : 0;
+
   const entry: PublishingActivityEntry = {
     id,
     type,
@@ -138,6 +142,7 @@ function restoreEntryFromState(value: unknown): PublishingActivityEntry | null {
     success,
     skipped,
     errors,
+    warnings,
     duration_ms: duration,
     finished_at: finishedAt,
     metadata: isRecord(value.metadata) ? { ...(value.metadata as Record<string, unknown>) } : null
