@@ -100,6 +100,53 @@ interface StatusBadgeProps {
   successLabel?: string;
 }
 
+interface CloudflareActionResponse {
+  ok: boolean;
+  message?: string | null;
+  error_code?: string | null;
+  error_details?: unknown;
+  urls_purged?: number | null;
+  purged?: string[];
+}
+
+type CloudflareStatusVariant = 'info' | 'success' | 'warning';
+
+interface CloudflareVariantToken {
+  background: string;
+  border: string;
+  badgeBg: string;
+  badgeColor: string;
+  helperColor: string;
+  descriptionColor: string;
+}
+
+const cloudflareVariantTokens: Record<CloudflareStatusVariant, CloudflareVariantToken> = {
+  info: {
+    background: '#eef2ff',
+    border: '#c7d2fe',
+    badgeBg: '#c7d2fe',
+    badgeColor: '#312e81',
+    helperColor: '#4338ca',
+    descriptionColor: '#1e293b'
+  },
+  success: {
+    background: '#ecfdf5',
+    border: '#bbf7d0',
+    badgeBg: '#10b981',
+    badgeColor: '#fff',
+    helperColor: '#15803d',
+    descriptionColor: '#0f172a'
+  },
+  warning: {
+    background: '#fff7ed',
+    border: '#fed7aa',
+    badgeBg: '#f97316',
+    badgeColor: '#fff',
+    helperColor: '#b45309',
+    descriptionColor: '#7c2d12'
+  }
+};
+
 function formatNumber(value: number | null | undefined): string {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return '—';
@@ -141,6 +188,74 @@ function formatErrorDetails(value: unknown): string | null {
     return JSON.stringify(value, null, 2);
   } catch (error) {
     return error instanceof Error ? error.message : String(value);
+  }
+}
+
+function summarizeCloudflareDetails(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    return trimmed.length > 180 ? `${trimmed.slice(0, 177)}…` : trimmed;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const summary = summarizeCloudflareDetails(entry);
+      if (summary) {
+        return summary;
+      }
+    }
+    return null;
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const candidateKeys = ['message', 'error', 'description'];
+    for (const key of candidateKeys) {
+      const raw = record[key];
+      if (typeof raw === 'string' && raw.trim()) {
+        return raw.trim();
+      }
+    }
+    const nestedKeys = Object.keys(record).slice(0, 3);
+    for (const key of nestedKeys) {
+      const summary = summarizeCloudflareDetails(record[key]);
+      if (summary) {
+        return summary;
+      }
+    }
+  }
+  return null;
+}
+
+function describeCloudflareErrorCode(code?: string | null): string | null {
+  if (!code) {
+    return null;
+  }
+  if (code.startsWith('http_')) {
+    const status = code.slice(5);
+    return `Cloudflare respondió HTTP ${status}. Verifica los logs y los Ray IDs.`;
+  }
+  switch (code) {
+    case 'missing_env':
+      return 'No hay credenciales configuradas para Cloudflare. Define CLOUDFLARE_ZONE_ID y CLOUDFLARE_API_TOKEN.';
+    case 'auth_failed':
+      return 'Cloudflare rechazó las credenciales (auth_failed). Revisa el token y sus permisos.';
+    case 'network_error':
+      return 'No pudimos comunicarnos con Cloudflare (network_error). Intenta nuevamente o verifica la red.';
+    case 'timeout':
+      return 'Cloudflare tardó demasiado en responder (timeout). Es seguro reintentar la purga.';
+    case 'api_error':
+      return 'La API de Cloudflare devolvió un error genérico (api_error). Revisa los detalles para más contexto.';
+    case 'purge_failed':
+      return 'La lista de URLs no pudo procesarse antes de llamar a Cloudflare (purge_failed).';
+    case 'no_last_batch':
+      return 'No hay un lote previo de productos para purgar (no_last_batch).';
+    default:
+      return `Cloudflare reportó un error (${code}).`;
   }
 }
 
@@ -191,6 +306,45 @@ interface CloudflareSummaryProps {
 }
 
 function CloudflareSummary({ summary }: CloudflareSummaryProps) {
+  const [retryState, setRetryState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error'; message?: string | null; code?: string | null }>(
+    { status: 'idle' }
+  );
+
+  useEffect(() => {
+    setRetryState({ status: 'idle' });
+  }, [summary?.configured, summary?.ok, summary?.error_code]);
+
+  const handleRetry = useCallback(async () => {
+    setRetryState({ status: 'loading' });
+    try {
+      const response = await fetch('/api/admin/connectivity/cloudflare/purge-sitemaps', {
+        method: 'POST',
+        cache: 'no-store'
+      });
+      const body = (await response.json()) as CloudflareActionResponse;
+      if (response.ok && body.ok) {
+        const retriedUrls = typeof body.urls_purged === 'number' ? body.urls_purged : null;
+        const retryMessage = retriedUrls
+          ? `Cloudflare recibió ${formatNumber(retriedUrls)} URL${retriedUrls === 1 ? '' : 's'} para purgar.`
+          : body.message ?? 'Purga reenviada a Cloudflare correctamente.';
+        setRetryState({ status: 'success', message: retryMessage });
+      } else {
+        const retryErrorCode = body.error_code ?? `http_${response.status}`;
+        setRetryState({
+          status: 'error',
+          code: retryErrorCode,
+          message: describeCloudflareErrorCode(retryErrorCode) ?? 'No pudimos reintentar la purga.'
+        });
+      }
+    } catch (error) {
+      setRetryState({
+        status: 'error',
+        code: 'network_error',
+        message: (error as Error)?.message ?? 'Error de red al reintentar.'
+      });
+    }
+  }, []);
+
   if (!summary) {
     return null;
   }
@@ -208,27 +362,36 @@ function CloudflareSummary({ summary }: CloudflareSummaryProps) {
 
   const urlsPurged = typeof urlsPurgedRaw === 'number' && Number.isFinite(urlsPurgedRaw) ? urlsPurgedRaw : null;
   const urlsPurgedText = urlsPurged !== null ? formatNumber(urlsPurged) : null;
-
-  let description = '';
-  if (!configured) {
-    description = 'Integración no configurada. No se purgaron sitemaps en Cloudflare.';
-  } else if (ok) {
-    if (urlsPurged !== null) {
-      description = `Purga completada. ${urlsPurgedText} URL${urlsPurged === 1 ? '' : 's'} enviadas a Cloudflare.`;
-    } else {
-      description = 'Purga completada en Cloudflare.';
-    }
-  } else {
-    const code = errorCode ?? 'error_desconocido';
-    description = `Fallo al purgar en Cloudflare (${code}).`;
+  const variant: CloudflareStatusVariant = !configured ? 'info' : ok ? 'success' : 'warning';
+  const variantTokens = cloudflareVariantTokens[variant];
+  const errorDetailsText = formatErrorDetails(errorDetails);
+  const shortErrorDetails = summarizeCloudflareDetails(errorDetails);
+  const friendlyError = describeCloudflareErrorCode(errorCode);
+  const helperMessages: string[] = [];
+  if (friendlyError) {
+    helperMessages.push(friendlyError);
+  }
+  if (shortErrorDetails && (!friendlyError || !friendlyError.includes(shortErrorDetails))) {
+    helperMessages.push(shortErrorDetails);
+  }
+  if (helperMessages.length === 0 && !ok && errorCode) {
+    helperMessages.push(`Código de error: ${errorCode}`);
   }
 
-  const errorDetailsText = formatErrorDetails(errorDetails);
-  const background = !configured ? '#f8fafc' : ok ? '#f0fdf4' : '#fffbeb';
-  const borderColor = !configured ? '#e2e8f0' : ok ? '#bbf7d0' : '#fcd34d';
-  const badgeBackground = !configured ? '#cbd5f5' : ok ? '#10b981' : '#f59e0b';
-  const badgeColor = !configured ? '#0f172a' : '#fff';
-  const badgeLabel = !configured ? 'Sin purga' : ok ? 'Purga ok' : 'Advertencia';
+  const badgeLabel = variant === 'info' ? 'Sin configurar' : variant === 'success' ? 'Purga ok' : 'Aviso';
+  const description = !configured
+    ? 'La purga automática está deshabilitada porque Cloudflare no está configurado.'
+    : ok
+      ? urlsPurged !== null
+        ? `Purga completada. ${urlsPurgedText} URL${urlsPurged === 1 ? '' : 's'} enviadas a Cloudflare.`
+        : 'Purga completada en Cloudflare.'
+      : 'La publicación terminó correctamente, pero Cloudflare no aceptó la purga.';
+  const helperText = helperMessages.length > 0 ? helperMessages.join(' ') : ok && urlsPurged !== null
+    ? `Cloudflare informó ${urlsPurgedText} URL${urlsPurged === 1 ? '' : 's'}.`
+    : null;
+  const showConfigureCta = !configured;
+  const showRetryCta = configured && !ok;
+  const retryDisabled = retryState.status === 'loading';
 
   return (
     <div
@@ -236,8 +399,8 @@ function CloudflareSummary({ summary }: CloudflareSummaryProps) {
         marginTop: '1rem',
         padding: '1rem',
         borderRadius: '0.75rem',
-        border: `1px solid ${borderColor}`,
-        background
+        border: `1px solid ${variantTokens.border}`,
+        background: variantTokens.background
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem', flexWrap: 'wrap' }}>
@@ -251,8 +414,8 @@ function CloudflareSummary({ summary }: CloudflareSummaryProps) {
               letterSpacing: 0.6,
               borderRadius: 999,
               padding: '0.15rem 0.55rem',
-              background: badgeBackground,
-              color: badgeColor
+              background: variantTokens.badgeBg,
+              color: variantTokens.badgeColor
             }}
           >
             {badgeLabel}
@@ -260,7 +423,77 @@ function CloudflareSummary({ summary }: CloudflareSummaryProps) {
         </div>
         {zoneId ? <span style={{ fontSize: '0.75rem', color: '#475569' }}>Zona: {zoneId}</span> : null}
       </div>
-      <p style={{ margin: '0.5rem 0 0.75rem', fontSize: '0.85rem', color: '#334155' }}>{description}</p>
+      <p style={{ margin: '0.5rem 0 0.5rem', fontSize: '0.9rem', color: variantTokens.descriptionColor }}>{description}</p>
+      {helperText ? (
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: variantTokens.helperColor }}>{helperText}</p>
+      ) : null}
+      {(showConfigureCta || showRetryCta) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          {showConfigureCta ? (
+            <a
+              href="/admin?tab=connectivity"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                padding: '0.45rem 0.9rem',
+                borderRadius: 999,
+                border: '1px solid #0f172a',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                color: '#0f172a',
+                textDecoration: 'none',
+                background: '#fff'
+              }}
+            >
+              Configurar Cloudflare
+            </a>
+          ) : null}
+          {showRetryCta ? (
+            <button
+              type="button"
+              onClick={() => {
+                void handleRetry();
+              }}
+              disabled={retryDisabled}
+              style={{
+                padding: '0.45rem 0.9rem',
+                borderRadius: 999,
+                border: 'none',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                background: '#0f172a',
+                color: '#fff',
+                cursor: retryDisabled ? 'not-allowed' : 'pointer',
+                opacity: retryDisabled ? 0.65 : 1
+              }}
+            >
+              {retryDisabled ? 'Reintentando…' : 'Reintentar purga'}
+            </button>
+          ) : null}
+        </div>
+      )}
+      {retryState.status !== 'idle' ? (
+        <p
+          style={{
+            margin: showConfigureCta || showRetryCta ? '0 0 0.5rem' : '0.35rem 0 0.5rem',
+            fontSize: '0.8rem',
+            color:
+              retryState.status === 'loading'
+                ? '#475569'
+                : retryState.status === 'success'
+                  ? '#15803d'
+                  : '#b45309'
+          }}
+        >
+          {retryState.status === 'loading'
+            ? 'Enviando la solicitud de purga a Cloudflare…'
+            : retryState.message ??
+              (retryState.status === 'success'
+                ? 'Purga reenviada correctamente.'
+                : `No se pudo reintentar la purga${retryState.code ? ` (${retryState.code})` : ''}.`)}
+        </p>
+      ) : null}
       {purged && purged.length > 0 ? (
         <div style={{ marginBottom: '0.75rem' }}>
           <span
